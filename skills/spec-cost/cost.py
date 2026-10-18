@@ -11,6 +11,7 @@ Usage:
   cost.py --cwd <dir>         # sessions for a different project directory
   cost.py --verbose           # also print one row per invocation
   cost.py --json              # machine-readable output
+  cost.py --spec 120          # known local cost for one spec (repeat for epics)
 """
 
 import argparse
@@ -20,6 +21,8 @@ import os
 import re
 import sys
 from collections import defaultdict
+
+sys.dont_write_bytecode = True  # reporting must not create cache files in the skill repo
 
 HOME = os.path.expanduser("~")
 SESSION_ROOT = os.path.join(HOME, ".pi", "agent", "sessions")
@@ -63,6 +66,8 @@ def active_branch(entries):
     by_id = {}
     children = set()
     for e in entries:
+        if e.get("type") == "session":
+            continue  # header identity is not a conversation-tree entry
         if "id" in e and e["id"]:
             by_id[e["id"]] = e
         if e.get("parentId"):
@@ -73,7 +78,7 @@ def active_branch(entries):
 
     leaves = [i for i in by_id if i not in children]
     if not leaves:
-        leaves = [by_id.keys()[-1]] if by_id else []
+        leaves = [list(by_id)[-1]] if by_id else []
     leaf = max(leaves, key=lambda i: _entry_ts(by_id[i]))
 
     chain = []
@@ -331,7 +336,18 @@ def main():
     ap.add_argument("--latest", action="store_true", help="only the most recent session")
     ap.add_argument("--verbose", action="store_true", help="one row per invocation")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
+    ap.add_argument("--spec", type=int, action="append", help="report one spec's known local cost; repeat for child specs")
     args = ap.parse_args()
+
+    if args.spec:
+        if any(number <= 0 for number in args.spec):
+            ap.error("--spec must be a positive issue number")
+        if args.latest or args.session:
+            ap.error("--spec cannot be combined with --latest or --session")
+        from spec_report import collect, render
+        report = collect(args.cwd, args.spec)
+        print(json.dumps(report, indent=2) if args.json else render(report))
+        return
 
     if args.session:
         files = [args.session]
@@ -387,3 +403,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
