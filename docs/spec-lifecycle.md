@@ -43,8 +43,9 @@ are not a third planning artifact and never hold lifecycle authority:
 
 Both runtime paths are gitignored by default; see
 `extensions/project-state/README.md` for the persisted-vs-unpersisted layout,
-schema/version semantics, and the stable session-record fields available for
-future cost/eval aggregation without duplicating `/spec-cost` parsing.
+schema/version semantics, immutable resume revisions, and the shared observation ledger
+used by session costs, `/spec-cost`, and `/spec-close`. Legacy aggregate fields
+without raw evidence are retained but cannot establish verified costs.
 
 ## Idea capture
 
@@ -210,3 +211,4 @@ Epic:
 # after all children are done
 /spec-close #200
 ```
+

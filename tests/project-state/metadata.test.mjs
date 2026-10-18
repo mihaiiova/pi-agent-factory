@@ -54,8 +54,8 @@ assert.equal(partial.input, 0);
 assert.equal(partial.output, 0);
 assert.equal(partial.totalTokens, 7);
 assert.equal(partial.cost.total, 0.5);
-assert.equal(partial.cost.input, 0);
-console.log("ok - aggregateUsage defaults missing usage fields to zero");
+assert.equal(partial.cost.input, null);
+console.log("ok - aggregateUsage defaults missing token fields to zero and missing prices to null");
 
 // ── 4. readProductVersion prefers the configured version file, falls back to package.json ──
 const proj = join(temp, "proj");
@@ -139,21 +139,22 @@ const artDir = join(sessDir, "subagent-artifacts");
 mkdirSync(artDir, { recursive: true });
 writeFileSync(
   join(artDir, "a_meta.json"),
-  JSON.stringify({ agent: "reviewer", exitCode: 0, model: "gpt-4", timestamp: 1, usage: { cost: 0.25 } }),
+  JSON.stringify({ parentSessionId: "test-owner", agent: "reviewer", exitCode: 0, model: "gpt-4", timestamp: 1, usage: { cost: 0.25 } }),
 );
 writeFileSync(
   join(artDir, "b_meta.json"),
-  JSON.stringify({ agent: "reviewer", exitCode: 0, model: "gpt-4", timestamp: 2, usage: { cost: 0.5 } }),
+  JSON.stringify({ parentSessionId: "test-owner", agent: "reviewer", exitCode: 0, model: "gpt-4", timestamp: 2, usage: { cost: 0.5 } }),
 );
 writeFileSync(
   join(artDir, "c_meta.json"),
-  JSON.stringify({ agent: "worker", exitCode: 1, model: "gpt-5", timestamp: 3, usage: { cost: 1.5 } }),
+  JSON.stringify({ parentSessionId: "test-owner", agent: "worker", exitCode: 1, model: "gpt-5", timestamp: 3, usage: { cost: 1.5 } }),
 );
 writeFileSync(join(artDir, "ignored.txt"), "not a meta file");
 writeFileSync(join(artDir, "bad_meta.json"), "{ not json");
-writeFileSync(join(artDir, "noagent_meta.json"), JSON.stringify({ timestamp: 4, usage: { cost: 0.1 } }));
+writeFileSync(join(artDir, "noagent_meta.json"), JSON.stringify({ parentSessionId: "test-owner", timestamp: 4, usage: { cost: 0.1 } }));
 
-const sub = collectSubagentUsage(sessDir);
+assert.equal(collectSubagentUsage(sessDir), null, "a directory alone is not ownership");
+const sub = collectSubagentUsage(sessDir, { sessionId: "test-owner", entries: [] });
 assert.equal(sub.agents.length, 3); // reviewer, worker, "subagent" fallback
 assert.equal(sub.totalCost, 0.25 + 0.5 + 1.5 + 0.1);
 const reviewer = sub.agents.find((a) => a.agent === "reviewer");
@@ -176,9 +177,9 @@ assert.equal(fallback.model, null);
 const conflictDir = join(temp, "sess-conflict");
 const conflictArt = join(conflictDir, "subagent-artifacts");
 mkdirSync(conflictArt, { recursive: true });
-writeFileSync(join(conflictArt, "x_meta.json"), JSON.stringify({ agent: "scout", exitCode: 0, model: "m-a", usage: { cost: 1 } }));
-writeFileSync(join(conflictArt, "y_meta.json"), JSON.stringify({ agent: "scout", exitCode: 0, model: "m-b", usage: { cost: 1 } }));
-const conflict = collectSubagentUsage(conflictDir);
+writeFileSync(join(conflictArt, "x_meta.json"), JSON.stringify({ parentSessionId: "test-owner", agent: "scout", exitCode: 0, model: "m-a", usage: { cost: 1 } }));
+writeFileSync(join(conflictArt, "y_meta.json"), JSON.stringify({ parentSessionId: "test-owner", agent: "scout", exitCode: 0, model: "m-b", usage: { cost: 1 } }));
+const conflict = collectSubagentUsage(conflictDir, { sessionId: "test-owner", entries: [] });
 assert.equal(conflict.agents.length, 1);
 assert.equal(conflict.agents[0].status, "completed");
 assert.equal(conflict.agents[0].model, null);
@@ -187,9 +188,9 @@ assert.equal(conflict.agents[0].model, null);
 const mixedDir = join(temp, "sess-mixed");
 const mixedArt = join(mixedDir, "subagent-artifacts");
 mkdirSync(mixedArt, { recursive: true });
-writeFileSync(join(mixedArt, "a_meta.json"), JSON.stringify({ agent: "worker", exitCode: 1, model: "m", usage: { cost: 1 } }));
-writeFileSync(join(mixedArt, "b_meta.json"), JSON.stringify({ agent: "worker", model: "m", usage: { cost: 1 } }));
-const mixed = collectSubagentUsage(mixedDir);
+writeFileSync(join(mixedArt, "a_meta.json"), JSON.stringify({ parentSessionId: "test-owner", agent: "worker", exitCode: 1, model: "m", usage: { cost: 1 } }));
+writeFileSync(join(mixedArt, "b_meta.json"), JSON.stringify({ parentSessionId: "test-owner", agent: "worker", model: "m", usage: { cost: 1 } }));
+const mixed = collectSubagentUsage(mixedDir, { sessionId: "test-owner", entries: [] });
 assert.equal(mixed.agents.length, 1);
 assert.equal(mixed.agents[0].status, "failed");
 console.log("ok - collectSubagentUsage marks a known failure as failed despite a missing exitCode");
@@ -238,3 +239,4 @@ assert.equal(readCheckResults(checksRoot, { since: now + 1 }), null);
 assert.equal(readCheckResults(null), null);
 assert.equal(readCheckResults(""), null);
 console.log("ok - readCheckResults nulls when absent or outside the since window");
+

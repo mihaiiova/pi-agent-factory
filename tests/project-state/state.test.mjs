@@ -102,8 +102,8 @@ assert.equal(after.summary, null);
 console.log("ok - finalizeSession is write-once and never overwrites an existing record");
 
 // ── 8. Multiple sessions persist and list newest-first, tolerating bad files ──
-finalizeSession(piDir, createSession({ sessionId: "older", startedAt: "2026-01-01T00:00:00.000Z" }));
-finalizeSession(piDir, createSession({ sessionId: "newer", startedAt: "2026-06-01T00:00:00.000Z" }));
+finalizeSession(piDir, { ...createSession({ sessionId: "older", startedAt: "2026-01-01T00:00:00.000Z" }), finalizedAt: "2026-01-01T00:00:00.000Z" });
+finalizeSession(piDir, { ...createSession({ sessionId: "newer", startedAt: "2026-06-01T00:00:00.000Z" }), finalizedAt: "2026-06-01T00:00:00.000Z" });
 writeFileSync(join(sessionsDir(piDir), "broken.json"), "{ not json", "utf-8");
 
 const records = listSessions(piDir);
@@ -124,3 +124,4 @@ console.log("ok - listSessions returns an empty list for a missing sessions dire
 // ── 10. finalizeSession rejects a record without a sessionId ──
 assert.throws(() => finalizeSession(piDir, { schemaVersion: 1 }), SchemaError);
 console.log("ok - finalizeSession rejects a record missing sessionId");
+

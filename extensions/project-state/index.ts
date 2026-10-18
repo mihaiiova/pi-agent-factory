@@ -6,7 +6,7 @@
  * Maintains a mutable `.pi/state.json` resume projection (non-authoritative —
  * git branch state and GitHub lifecycle labels are re-derived at session
  * boundaries and win on divergence) plus write-once
- * `.pi/sessions/<filesystem-safe-id>.json` final records.
+ * `.pi/sessions/*.json` immutable snapshots; resumed sessions append revisions.
  *
  * Persistence, schema/migration, metadata, and rendering live in the pure
  * `.mjs` modules so they are unit-testable without a running Pi session.
@@ -23,14 +23,16 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { aggregateUsage, collectProvenance, collectSubagentUsage, readCheckResults } from "./metadata.mjs";
+import { collectProvenance, readCheckResults } from "./metadata.mjs";
 import { formatCost, formatHistory, formatStatus } from "./presentation.mjs";
 import { deriveActiveSpec, parseChangedFiles, parseSpecPhase } from "./reconcile.mjs";
 import { createStateDocument } from "./schema.mjs";
 import { detectWorkflow } from "./workflow.mjs";
+import { collectProject } from "./accounting-project.mjs";
+import { agentSummary, CONTEXT_ENTRY, invocation, userText } from "./accounting.mjs";
 import {
   createSession,
-  finalizeSession,
+  checkpointSession,
   listSessions,
   loadState,
   writeStateAtomic,
@@ -127,12 +129,18 @@ function activeModel(ctx: ExtensionContext) {
   };
 }
 
-function liveUsage(ctx: ExtensionContext) {
-  try {
-    return aggregateUsage(ctx.sessionManager.getEntries());
-  } catch {
-    return null;
-  }
+function projectAccounting(ctx: ExtensionContext) {
+  const sessionFile = ctx.sessionManager.getSessionFile() ?? "";
+  return collectProject(ctx.cwd, { live: [{
+    sessionFile,
+    header: ctx.sessionManager.getHeader() ?? { id: ctx.sessionManager.getSessionId() },
+    entries: ctx.sessionManager.getEntries(),
+    branch: ctx.sessionManager.getBranch(),
+  }] });
+}
+
+function liveAccounting(ctx: ExtensionContext, project = projectAccounting(ctx)) {
+  return project.sessions.find(s => s.sessionId === ctx.sessionManager.getSessionId()) ?? null;
 }
 
 function reconcileContext(cwd: string) {
@@ -162,6 +170,22 @@ function persistProjection(
 // ── Extension ──────────────────────────────────────────────────
 
 export default function projectState(pi: ExtensionAPI) {
+  // Child usage is represented by its owner's subagent observations, never
+  // also recorded as an independent main project session.
+  if (process.env.PI_SUBAGENT_CHILD === "1") return;
+
+  pi.on("before_agent_start", (event, ctx) => {
+    const branch = ctx.sessionManager.getBranch();
+    const command = invocation("prompt" in event && typeof event.prompt === "string" ? event.prompt : "");
+    const previousName = [...branch].reverse().filter(e => e.type === "message" && e.message?.role === "user")
+      .map(e => invocation(userText((e as any).message)).name).find(Boolean);
+    const context = {
+      spec: command.spec ?? deriveActiveSpec(currentBranch(ctx.cwd))?.number ?? null,
+      workflow: command.name ?? previousName ?? "general",
+    };
+    const last = [...branch].reverse().find(e => e.type === "custom" && e.customType === CONTEXT_ENTRY);
+    if (JSON.stringify(last?.data) !== JSON.stringify(context)) pi.appendEntry(CONTEXT_ENTRY, context);
+  });
   pi.on("session_start", (_event, ctx) => {
     const piDir = join(ctx.cwd, CONFIG_DIR_NAME);
     try {
@@ -209,24 +233,27 @@ export default function projectState(pi: ExtensionAPI) {
 
       if (currentSession) {
         // Re-derive branch/spec/phase at the shutdown boundary so the write-once
-        // record reflects the current authoritative state, not the session-start
-        // snapshot (e.g. after /spec-start created a branch mid-session).
+        // snapshot reflects the current authoritative state, not the session-start
+        // context (e.g. after /spec-start created a branch mid-session).
         const context = reconcileContext(ctx.cwd);
         currentSession.branch = context.branch;
         currentSession.activeSpec = context.activeSpec;
         currentSession.phase = context.phase;
-        currentSession.usage = aggregateUsage(ctx.sessionManager.getEntries());
+        const accounting = projectAccounting(ctx);
+        const ledger = accounting.ledgers.find(l => l.sessionId === ctx.sessionManager.getSessionId());
+        const totals = liveAccounting(ctx, accounting);
+        currentSession.accounting = ledger ?? null;
+        currentSession.usage = totals?.usage ?? null;
+        currentSession.piSessionFile = ctx.sessionManager.getSessionFile() ?? null;
         currentSession.model = activeModel(ctx);
         currentSession.changedFiles = changedFiles(ctx.cwd);
-        currentSession.subagentUsage = currentSession.piSessionFile
-          ? collectSubagentUsage(dirname(currentSession.piSessionFile))
-          : null;
-        currentSession.workflow = detectWorkflow(ctx.sessionManager.getEntries());
+        currentSession.subagentUsage = agentSummary(ledger?.samples ?? []);
+        currentSession.workflow = detectWorkflow(ctx.sessionManager.getBranch());
         currentSession.checkResults = readCheckResults(join(piDir, "artifacts"), {
           since: Date.parse(currentSession.startedAt ?? ""),
         });
         currentSession.finalizedAt = new Date().toISOString();
-        finalizeSession(piDir, currentSession);
+        checkpointSession(piDir, currentSession);
 
         persistProjection(piDir, context, currentSession.sessionId);
       }
@@ -258,7 +285,7 @@ export default function projectState(pi: ExtensionAPI) {
       try {
         const piDir = join(ctx.cwd, CONFIG_DIR_NAME);
         const state = loadStateSafe(piDir);
-        ctx.ui.notify(formatStatus(state, liveUsage(ctx)), "info");
+        ctx.ui.notify(formatStatus(state, liveAccounting(ctx)), "info");
       } catch (err) {
         ctx.ui.notify(`/session-status failed: ${(err as Error).message}`, "error");
       }
@@ -269,7 +296,11 @@ export default function projectState(pi: ExtensionAPI) {
     description: "Show recent finalized project session records",
     handler: async (_args, ctx) => {
       try {
-        const records = listSessions(join(ctx.cwd, CONFIG_DIR_NAME), { limit: 10 });
+        const project = projectAccounting(ctx);
+        const records = listSessions(join(ctx.cwd, CONFIG_DIR_NAME), { limit: 10 }).map(record => ({
+          ...record,
+          accounting: project.ledgers.find(l => l.sessionId === (record.piSessionId ?? record.sessionId)) ?? null,
+        }));
         ctx.ui.notify(formatHistory(records, { limit: 10 }), "info");
       } catch (err) {
         ctx.ui.notify(`/session-history failed: ${(err as Error).message}`, "error");
@@ -283,10 +314,12 @@ export default function projectState(pi: ExtensionAPI) {
       try {
         const piDir = join(ctx.cwd, CONFIG_DIR_NAME);
         const records = listSessions(piDir);
-        ctx.ui.notify(formatCost(liveUsage(ctx), records, { limit: 10 }), "info");
+        const project = projectAccounting(ctx);
+        ctx.ui.notify(formatCost(liveAccounting(ctx, project), records, { limit: 10, project }), "info");
       } catch (err) {
         ctx.ui.notify(`/session-cost failed: ${(err as Error).message}`, "error");
       }
     },
   });
 }
+

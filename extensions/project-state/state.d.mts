@@ -17,5 +17,8 @@ export function finalizeSession(
 ): { status: "created" | "exists"; path: string };
 export function listSessions(
   piDir: string,
-  options?: { limit?: number },
+  options?: { limit?: number; allSnapshots?: boolean },
 ): Array<Record<string, any>>;
+
+
+export function checkpointSession(piDir: string, session: Record<string, any>): { status: "created" | "exists"; path: string };

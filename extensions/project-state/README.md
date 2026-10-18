@@ -4,7 +4,7 @@ Project-local resume context and append-only session history for pi-config.
 
 - **Commands:** `/session-status`, `/session-history`, `/session-cost`
 - **State file:** `.pi/state.json` (mutable resume projection)
-- **Session records:** `.pi/sessions/<filesystem-safe-session-id>.json` (write-once)
+- **Session records:** `.pi/sessions/<filesystem-safe-session-id>.json` (immutable)
 
 This extension records **runtime observability/resume data**, not planning
 artifacts. GitHub issue lifecycle labels and git branch state remain the
@@ -19,7 +19,7 @@ divergence.
 | `.pi/settings.json` | configuration | yes (committed) | authoritative project config |
 | `.pi/pi-config.json` | configuration | yes (committed) | model-tier source of truth |
 | `.pi/state.json` | runtime projection | no (gitignored) | current spec/phase/branch/last session |
-| `.pi/sessions/*.json` | runtime records | no (gitignored) | one write-once record per session |
+| `.pi/sessions/*.json` | runtime records | no (gitignored) | immutable snapshots grouped by native session |
 
 Both runtime paths are covered by targeted `.gitignore` rules (`.pi/state.json`
 and `.pi/sessions/`); the committed `.pi` configuration files are deliberately
@@ -99,3 +99,32 @@ The persistence seam (`loadState`, `writeStateAtomic`, `createSession`,
 `node:assert/strict` in isolated temporary directories; command/lifecycle
 registration is asserted against the extension source, matching the repository
 convention for Pi-coupled surfaces.
+
+
+## Accounting and resumed sessions
+
+All cost surfaces share `accounting.mjs` and `accounting-project.mjs`: `/session-status`, `/session-history`, `/session-cost`, `/spec-cost`, and the cost summary in `/spec-close`. There is no separate Python price/attribution implementation. The compatibility `cost.py` entry point delegates to the Node CLI.
+
+The ledger uses the native active branch (`getBranch()` while Pi runs; the last appended tree entry when reopening a transcript), including compaction, branch-summary, and native `usage` entries. Nested tool-result usage is not main-agent usage. Fork lineage namespaces observation IDs; shared inherited observations are counted once in project and spec aggregates. Individual conversation totals include their active ancestry, so manually adding session rows is not the same as the deduplicated project total.
+
+Subagent metadata belongs to a session only through explicit run IDs, artifact links, or an explicit parent-session ID. Costs belong to the launching tool call's phase, even when completion occurs later. The metadata timestamp is completion time and is never used to guess ownership. Ambiguous/unlinked metadata is omitted with coverage warnings. Known explicit zero is preserved; absent, invalid, negative, or non-finite prices remain unknown. No token prices are calculated. Totals with unpriced observations are known subtotals, not invoices.
+
+The first snapshot keeps its original filename. A resumed session that changes observations appends an immutable `<session-id>--<fingerprint>.json` revision. Identical retries create no revision; earlier files are never overwritten. `listSessions()` returns the latest snapshot per native session, sorted by finalization time; `allSnapshots: true` exposes the immutable history. Revisions never add cumulative snapshots together.
+
+`schemaVersion: 1` remains readable. New snapshots add `accounting.version: 1`, stable observation keys, nullable reported costs, `snapshotRevision`, and `snapshotFingerprint`. Old records are retained. Reports recalculate them from available raw transcripts; legacy aggregate fields alone cannot prove branch selection or subagent ownership and are omitted if raw evidence is missing. New accounting snapshots can supply verifiable observations when raw transcripts disappear. Reporting reads raw transcripts on demand, including resumed work that has not finalized yet. All data is local; unsaved later turns and other machines remain outside the report.
+
+Examples:
+
+```text
+/session-cost
+/spec-cost
+/spec-close #42
+```
+
+For a scriptable report:
+
+```bash
+node <pi-config>/skills/spec-cost/cost.mjs --cwd /path/to/product --spec 42 --json
+```
+
+Behavior checks, including the actual extension's callback wiring, run with `bash tests/project-state/test.sh` on the Node runtime used by Pi (Node 24 for native TypeScript test loading).

@@ -10,137 +10,29 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { sessionLedger, summarize, attachSubagents, agentSummary } from "./accounting.mjs";
 
-/**
- * Sum the main agent's Pi-reported usage across session entries.
- *
- * Counted: assistant messages (the main agent's own LLM turns) and
- * compaction/branch-summary generation (also main-agent work).
- *
- * Excluded: `toolResult` nested usage, which reflects embedded/sub-agent model
- * calls and cannot be attributed to the main agent reliably.
- *
- * Returns `null` when nothing reports usage. Missing numeric fields default to
- * zero rather than throwing.
- */
+/** Compatibility exports use the same observation ledger as all report commands. */
 export function aggregateUsage(entries) {
-  let total = null;
-  for (const entry of entries ?? []) {
-    const usage = usageOf(entry);
-    if (!usage) continue;
-    total ??= emptyUsage();
-    total.input += num(usage.input);
-    total.output += num(usage.output);
-    total.cacheRead += num(usage.cacheRead);
-    total.cacheWrite += num(usage.cacheWrite);
-    total.totalTokens += num(usage.totalTokens);
-    total.cost.input += num(usage.cost?.input);
-    total.cost.output += num(usage.cost?.output);
-    total.cost.cacheRead += num(usage.cost?.cacheRead);
-    total.cost.cacheWrite += num(usage.cost?.cacheWrite);
-    total.cost.total += num(usage.cost?.total);
-  }
-  return total;
+  const ledger = sessionLedger({ entries, header: { id: "aggregate" } });
+  return ledger.samples.length ? summarize(ledger.samples).usage : null;
 }
 
-function emptyUsage() {
-  return {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  };
-}
-
-function usageOf(entry) {
-  if (!entry || typeof entry !== "object") return undefined;
-  if (entry.type === "message" && entry.message?.role === "assistant") {
-    return entry.message.usage;
-  }
-  if (entry.type === "compaction" || entry.type === "branch_summary") {
-    return entry.usage;
-  }
-  return undefined;
-}
-
-function num(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-/**
- * Aggregate reliably reported per-agent (subagent) usage from the Pi session
- * directory's `subagent-artifacts/*_meta.json` files. Returns `null` when the
- * directory is absent, empty, or holds no usable metadata — never fabricates a
- * breakdown. Each agent entry carries `status` (derived from `exitCode`), the
- * actual `model`, and summed `cost` from the reliable `agent`/`usage.cost`
- * artifact fields.
- */
-export function collectSubagentUsage(sessionDir) {
-  if (typeof sessionDir !== "string" || !sessionDir) return null;
-  const dir = join(sessionDir, "subagent-artifacts");
-  let names;
+export function collectSubagentUsage(sessionDir, options = {}) {
+  // A directory is not an owner. Old callers cannot safely attribute its contents.
+  if (!sessionDir || !options.sessionId || !Array.isArray(options.entries)) return null;
+  const ledger = sessionLedger({ entries: options.entries, branch: options.branch,
+    header: { id: options.sessionId }, sessionFile: options.sessionFile ?? "" });
+  const artifacts = [];
   try {
-    names = readdirSync(dir);
-  } catch {
-    return null;
-  }
-  const perAgent = new Map();
-  for (const name of names) {
-    if (!name.endsWith("_meta.json")) continue;
-    let meta;
-    try {
-      meta = JSON.parse(readFileSync(join(dir, name), "utf-8"));
-    } catch {
-      continue;
+    for (const name of readdirSync(join(sessionDir, "subagent-artifacts"))) {
+      if (!name.endsWith("_meta.json")) continue;
+      const path = join(sessionDir, "subagent-artifacts", name);
+      try { artifacts.push({ path, meta: JSON.parse(readFileSync(path, "utf8")) }); } catch {}
     }
-    const agent =
-      typeof meta?.agent === "string" && meta.agent.trim()
-        ? meta.agent.trim()
-        : "subagent";
-    const cost = num(meta?.usage?.cost);
-    const entry =
-      perAgent.get(agent) ?? { agent, runs: 0, cost: 0, exitCodes: [], models: [] };
-    entry.runs += 1;
-    entry.cost += cost;
-    entry.exitCodes.push(Number.isInteger(meta?.exitCode) ? meta.exitCode : null);
-    entry.models.push(
-      typeof meta?.model === "string" && meta.model.trim() ? meta.model.trim() : null,
-    );
-    perAgent.set(agent, entry);
-  }
-  if (perAgent.size === 0) return null;
-  const agents = Array.from(perAgent.values())
-    .map(({ exitCodes, models, ...rest }) => ({
-      ...rest,
-      status: statusOf(exitCodes),
-      model: modelOf(models),
-    }))
-    .sort((a, b) => (a.agent < b.agent ? -1 : a.agent > b.agent ? 1 : 0));
-  let totalCost = 0;
-  for (const entry of agents) totalCost += entry.cost;
-  return { agents, totalCost };
-}
-
-/**
- * Derive a per-agent run status from each run's `exitCode`.
- * `failed` when any run exited non-zero, `completed` when every run exited 0,
- * and `null` when no run failed but some run lacks an integer `exitCode`
- * (a known failure wins; null beats wrong for the rest).
- */
-function statusOf(exitCodes) {
-  if (exitCodes.some((code) => code !== null && code !== 0)) return "failed";
-  if (exitCodes.some((code) => code === null)) return null;
-  return "completed";
-}
-
-/**
- * Resolve a per-agent model from each run's reported model. Returns the model
- * when every run agrees, and `null` on disagreement or when none reports one.
- */
-function modelOf(models) {
-  return models.every((m) => m === models[0]) ? models[0] : null;
+  } catch { return null; }
+  attachSubagents([ledger], artifacts.filter(x => x.meta && typeof x.meta === "object"));
+  return agentSummary(ledger.samples);
 }
 
 /**
@@ -280,3 +172,4 @@ export function collectProvenance({
     configHash: piDir ? configHash(piDir) : null,
   };
 }
+

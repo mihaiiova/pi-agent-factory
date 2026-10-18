@@ -54,7 +54,7 @@ pass "wires the pure state/schema/metadata/presentation/reconcile modules"
 # finalization records reliably reported per-agent subagent usage.
 grep -Fq 'reconcileContext(' "$source_file"
 grep -Fq 'persistProjection(' "$source_file"
-grep -Fq 'collectSubagentUsage(' "$source_file"
+grep -Fq 'agentSummary(' "$source_file"
 grep -Fq 'subagentUsage' "$source_file"
 pass "reconciles context at lifecycle boundaries and records subagent usage"
 
@@ -88,6 +88,8 @@ node "$root/tests/project-state/metadata.test.mjs"
 node "$root/tests/project-state/presentation.test.mjs"
 node "$root/tests/project-state/reconcile.test.mjs"
 node "$root/tests/project-state/workflow.test.mjs"
+node --test "$root/tests/project-state/accounting.test.mjs" "$root/tests/project-state/lifecycle.test.mjs"
 
 echo
 echo "All project-state tests passed."
+
