@@ -151,3 +151,4 @@ node <pi-config>/skills/spec-cost/cost.mjs --cwd /path/to/product --spec 201 --s
 ```
 
 The previous `python3 <pi-config>/skills/spec-cost/cost.py ...` invocation forwards the same flags to Node. Historical records are retained, but ambiguous legacy aggregates are not presented as verified spending when their raw evidence is unavailable. See [project-state accounting](extensions/project-state/README.md#accounting-and-resumed-sessions) for coverage and snapshot semantics.
+
