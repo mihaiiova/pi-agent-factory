@@ -136,7 +136,6 @@ function projectAccounting(ctx: ExtensionContext) {
     header: ctx.sessionManager.getHeader() ?? { id: ctx.sessionManager.getSessionId() },
     entries: ctx.sessionManager.getEntries(),
     branch: ctx.sessionManager.getBranch(),
-    hintSpec: currentSession?.activeSpec?.number ?? null,
   }] });
 }
 

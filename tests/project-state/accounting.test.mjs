@@ -225,3 +225,17 @@ test('a malformed original snapshot cannot prevent saving a valid resume revisio
   assert.equal(readFileSync(join(directory, 's.json'), 'utf8'), '{broken');
   assert.equal(listSessions(join(f.cwd, '.pi')).length, 1);
 });
+
+test('older snapshot identity survives closing the branch, without charging later unlinked work to that spec', () => {
+  const f = fixture(); const entries = [msg('u', null, 'user', '/spec-start'), msg('a', 'u', 'assistant', '', 1)];
+  const s = raw(f, 's', entries);
+  const record = createSession({ sessionId: 's', cwd: f.cwd, piSessionFile: s.file });
+  record.activeSpec = { number: 42 };
+  record.accounting = sessionLedger({ entries, header: s.header, sessionFile: s.file, hintSpec: 42 });
+  checkpointSession(join(f.cwd, '.pi'), record);
+  appendFileSync(s.file, JSON.stringify({ type: 'custom', id: 'context', parentId: 'a', customType: 'pi-config:accounting-context', data: { spec: null, workflow: 'general' } }) + '\n');
+  appendFileSync(s.file, JSON.stringify(msg('b', 'context', 'assistant', '', 2)) + '\n');
+  record.activeSpec = null; record.accounting = project(f).ledgers[0]; checkpointSession(join(f.cwd, '.pi'), record);
+  assert.equal(project(f).totalCost, 3);
+  assert.equal(specReport(project(f), [42]).known_cost, 1);
+});

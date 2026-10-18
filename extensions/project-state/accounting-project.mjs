@@ -39,8 +39,14 @@ export function collectProject(cwd, { records, sessionRoot, sessionFiles, latest
   cwd = resolve(cwd);
   records ??= listSessions(join(cwd, '.pi'), { allSnapshots: true });
   const allRecords = records;
-  const byPath = new Map();
-  for (const record of records) if (record.piSessionFile && !byPath.has(resolve(record.piSessionFile))) byPath.set(resolve(record.piSessionFile), record);
+  const byPath = new Map(), specHints = new Map();
+  for (const record of records) if (record.piSessionFile) {
+    const file = resolve(record.piSessionFile);
+    if (!byPath.has(file)) byPath.set(file, record);
+    if (Number.isInteger(record.activeSpec?.number)) {
+      const hints = specHints.get(file) ?? new Set(); hints.add(record.activeSpec.number); specHints.set(file, hints);
+    }
+  }
   let files = sessionFiles ? sessionFiles.map(f => resolve(f))
     : [...new Set([...names(sessionDirectory(cwd, sessionRoot), '.jsonl'), ...byPath.keys()])];
   if (latest && files.length) files = [files.reduce((a, b) => {
@@ -54,6 +60,8 @@ export function collectProject(cwd, { records, sessionRoot, sessionFiles, latest
     const override = liveByFile.get(file);
     const source = override ?? readTranscript(file);
     const record = byPath.get(file);
+    const hints = specHints.get(file);
+    const hintSpec = hints?.size === 1 ? [...hints][0] : null;
     if (!source) {
       if (record?.accounting?.version === 1 && Array.isArray(record.accounting.samples)) {
         ledgers.push({ ...record.accounting, references: [], phases: [], warnings: [...(record.accounting.warnings ?? []), 'Raw transcript unavailable; using the last recorded accounting snapshot.'] });
@@ -70,7 +78,7 @@ export function collectProject(cwd, { records, sessionRoot, sessionFiles, latest
       branch = activeBranch(source.entries, snapshot.leafId);
     }
     const ledger = sessionLedger({ entries: source.entries, branch, header: source.header, sessionFile: file,
-      lineageRoot: ancestry.root, hintSpec: override?.hintSpec ?? record?.activeSpec?.number ?? null });
+      lineageRoot: ancestry.root, hintSpec });
     if (ancestry.missing) {
       const inherited = new Set((branch ?? activeBranch(source.entries)).filter(e => {
         return timestamp(e) < timestamp(source.header);
@@ -79,7 +87,7 @@ export function collectProject(cwd, { records, sessionRoot, sessionFiles, latest
       // rather than count a possibly duplicated parent's bill again.
       const knownKeys = new Set(sessionLedger({ entries: source.entries,
         branch: (branch ?? activeBranch(source.entries)).filter(e => !inherited.has(e.id)),
-        header: source.header, sessionFile: file, lineageRoot: ancestry.root, hintSpec: override?.hintSpec ?? record?.activeSpec?.number ?? null }).samples.map(s => s.key));
+        header: source.header, sessionFile: file, lineageRoot: ancestry.root, hintSpec }).samples.map(s => s.key));
       ledger.samples = ledger.samples.filter(s => knownKeys.has(s.key));
       ledger.references = []; // inherited launches cannot establish new ownership
       ledger.warnings.push('Fork ancestry unavailable; inherited usage and unproven subagent ownership are omitted.');
