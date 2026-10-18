@@ -149,6 +149,8 @@ export function createSessionDocument(fields = {}) {
     checkResults: null,
     /** Aggregated Pi-reported usage, or null when unavailable. */
     usage: null,
+    /** Verifiable observation ledger; legacy aggregates are not re-priced. */
+    accounting: null,
     /** Active parent model (`{ provider, model, thinkingLevel }`), or null. */
     model: null,
     /** Subagent routing from settings agentOverrides, or null. */
@@ -170,3 +172,4 @@ export function createSessionDocument(fields = {}) {
     ...fields,
   };
 }
+

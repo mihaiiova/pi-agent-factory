@@ -19,6 +19,14 @@ pi-config/
 
 ## Spec lifecycle
 
+For a new project or uncertain feature, start with `/explore <idea>` and iterate through normal conversation. No GitHub repository, issue, spec, project setup, or TDD is required. The agent makes reversible assumptions and builds the smallest useful version you can try. `/explore` (or `/explore on`) enables the mode without starting work; `/explore status` inspects it; `/explore off` leaves it. Ask naturally to leave exploration or formalize the prototype; the agent can use `explore_mode` to switch.
+
+Exploration overrides formal workflow prerequisites, including for delegated work, while preserving existing-work protection, read-only roles, and permission boundaries. Direct and scripted `pi-subagents` launches receive the exploration contract; inferred acceptance gates are disabled, while explicitly supplied verification gates remain intact. State is stored in `.pi/explore.json` in the working directory, independent of Git and project configuration, and applies to subsequent sessions in that directory until disabled. Reload/resume and compaction retain the mode. Other directories are unaffected. If the directory cannot be written, the mode remains available in the current session and its persisted session entries, with a warning that directory-wide persistence failed.
+
+When adopting Git, ignore `.pi/explore.json` as local runtime data. No exploration note, branch, issue, or project scaffolding is created just to enter the mode. A useful prototype may be kept, discarded, or formalized into the remaining delivery work.
+
+Then use the formal lifecycle when the direction is ready:
+
 One-time setup and a live dashboard frame the lifecycle, with spec work landing on a **development** branch and a dedicated release step promoting it to **production**:
 
 - `/spec-init` — generate or reconcile and commit `.pi/settings.json` (branch model, checks, versioning) for a repository.
@@ -34,7 +42,7 @@ One-time setup and a live dashboard frame the lifecycle, with spec work landing 
 - `/spec-cost` — report how much each spec skill cost (main agent + sub-agents).
 - `/session-status` — current local resume projection (branch/spec/phase) and session cost.
 - `/session-history` — recent finalized session records (date, spec, workflow, delegation roles, cost).
-- `/session-cost` — current, recent, and project-aggregate known session cost.
+- `/session-cost` — current, recent, and project-aggregate known main-agent + subagent cost, with coverage gaps.
 
 Example (normal):
 
@@ -123,3 +131,23 @@ Place it in the appropriate directory:
 - `skills/<name>/SKILL.md` for skills
 
 Commit, push, `/pi-sync` on the other machine, `/reload`.
+
+
+## Cost accounting
+
+`/session-cost`, `/spec-cost`, and `/spec-close` use one shared observation ledger. Reports count the active conversation branch, deduplicate fork ancestry, and assign subagent costs through explicit ownership links. Unavailable prices remain unknown; partial coverage is shown with the known subtotal. Resuming a native session appends an immutable snapshot revision rather than freezing its first recorded cost or adding cumulative snapshots together.
+
+```text
+/session-cost
+/spec-cost
+/spec-close #42
+```
+
+For one spec or an epic's children, the same engine is available directly:
+
+```bash
+node <pi-config>/skills/spec-cost/cost.mjs --cwd /path/to/product --spec 42
+node <pi-config>/skills/spec-cost/cost.mjs --cwd /path/to/product --spec 201 --spec 202 --json
+```
+
+The previous `python3 <pi-config>/skills/spec-cost/cost.py ...` invocation forwards the same flags to Node. Historical records are retained, but ambiguous legacy aggregates are not presented as verified spending when their raw evidence is unavailable. See [project-state accounting](extensions/project-state/README.md#accounting-and-resumed-sessions) for coverage and snapshot semantics.

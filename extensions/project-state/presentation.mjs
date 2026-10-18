@@ -1,101 +1,45 @@
-/**
- * project-state presentation — read-only command rendering
- *
- * Pure formatting helpers for the three inspection commands. They read from
- * already-loaded state/record documents and never touch the filesystem, so the
- * commands stay read-only.
- */
+import { summarize } from './accounting.mjs';
+import { money } from './accounting-project.mjs';
 
-/**
- * Render the current resume projection for `/session-status`.
- *
- * `currentUsage` is the aggregated usage of the live session, when known.
- */
-export function formatStatus(state, currentUsage) {
-  const spec = state?.activeSpec;
-  const specLine = spec?.number
-    ? `spec: #${spec.number}${state?.phase ? ` (${state.phase})` : ""}`
-    : "spec: (none)";
-  const cost =
-    currentUsage?.cost?.total != null
-      ? `$${currentUsage.cost.total.toFixed(4)} (${currentUsage.totalTokens ?? 0} tokens)`
-      : "unknown";
-  return [
-    `branch: ${state?.branch ?? "(none)"}`,
-    specLine,
-    `phase: ${state?.phase ?? "(none)"}`,
-    `pending: ${state?.pendingWork ?? "(none)"}`,
-    `last session: ${state?.lastSessionId ?? "(none)"}`,
-    `current session cost: ${cost}`,
-  ].join("\n");
+function totals(record) {
+  return record?.accounting?.version === 1 ? { ...summarize(record.accounting.samples), warnings: record.accounting.warnings ?? [] } : null;
 }
-
-/**
- * Render recent session records for `/session-history` as one line each:
- * date, spec, workflow, outcome, delegation roles, known cost, and a concise
- * summary when present. A record with no workflow renders as `general`; old
- * records without the new fields render unchanged.
- */
+function label(summary) {
+  return `${money(summary?.totalCost)}${summary?.coverage?.unpriced || summary?.warnings?.length ? ' (partial)' : ''}`;
+}
+export function formatStatus(state, current) {
+  const spec = state?.activeSpec;
+  return [
+    `branch: ${state?.branch ?? '(none)'}`,
+    `spec: ${spec?.number ? `#${spec.number}${state?.phase ? ` (${state.phase})` : ''}` : '(none)'}`,
+    `phase: ${state?.phase ?? '(none)'}`,
+    `pending: ${state?.pendingWork ?? '(none)'}`,
+    `last session: ${state?.lastSessionId ?? '(none)'}`,
+    `current session cost: ${label(current)}`,
+  ].join('\n');
+}
 export function formatHistory(records, { limit = 10 } = {}) {
   const list = (records ?? []).slice(0, limit);
-  if (list.length === 0) return "No recorded sessions yet.";
-  return list
-    .map((r) => {
-      const date = (r.finalizedAt ?? r.startedAt ?? "").slice(0, 10) || "-";
-      const spec = r.activeSpec?.number ? `#${r.activeSpec.number}` : "-";
-      const workflow = r.workflow ?? "general";
-      const outcome = r.outcome ?? "-";
-      const cost = r.usage?.cost?.total != null ? `$${r.usage.cost.total.toFixed(4)}` : "-";
-      const subagents = renderSubagents(r.subagentUsage);
-      const summary = r.summary ? ` — ${r.summary}` : "";
-      return `${date}  spec=${spec}  workflow=${workflow}  outcome=${outcome}  cost=${cost}  subagents=${subagents}${summary}`;
-    })
-    .join("\n");
+  if (!list.length) return 'No recorded sessions yet.';
+  return list.map(r => {
+    const agents = r.subagentUsage?.agents?.map(a => `${a.agent ?? '?'}(${a.status ?? '?'})`).join(',') || '-';
+    return `${(r.finalizedAt ?? r.startedAt ?? '-').slice(0, 10)}  spec=${r.activeSpec?.number ? `#${r.activeSpec.number}` : '-'}  workflow=${r.workflow ?? 'general'}  outcome=${r.outcome ?? '-'}  cost=${label(totals(r))}  subagents=${agents}${r.summary ? ` — ${r.summary}` : ''}`;
+  }).join('\n');
 }
-
-/** Render each delegated agent as `role(status)`, or `-` when none. */
-function renderSubagents(usage) {
-  const agents = usage?.agents;
-  if (!Array.isArray(agents) || agents.length === 0) return "-";
-  return agents
-    .map((a) => `${a.agent ?? "?"}(${a.status ?? "?"})`)
-    .join(",");
-}
-
-/**
- * Render current, recent, and project-aggregate known cost for `/session-cost`.
- * Sessions without reported cost are counted as gaps, never guessed.
- */
-export function formatCost(currentUsage, records, { limit = 10 } = {}) {
-  const current = currentUsage?.cost?.total;
+export function formatCost(current, records, { limit = 10, project } = {}) {
   const recent = (records ?? []).slice(0, limit);
-
-  const recentTotal = sumKnownCost(recent);
-  const aggregateTotal = sumKnownCost(records ?? []);
-
-  const currentLine =
-    current != null ? `$${current.toFixed(4)}` : "unknown";
-  const recentLine =
-    recentTotal.known > 0 ? `$${recentTotal.cost.toFixed(4)}` : "unknown";
-  const aggregateLine =
-    aggregateTotal.known > 0 ? `$${aggregateTotal.cost.toFixed(4)}` : "unknown";
-
-  return [
-    `current session: ${currentLine}`,
-    `recent (${recentTotal.known} of ${recent.length}): ${recentLine}`,
-    `project aggregate (${aggregateTotal.known} sessions): ${aggregateLine}`,
-  ].join("\n");
-}
-
-function sumKnownCost(records) {
-  let cost = 0;
-  let known = 0;
-  for (const r of records ?? []) {
-    const total = r?.usage?.cost?.total;
-    if (typeof total === "number" && Number.isFinite(total)) {
-      cost += total;
-      known += 1;
-    }
-  }
-  return { cost, known };
+  const recentIds = new Set(recent.map(r => r.piSessionId ?? r.sessionId));
+  const recentSamples = project ? project.ledgers.filter(l => recentIds.has(l.sessionId)).flatMap(l => l.samples)
+    : recent.flatMap(r => r.accounting?.version === 1 ? r.accounting.samples : []);
+  const recentTotal = summarize(recentSamples);
+  const aggregate = project ?? summarize((records ?? []).flatMap(r => r.accounting?.version === 1 ? r.accounting.samples : []));
+  const lines = [
+    `current session: ${label(current)} (main ${money(current?.mainCost)}, subagents ${money(current?.subagentCost)})`,
+    `recent (${recent.length} native sessions): ${label(recentTotal)}`,
+    `project aggregate: ${label(aggregate)} (main ${money(aggregate.mainCost)}, subagents ${money(aggregate.subagentCost)})`,
+    'Known local active-branch costs; shared fork observations are counted once in aggregates. Unpriced usage is not zero.',
+  ];
+  if ((records ?? []).some(r => !r.accounting)) lines.push('Legacy records without verifiable observations are omitted from snapshot totals.');
+  lines.push(...(project?.warnings ?? []));
+  return lines.join('\n');
 }

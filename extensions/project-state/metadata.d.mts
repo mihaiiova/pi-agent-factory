@@ -7,16 +7,8 @@ export function configHash(piDir: string | undefined): string | null;
 export function readPiConfigCommit(piConfigRoot: string): string | null;
 export function collectSubagentUsage(
   sessionDir: string | null | undefined,
-): {
-  agents: Array<{
-    agent: string;
-    runs: number;
-    cost: number;
-    status: "completed" | "failed" | null;
-    model: string | null;
-  }>;
-  totalCost: number;
-} | null;
+  options?: { sessionId: string; entries: any[]; branch?: any[]; sessionFile?: string },
+): import("./schema.mjs").SessionRecord["subagentUsage"];
 export function collectProvenance(input: {
   piConfigRoot?: string;
   cwd?: string;
@@ -29,3 +21,4 @@ export function readCheckResults(
   artifactsRoot: string | null | undefined,
   options?: { since?: number },
 ): Record<string, string> | null;
+

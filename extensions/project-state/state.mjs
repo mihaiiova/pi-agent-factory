@@ -6,6 +6,7 @@
  * in explicitly; the caller resolves the project config directory.
  */
 
+import { hash } from "./accounting.mjs";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
@@ -162,12 +163,35 @@ export function finalizeSession(piDir, session) {
   return { status: "created", path: target };
 }
 
+/** Append an immutable revision when a native session gains observations on resume.
+ * Existing snapshots are retained; retries of the same content are idempotent.
+ */
+export function checkpointSession(piDir, session) {
+  const nativeId = session.piSessionId ?? session.sessionId;
+  const previous = listSessions(piDir).find(r => (r.piSessionId ?? r.sessionId) === nativeId);
+  const fingerprint = value => {
+    const { finalizedAt, snapshotRevision, snapshotFingerprint, sessionId, ...rest } = value;
+    return hash(rest);
+  };
+  const key = fingerprint(session);
+  if (previous && (previous.snapshotFingerprint ?? fingerprint(previous)) === key) {
+    return { status: "exists", path: sessionRecordPath(piDir, previous.sessionId) };
+  }
+  const record = { ...session,
+    sessionId: previous || existsSync(sessionRecordPath(piDir, session.sessionId)) ? `${sanitizeSessionId(nativeId)}--${key.slice(0, 24)}` : session.sessionId,
+    snapshotRevision: (previous?.snapshotRevision ?? 0) + 1,
+    snapshotFingerprint: key,
+    finalizedAt: new Date(Math.max(Date.now(), (Date.parse(previous?.finalizedAt ?? "") || 0) + 1)).toISOString(),
+  };
+  return finalizeSession(piDir, record);
+}
+
 /**
  * Read every finalized session record, newest-first by `startedAt`
  * (falling back to `finalizedAt`). Malformed or unsupported records are
  * skipped rather than throwing.
  */
-export function listSessions(piDir, { limit } = {}) {
+export function listSessions(piDir, { limit, allSnapshots = false } = {}) {
   const dir = sessionsDir(piDir);
   let names;
   try {
@@ -187,11 +211,13 @@ export function listSessions(piDir, { limit } = {}) {
     }
   }
   records.sort((a, b) => {
-    const at = a.startedAt ?? a.finalizedAt ?? "";
-    const bt = b.startedAt ?? b.finalizedAt ?? "";
+    const at = a.finalizedAt ?? a.startedAt ?? "";
+    const bt = b.finalizedAt ?? b.startedAt ?? "";
     return bt < at ? -1 : bt > at ? 1 : 0;
   });
-  return typeof limit === "number" && limit > 0 ? records.slice(0, limit) : records;
+  const latest = allSnapshots ? records : [...new Map([...records].reverse().map(r => [r.piSessionId ?? r.sessionId, r])).values()]
+    .sort((a, b) => (b.finalizedAt ?? b.startedAt ?? "").localeCompare(a.finalizedAt ?? a.startedAt ?? ""));
+  return typeof limit === "number" && limit > 0 ? latest.slice(0, limit) : latest;
 }
 
 function writeFileAtomic(target, content) {
@@ -208,3 +234,4 @@ function writeFileAtomic(target, content) {
     throw err;
   }
 }
+

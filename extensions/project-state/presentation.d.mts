@@ -6,5 +6,6 @@ export function formatHistory(
 export function formatCost(
   currentUsage: unknown,
   records: unknown[],
-  options?: { limit?: number },
+  options?: { limit?: number; project?: import("./accounting-project.mjs").ProjectAccounting },
 ): string;
+
