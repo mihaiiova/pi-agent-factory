@@ -15,6 +15,8 @@ Compute a per-skill cost breakdown from the current project's pi session data.
    python3 <skill-dir>/cost.py             # every session for this project
    python3 <skill-dir>/cost.py --latest    # only the most recent session
    python3 <skill-dir>/cost.py --verbose   # also one row per invocation
+   python3 <skill-dir>/cost.py --spec 120  # one spec: implementation + lifecycle costs
+   python3 <skill-dir>/cost.py --spec 201 --spec 202  # child specs of an epic
    ```
 
    For a different project, pass `--cwd <path>`. If the script can't find sessions, run `pwd` and confirm the cwd maps to a directory under `~/.pi/agent/sessions/`.
@@ -32,5 +34,8 @@ Compute a per-skill cost breakdown from the current project's pi session data.
 
 ## Limits
 
+- `--spec` scopes work by explicit lifecycle-command arguments and linked `.pi/sessions/*.json` records. Free-text follow-ups retain their preceding lifecycle phase. Mixed-spec sessions are split by explicit commands; ambiguous/unlinked work is omitted. Subagent metadata is counted once and attributed only to a unique matching session time window (or explicit parent-session identity). Reported gaps and scope notes must remain visible. This read-only mode succeeds with an unavailable report when there is no data, so `/spec-close` never depends on telemetry being present.
+
 - Attribution is by turn window: cost is charged to the command that kicked off the work, not to skills the model loads autonomously via `read` without a user command.
 - Sub-agent attribution uses launch time, so an async sub-agent that outlives its window may be charged to the wrong skill in rare queued workflows.
+

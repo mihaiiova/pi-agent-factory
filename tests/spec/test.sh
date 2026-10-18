@@ -235,6 +235,8 @@ pass "spec-start delegates the TDD loop to a worker via a trivial-spec heuristic
 
 "$root/tests/spec/run-checks-test.sh"
 "$root/tests/spec/trivial-spec-test.sh"
+bash "$root/tests/spec-cost/test.sh"
 
 echo
 echo "All spec-orchestration tests passed."
+
