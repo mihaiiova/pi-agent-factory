@@ -5,6 +5,11 @@ description: Quick recap of the main pi-config skills — the spec lifecycle (/s
 
 # Workflow
 
+## Exploration
+
+- `/explore [idea]` — start building and iterating freely, even in an empty directory. No required specs, GitHub setup, testing seams, TDD, or documentation. Mode persists per working directory until `/explore off`; `/explore status` inspects it.
+- Follow the active exploration contract over formal process requirements. Leave it with `explore_mode` before entering formal delivery at the user's request.
+
 ## Capture & discovery
 
 - `/spec-draft` — capture a shallow idea as one lightweight `idea` issue (no definition).
@@ -23,3 +28,4 @@ description: Quick recap of the main pi-config skills — the spec lifecycle (/s
 - `/spec-cost` — report how much each spec skill cost (main agent + sub-agents).
 
 See `docs/spec-lifecycle.md` for status labels, parent/child + blocker relationships, branch naming, the `.pi/settings.json` schema, and the two-branch (development → production) release model.
+
