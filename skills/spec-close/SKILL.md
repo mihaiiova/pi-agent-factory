@@ -15,7 +15,7 @@ If the target carries `spec:epic`:
 2. Verify every child issue is closed and/or carries `spec:done`.
 3. If any child is incomplete, refuse and list the remaining children.
 4. If all are complete, close the epic issue, remove any non-applicable lifecycle-state labels, keep `spec:epic` as the type marker, and apply `spec:done`.
-5. Report completion and run the cost report below with every child spec number, once each. Show the per-child/workflow breakdown and combined known subtotal; this covers child delivery work, not the epic container's own planning cost. There is no branch merge or deletion for an epic.
+5. Report completion, include the short **How to try it** handoff below, and run the cost report below with every child spec number, once each. Show the per-child/workflow breakdown and combined known subtotal; this covers child delivery work, not the epic container's own planning cost. There is no branch merge or deletion for an epic.
 
 Stop after the epic case.
 
@@ -36,7 +36,13 @@ Stop after the epic case.
    - for each sibling blocked by the newly closed spec, check whether all `## Blocked by` issues are now closed; when they are, transition that sibling to `spec:ready`;
    - if every child is now complete, report: `Epic #<n> now has all child specs complete. Run /spec-close #<n> to close the epic.`
 
-7. **Report.** Include merge commit, pushed base branch, closed issue, branch cleanup, siblings made ready, and any epic-complete status. Run the cost report below for the resolved spec number and include the implementation cost and known lifecycle breakdown in this final response.
+7. **Report.** Include the short **How to try it** handoff below, merge commit, pushed base branch, closed issue, branch cleanup, siblings made ready, and any epic-complete status. Run the cost report below for the resolved spec number and include the implementation cost and known lifecycle breakdown in this final response.
+
+## How to try it
+
+Include a brief **How to try it** section in the final completion response for both implementation specs and completed epics. Give the actual command, screen/path, or short sequence needed to try the delivered change, followed by the expected observable result. Include prerequisites only when necessary to run those steps; derive instructions from the implemented code, existing scripts, and review evidence rather than inventing commands or URLs.
+
+Keep it to one command or a few steps where possible. If there is no direct user-facing interaction, say so and give the closest meaningful verification command. Distinguish steps actually verified from suggested steps. Missing access to run a manual check is not a new closure blocker. Do not add a new artifact, issue, review cycle, or deployment just to produce this handoff.
 
 ## Cost report
 
