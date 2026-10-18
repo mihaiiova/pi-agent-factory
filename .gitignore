@@ -4,3 +4,7 @@ node_modules/
 # project-state runtime data — mutable local state, never committed
 .pi/state.json
 .pi/sessions/
+
+# exploration runtime mode — local to this working directory
+.pi/explore.json
+
