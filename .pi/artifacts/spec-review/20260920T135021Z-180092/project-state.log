@@ -1,0 +1,55 @@
+ok - project-state uses the project config directory, never the global settings
+ok - project-state hooks session lifecycle and never prompts
+ok - registers /session-status, /session-history, and /session-cost
+ok - wires the pure state/schema/metadata/presentation/reconcile modules
+ok - reconciles context at lifecycle boundaries and records subagent usage
+ok - enriches records with workflow identity, check results, and header startedAt
+ok - collects session identity and Pi version provenance from native APIs
+ok - project-state does not replace /spec-cost or existing lifecycle skills
+ok - schema v1 is current with no historical migrations registered
+ok - migrateDocument passes a current-version document through unchanged
+ok - migrateDocument rejects non-objects, missing, and non-positive schemaVersion
+ok - migrateDocument rejects documents newer than the current schema
+ok - migrateDocument dispatches through injected future migrations in order
+ok - migrateDocument rejects a migration that does not advance the version
+ok - createStateDocument stamps schemaVersion and fills documented defaults
+ok - createSessionDocument stamps schemaVersion with nested provenance defaults
+ok - path helpers point at .pi/state.json and .pi/sessions/<id>.json
+ok - loadState returns undefined for a missing .pi directory
+ok - writeStateAtomic/loadState round-trip state with schemaVersion
+ok - stableStringify is deterministic regardless of key order
+ok - loadState rejects malformed, missing-version, and unsupported state files
+ok - createSession sanitizes the filename id and keeps the raw Pi id
+ok - finalizeSession is write-once and never overwrites an existing record
+ok - listSessions returns newest-first and skips malformed records
+ok - listSessions returns an empty list for a missing sessions directory
+ok - finalizeSession rejects a record missing sessionId
+ok - aggregateUsage is null when no entry reports usage
+ok - aggregateUsage sums main-agent usage and excludes nested tool usage
+ok - aggregateUsage defaults missing usage fields to zero
+ok - readProductVersion reads the product version and returns null when absent
+ok - configHash is a stable content digest, independent of directory, null when absent
+ok - readPiConfigCommit returns HEAD sha or null
+ok - collectProvenance fills reliable facts and leaves unavailable ones null
+ok - collectSubagentUsage marks a known failure as failed despite a missing exitCode
+ok - collectSubagentUsage aggregates per-agent status/model/cost and nulls when absent
+ok - readCheckResults returns the newest results.json
+ok - readCheckResults nulls on malformed or wrong-shape results.json
+ok - readCheckResults nulls when a value is not passed/failed
+ok - readCheckResults nulls when absent or outside the since window
+ok - formatStatus renders the projection and tolerates missing data
+ok - formatHistory renders date/spec/outcome/cost/summary and empty state
+ok - formatHistory renders workflow and delegation roles and tolerates null
+ok - formatCost renders current/recent/aggregate and unknown gaps
+ok - deriveActiveSpec maps only spec/<positive-n>-<slug> branches
+ok - parseSpecPhase selects the first lifecycle label and nulls otherwise
+ok - parseChangedFiles splits rename targets and tolerates empty input
+ok - detectWorkflow returns the first /spec-* command
+ok - detectWorkflow handles the /skill: prefix
+ok - detectWorkflow scans array-form user content
+ok - detectWorkflow returns null when no /spec-* command is present
+ok - detectWorkflow ignores non-spec commands
+ok - detectWorkflow only reads user messages
+ok - detectWorkflow only matches the /spec-* command form, not prose
+
+All project-state tests passed.

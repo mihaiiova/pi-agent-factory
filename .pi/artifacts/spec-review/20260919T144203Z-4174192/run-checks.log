@@ -1,0 +1,4 @@
+ok - successful logs are captured without being printed
+ok - failures are bounded and do not stop later checks
+ok - settings-defined checks run from the product root
+All run-checks tests passed.

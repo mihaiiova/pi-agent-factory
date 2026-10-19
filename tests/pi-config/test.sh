@@ -22,10 +22,13 @@ if grep -Fq '.pi/agent/settings.json' "$source_file"; then
 fi
 pass "writes only project-local config files, never global settings"
 
-# Model options come from scopedModels, falling back to modelRegistry.
-grep -Fq 'ctx.scopedModels' "$source_file"
+# Model options must use the complete authenticated catalog, not this session's
+# enabledModels scope, so /pi-config can select newly available models.
 grep -Fq 'ctx.modelRegistry.getAvailable()' "$source_file"
-pass "model options use scopedModels with a modelRegistry fallback"
+if grep -Fq 'ctx.scopedModels' "$source_file"; then
+  fail "pi-config must not constrain model options to scopedModels"
+fi
+pass "model options use the complete authenticated model catalog"
 
 # Interactive flow uses the required primitives.
 grep -Fq 'ctx.ui.select(' "$source_file"

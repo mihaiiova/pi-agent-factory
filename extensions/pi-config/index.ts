@@ -81,22 +81,15 @@ function modelRef(model: { provider: string; id: string }): string {
 }
 
 function collectModelOptions(ctx: {
-  scopedModels: ReadonlyArray<{ model: { provider: string; id: string } }>;
   modelRegistry: { getAvailable(): ReadonlyArray<{ provider: string; id: string }> };
 }): string[] {
-  const refs: string[] = [];
-
-  if (ctx.scopedModels.length > 0) {
-    for (const scoped of ctx.scopedModels) refs.push(modelRef(scoped.model));
-  } else {
-    try {
-      for (const model of ctx.modelRegistry.getAvailable()) refs.push(modelRef(model));
-    } catch {
-      // Fall through with whatever we collected.
-    }
+  try {
+    // Configuration must not be constrained by this session's enabledModels
+    // scope: users need to be able to select any authenticated catalog model.
+    return [...new Set(ctx.modelRegistry.getAvailable().map(modelRef))].sort();
+  } catch {
+    return [];
   }
-
-  return [...new Set(refs)].sort();
 }
 
 function optionsWithCurrentFirst(options: string[], current?: string): string[] {
