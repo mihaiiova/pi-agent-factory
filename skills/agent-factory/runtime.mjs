@@ -5,8 +5,8 @@
  * launcherScript, warnings }`. A generated system runs with its own Pi config
  * directory (set via `PI_CODING_AGENT_DIR`) so it never inherits the host's
  * global skills, MCP servers, extensions, instructions, settings, or
- * credentials. No filesystem or CLI work happens here; `factory.mjs` writes the
- * launcher.
+ * credentials. No filesystem or CLI work happens here; `generate.mjs` composes
+ * the launcher content into the generated `run` file.
  */
 import { runtimePackages } from "./deps.mjs";
 
@@ -30,7 +30,7 @@ export function launcherScript() {
     "  exit 1",
     "fi",
     "",
-    'export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$ROOT/.factory/pi-home}"',
+    'export PI_CODING_AGENT_DIR="$ROOT/.factory/pi-home"',
     'mkdir -p "$PI_CODING_AGENT_DIR"',
     "",
     "# Credentials are NOT inherited from the host. Log in once for this isolated",

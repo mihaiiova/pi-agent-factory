@@ -62,6 +62,12 @@ function fail(message) {
   process.exitCode = 1;
 }
 
+function printWarnings(warnings) {
+  for (const warning of Array.isArray(warnings) ? warnings : []) {
+    console.error(`warning - ${warning}`);
+  }
+}
+
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -292,7 +298,8 @@ function runGenerate(dir, dryRun) {
   }
 
   const existing = readExisting(dir, normalized);
-  const { files } = generateProject(normalized, existing, { piPackages: readPiPackages() });
+  const { files, warnings } = generateProject(normalized, existing, { piPackages: readPiPackages() });
+  printWarnings(warnings);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
   const conflicts = files.filter((f) => f.action === "conflict");
 
@@ -391,7 +398,8 @@ async function runModify(dir, dryRun, yes) {
   }
 
   const existing = readExisting(dir, normalized);
-  const { files, conflicts } = modifyPlan(normalized, existing, { piPackages: readPiPackages() });
+  const { files, conflicts, warnings } = modifyPlan(normalized, existing, { piPackages: readPiPackages() });
+  printWarnings(warnings);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
 
   // Always preview the full planned diff before touching anything.

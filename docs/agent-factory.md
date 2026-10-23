@@ -476,11 +476,12 @@ configurations with actionable errors. No hand-rolled YAML subset.
 - **No always-on daemon.** A recurring scheduler is a documented extension
   point, not MVP.
 - **Portability by declaration (not vendoring):** a generated project carries
-  all project-specific content in `.pi/` and *declares and pins* every external
-  dependency — `git:github.com/mihaiiova/pi-config@<sha>` plus the npm packages
-  it needs (`pi-subagents`, `pi-mcp-adapter`, `pi-web-access`) and its MCP
-  servers — in `.pi/settings.json` `packages`. It vendors nothing and relies on
-  no ambient global config; see §D.0.
+  all project-specific content in `.pi/` and *declares and pins* its runtime
+  dependencies — the Pi runtime primitives `pi-subagents` (subagent support)
+  and `pi-mcp-adapter` (MCP support), plus any `system.yaml` `packages` the
+  model declares — in `.pi/settings.json` `packages`. It vendors nothing and
+  relies on no ambient global config; the runtime runs under an isolated
+  `PI_CODING_AGENT_DIR` via the generated `run` launcher; see §D.0.
 
 ### C.8 Capability discovery
 
