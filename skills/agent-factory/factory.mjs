@@ -2,40 +2,201 @@
 /**
  * factory — the deterministic Agent Factory CLI (Node ESM).
  *
- * MVP (spec 1): `factory validate <dir>` reads `<dir>/.pi/system.yaml`, parses
- * it with the pinned `yaml` package, migrates older supported schema versions
- * forward, validates against schema v1, and prints actionable errors.
+ * Commands:
+ *   validate <dir>             parse + migrate + validate <dir>/.pi/system.yaml
+ *   generate <dir> [--dry-run] materialize a single-agent Pi project
  *
- * Exit codes: 0 valid · 1 invalid / missing / unparseable.
+ * Exit codes:
+ *   0  valid / generated (conflicts are reported but do not fail the run)
+ *   1  invalid, missing, or unparseable system.yaml; or an unknown command
  *
- * Generation (`generate`), discovery, import, and modify are later specs.
+ * Later specs add discover, import, and modify.
  */
-import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join, resolve, dirname } from "node:path";
 import { parseSystem } from "./parse.mjs";
 import { migrate } from "./migrate.mjs";
 import { validateSystem } from "./validate.mjs";
+import { generateProject, GENERATED_PATHS } from "./generate.mjs";
 
-const USAGE = `Usage: factory validate <dir>
+const USAGE = `Usage: factory <command> [options]
 
-Read <dir>/.pi/system.yaml, migrate it forward if needed, and validate it
-against the schema v1 contract (see schema.md). Prints each error to stderr.
+Commands:
+  validate <dir>             validate <dir>/.pi/system.yaml against schema v1
+  generate <dir> [--dry-run] generate the single-agent project from system.yaml
 
 Exit codes:
-  0  valid
-  1  invalid, missing, or unparseable system.yaml
-
-Commands available in this spec:
-  validate <dir>   validate a project's declarative model
+  0  valid / generated (reported conflicts do not fail the run)
+  1  invalid, missing, or unparseable system.yaml; or an unknown command
 `;
+
 
 function fail(message) {
   console.error(`error - ${message}`);
   process.exitCode = 1;
 }
 
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Read, parse, migrate, and validate the model at `<dir>/.pi/system.yaml`. */
+function loadModel(dir) {
+  const systemPath = join(resolve(dir), ".pi", "system.yaml");
+
+  let text;
+  try {
+    text = readFileSync(systemPath, "utf-8");
+  } catch {
+    return { systemPath, error: `no readable system.yaml at ${systemPath}` };
+  }
+
+  let doc;
+  try {
+    doc = parseSystem(text);
+  } catch (err) {
+    return { systemPath, error: `failed to parse ${systemPath}: ${err.message}` };
+  }
+
+  const needsMigration = isObject(doc) && (doc.schema === 0 || doc.schema === undefined);
+  const normalized = needsMigration ? migrate(doc) : doc;
+  const { ok, errors } = validateSystem(normalized);
+  return { systemPath, normalized, ok, errors };
+}
+
+function readExisting(dir) {
+  const existing = {};
+  for (const rel of GENERATED_PATHS) {
+    const path = join(resolve(dir), rel);
+    if (existsSync(path)) {
+      try {
+        existing[rel] = readFileSync(path, "utf-8");
+      } catch {
+        // unreadable — treat as absent
+      }
+    }
+  }
+  return existing;
+}
+
+function runValidate(dir) {
+  const { systemPath, error, ok, errors } = loadModel(dir);
+  if (error) {
+    fail(error);
+    return;
+  }
+  if (ok) {
+    console.log(`ok - ${systemPath} is a valid system.yaml (schema v1)`);
+    process.exitCode = 0;
+  } else {
+    for (const e of errors) console.error(`error - ${e}`);
+    process.exitCode = 1;
+  }
+}
+
+function pad(action) {
+  return action.padEnd(9, " ");
+}
+
+function indent(text, prefix) {
+  return text.split("\n").map((line) => `${prefix}${line}`).join("\n");
+}
+
+function diffLines(oldText, newText) {
+  const a = oldText.split("\n");
+  const b = newText.split("\n");
+  const n = a.length;
+  const m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const lines = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      lines.push(`  ${a[i]}`);
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      lines.push(`- ${a[i]}`);
+      i++;
+    } else {
+      lines.push(`+ ${b[j]}`);
+      j++;
+    }
+  }
+  while (i < n) {
+    lines.push(`- ${a[i]}`);
+    i++;
+  }
+  while (j < m) {
+    lines.push(`+ ${b[j]}`);
+    j++;
+  }
+  return lines.join("\n");
+}
+
+function runGenerate(dir, dryRun) {
+  const { systemPath, error, normalized, ok, errors } = loadModel(dir);
+  if (error) {
+    fail(error);
+    return;
+  }
+  if (!ok) {
+    for (const e of errors) console.error(`error - ${e}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const existing = readExisting(dir);
+  const { files } = generateProject(normalized, existing);
+  const changes = files.filter((f) => f.action === "create" || f.action === "write");
+  const conflicts = files.filter((f) => f.action === "conflict");
+
+  if (dryRun) {
+    console.log(`Planned changes (dry run — nothing written) for ${systemPath}:`);
+    if (!existsSync(join(resolve(dir), ".pi", "agents"))) {
+      console.log(`  ${pad("create")} .pi/agents/ (empty directory)`);
+    }
+    for (const f of files) {
+      if (f.action === "none") continue;
+      console.log(`  ${pad(f.action)} ${f.path}`);
+      if (f.action === "create") {
+        console.log(indent(f.content, "    + "));
+      } else if (f.action === "write") {
+        console.log(indent(diffLines(existing[f.path] ?? "", f.content), "    "));
+      } else if (f.action === "conflict") {
+        console.log(`    current (user):`);
+        console.log(indent(existing[f.path] ?? "", "      "));
+        console.log(`    proposed (model):`);
+        console.log(indent(f.desired ?? "", "      "));
+      }
+    }
+    process.exitCode = 0;
+    return;
+  }
+
+  for (const f of changes) {
+    const target = join(resolve(dir), f.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, f.content, "utf-8");
+    console.log(`wrote ${f.path} (${f.action})`);
+  }
+  mkdirSync(join(resolve(dir), ".pi", "agents"), { recursive: true });
+
+  for (const c of conflicts) {
+    console.error(`conflict - ${c.path}: user edit vs model change; not applied. Proposed:\n${c.desired}`);
+  }
+  process.exitCode = 0;
+}
+
 function main(argv) {
-  const [command, dir] = argv;
+  const [command, dir, ...rest] = argv;
+  const dryRun = rest.includes("--dry-run");
 
   if (command === "-h" || command === "--help" || command === undefined) {
     process.stdout.write(USAGE);
@@ -43,52 +204,28 @@ function main(argv) {
     return;
   }
 
-  if (command !== "validate") {
-    fail(`unknown command "${command}"`);
-    process.stderr.write(USAGE);
-    return;
-  }
-
-  if (!dir) {
-    fail("missing <dir> argument");
-    process.stderr.write(USAGE);
-    return;
-  }
-
-  const systemPath = join(resolve(dir), ".pi", "system.yaml");
-
-  let text;
-  try {
-    text = readFileSync(systemPath, "utf-8");
-  } catch {
-    fail(`no readable system.yaml at ${systemPath}`);
-    return;
-  }
-
-  let doc;
-  try {
-    doc = parseSystem(text);
-  } catch (err) {
-    fail(`failed to parse ${systemPath}: ${err.message}`);
-    return;
-  }
-
-  // Migrate older supported versions (schema omitted → v0, or explicit 0).
-  const isObject = doc !== null && typeof doc === "object" && !Array.isArray(doc);
-  const needsMigration =
-    isObject && (doc.schema === 0 || doc.schema === undefined);
-  const normalized = needsMigration ? migrate(doc) : doc;
-
-  const { ok, errors } = validateSystem(normalized);
-  if (ok) {
-    console.log(`ok - ${systemPath} is a valid system.yaml (schema v1)`);
-    process.exitCode = 0;
-  } else {
-    for (const error of errors) {
-      console.error(`error - ${error}`);
+  if (command === "validate") {
+    if (!dir) {
+      fail("missing <dir> argument");
+      process.stderr.write(USAGE);
+      return;
     }
-    process.exitCode = 1;
+    runValidate(dir);
+    return;
   }
+
+  if (command === "generate") {
+    if (!dir) {
+      fail("missing <dir> argument");
+      process.stderr.write(USAGE);
+      return;
+    }
+    runGenerate(dir, dryRun);
+    return;
+  }
+
+  fail(`unknown command "${command}"`);
+  process.stderr.write(USAGE);
 }
 
 main(process.argv.slice(2));
