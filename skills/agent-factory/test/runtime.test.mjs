@@ -18,6 +18,8 @@ test("launcherScript sets the isolated agent dir and never copies auth.json", ()
   assert.match(script, /exec pi/);
   assert.match(script, /\$\{BASH_SOURCE\[0\]\}/, "resolves root from its own location");
   assert.match(script, /command -v pi/, "fails explicitly when pi is missing");
+  assert.match(script, /cd "\$ROOT"/, "changes into the project root");
+  assert.match(script, /\.pi\/system\.yaml/, "validates the project model before launching");
   assert.ok(!/auth\.json|cp .*auth|ln .*auth/.test(script), "must not copy host credentials");
 });
 
