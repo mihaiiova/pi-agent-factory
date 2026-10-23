@@ -532,11 +532,14 @@ Generated projects are **self-contained by declaration**, not by vendoring:
 - Project-specific content (agents, skills, workflows, integrations) is
   generated into `.pi/`.
 - Every external dependency is **declared and pinned** in `.pi/settings.json`
-  `packages`: `git:github.com/mihaiiova/pi-config@<commit-sha>` (provides the
-  shared spec-lifecycle skills, scripts, and extensions) plus the npm packages
-  the project uses (`pi-subagents`, `pi-mcp-adapter`, `pi-web-access`, …) and
-  its MCP servers. The factory reads pi-config's own `pi.packages` and current
-  `git rev-parse HEAD` to pin them.
+  `packages`: the Pi runtime primitives `pi-subagents` (subagent support) and
+  `pi-mcp-adapter` (MCP support), plus any `system.yaml` `packages` the model
+  explicitly declares. pi-config itself is a *development* dependency and is
+  never shipped into the generated runtime.
+- Each generated project carries a `run` launcher that sets
+  `PI_CODING_AGENT_DIR` to the project's `.factory/pi-home`, so the generated
+  runtime never inherits the host's global skills, MCP servers, extensions,
+  instructions, settings, or credentials.
 - Nothing is copied out of pi-config into the project (avoids a second,
   independently maintained implementation), and nothing depends on a machine's
   ambient global config.
@@ -614,6 +617,15 @@ generated project** (a template in the factory's corpus), not a rewrite:
 - **Settings the model cannot express** (arbitrary `defaultTools`, exotic
   provider overrides, custom extension registrations) — `factory import` flags
   them as unsupported rather than silently dropping them.
+- **Parent-directory context files** — `AGENTS.md`/`CLAUDE.md` in a parent of a
+  generated project still load regardless of trust or `PI_CODING_AGENT_DIR`;
+  generated projects must not be nested under a host tree that carries them.
+- **Credential bootstrap** — the isolated `pi-home` has no `auth.json`; the
+  generated runtime logs in once (`pi --login`) or receives explicit provider
+  env credentials. The launcher never copies the host's credentials.
+- **OS sandboxing** — filesystem, process, and network isolation are out of
+  scope; a declared `bash`/`edit`/`write` tool is not sandboxed by config
+  isolation.
 
 ---
 

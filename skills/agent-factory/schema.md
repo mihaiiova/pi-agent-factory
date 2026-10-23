@@ -22,6 +22,7 @@ Top-level keys (all others rejected):
 | `integrations` | no | object | MCP servers + env requirements |
 | `workflows` | no | array | declared workflow boundaries (metadata only) |
 | `policies` | no | object | enforced + advisory policy |
+| `packages` | no | array of `npm:`/`git:` specs | additional runtime extension packages (primaries `pi-subagents`/`pi-mcp-adapter` are always included) |
 
 The **orchestrator is a top-level block**, not an `agents[]` entry. Pi has no
 "primary agent" file: the primary session is shaped by `.pi/settings.json`

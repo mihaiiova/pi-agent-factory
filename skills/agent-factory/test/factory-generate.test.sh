@@ -75,7 +75,7 @@ pass "factory generate on the coding-agent fixture produces the orchestrator sur
 # ── multi-agent materialization + golden ────────────────────────
 ma="$(mktemp -d)"
 cp -r "$fixtures/generate/multi-agent/.pi" "$ma/"
-FACTORY_PI_REV=0000000000000000000000000000000000000000 node "$factory" generate "$ma" >/dev/null
+node "$factory" generate "$ma" >/dev/null
 for a in seo-analyst article-writer researcher; do
   [[ -f "$ma/.pi/agents/$a.md" ]] || fail "multi-agent generate did not create .pi/agents/$a.md"
 done
@@ -89,6 +89,9 @@ tail -n1 "$ma/.pi/agents/seo-analyst.md" | grep -q 'agent-factory:generated v1 s
 for f in $(cd "$fixtures/generate/multi-agent/golden" && find . -type f | sort); do
   cmp -s "$fixtures/generate/multi-agent/golden/$f" "$ma/$f" || fail "golden mismatch: $f"
 done
+[[ -x "$ma/run" ]] || fail "run launcher not executable"
+grep -q 'PI_CODING_AGENT_DIR' "$ma/run" || fail "run launcher missing the isolated agent dir"
+node -e 'const s=require(process.argv[1]); const e=["npm:pi-subagents@0.65.0","npm:pi-mcp-adapter@2.32.1"]; if(JSON.stringify(s.packages)!==JSON.stringify(e)){console.error(JSON.stringify(s.packages));process.exit(1)}' "$ma/.pi/settings.json" || fail "settings.json packages are not the minimal runtime primitives"
 rm -rf "$ma"
 pass "factory generate reproduces the multi-agent golden tree"
 

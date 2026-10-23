@@ -19,6 +19,8 @@ import { generateSettings } from "../../extensions/pi-config/generate-settings.m
 import { workflowSkill } from "./workflow-skill.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
+import { runtimePackages } from "./deps.mjs";
+import { launcherScript } from "./runtime.mjs";
 
 const MARKER = "agent-factory:generated v1";
 const MARKER_HTML_RE = /^<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->$/;
@@ -45,6 +47,7 @@ export const GENERATED_PATHS = [
   ".gitignore",
   ".env.example",
   "data/knowledge/.gitkeep",
+  "run",
 ];
 
 function isPlainObject(value) {
@@ -138,7 +141,7 @@ function sentinelFile(path, existing) {
   return { path, content: existing, action: "none" };
 }
 
-function buildSettings(model, existingText, packages) {
+function buildSettings(model, existingText, piPackages) {
   const models = isPlainObject(model.models) ? model.models : {};
   const orchestrator = isPlainObject(model.orchestrator) ? model.orchestrator : {};
 
@@ -170,8 +173,9 @@ function buildSettings(model, existingText, packages) {
   if (tools !== undefined) out.defaultTools = tools;
   else delete out.defaultTools;
 
-  if (Array.isArray(packages) && packages.length > 0) {
-    out.packages = packages;
+  const runtime = runtimePackages(piPackages, model.packages);
+  if (runtime.length > 0) {
+    out.packages = runtime;
   } else {
     delete out.packages;
   }
@@ -354,19 +358,20 @@ export function managedPaths(model) {
  */
 export function generateProject(model, existingFiles = {}, opts = {}) {
   const existing = isPlainObject(existingFiles) ? existingFiles : {};
-  const packages = isPlainObject(opts) && Array.isArray(opts.packages) ? opts.packages : undefined;
+  const piPackages = isPlainObject(opts) ? opts.piPackages : undefined;
   const prompt = isPlainObject(model.orchestrator) && typeof model.orchestrator.prompt === "string"
     ? model.orchestrator.prompt
     : "";
 
   const files = [
-    derivedFile(".pi/settings.json", buildSettings(model, existing[".pi/settings.json"], packages), existing[".pi/settings.json"]),
+    derivedFile(".pi/settings.json", buildSettings(model, existing[".pi/settings.json"], piPackages), existing[".pi/settings.json"]),
     derivedFile(".pi/mcp.json", buildMcpJson(model, existing[".pi/mcp.json"]), existing[".pi/mcp.json"]),
     authoredFile(".pi/APPEND_SYSTEM.md", "html", prompt, existing[".pi/APPEND_SYSTEM.md"]),
     authoredFile("README.md", "html", readmeBody(model), existing["README.md"]),
     authoredFile(".gitignore", "plain", GITIGNORE_BODY, existing[".gitignore"]),
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),
     sentinelFile("data/knowledge/.gitkeep", existing["data/knowledge/.gitkeep"]),
+    { ...derivedFile("run", launcherScript(), existing["run"]), executable: true },
     ...agentFiles(model, existing),
     ...skillFiles(model, existing),
   ];

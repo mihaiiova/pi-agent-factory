@@ -7,7 +7,7 @@ pass() { echo "ok - $1"; }
 fail() { echo "not ok - $1" >&2; exit 1; }
 
 # ── Pure-module node:test suites ────────────────────────────────
-for module in parse validate migrate models-mapping generate workflow-skill multi-agent discover mcp-gen policy modify skill-contract deps import; do
+for module in parse validate migrate models-mapping generate workflow-skill multi-agent discover mcp-gen policy modify skill-contract deps runtime import; do
   if out="$(node --test "$here/$module.test.mjs" 2>&1)"; then
     pass "$module.test.mjs"
   else
@@ -64,6 +64,13 @@ if bash "$here/factory-import.test.sh"; then
   pass "factory-import.test.sh"
 else
   fail "factory-import.test.sh"
+fi
+
+# ── hermetic runtime isolation harness (Tests A–G) ────────────
+if bash "$here/isolation.test.sh"; then
+  pass "isolation.test.sh"
+else
+  fail "isolation.test.sh"
 fi
 
 echo

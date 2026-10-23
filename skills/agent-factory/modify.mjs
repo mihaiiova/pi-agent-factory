@@ -21,9 +21,9 @@ function isPlainObject(value) {
  * @param {Record<string, string>} [existingFiles] project-relative path → text.
  * @returns {{ files: Array<{path, content, action, desired?, diff?}>, conflicts: Array }}
  */
-export function modifyPlan(model, existingFiles = {}) {
+export function modifyPlan(model, existingFiles = {}, opts = {}) {
   const existing = isPlainObject(existingFiles) ? existingFiles : {};
-  const { files } = generateProject(model, existing);
+  const { files } = generateProject(model, existing, opts);
 
   const annotated = files.map((f) => {
     if (f.action === "write") {
