@@ -1,8 +1,10 @@
 # Agent Factory — Architecture Analysis & MVP Plan
 
-> Status: planning complete (pre-implementation). This document is the durable
-> reference for the implementation specs it references. Read it in a fresh
-> session after `/new` before starting any child spec.
+> Status: **implemented**. The `factory` CLI (`validate | generate | discover |
+> modify | import`), the `agent-factory` builder skill, and the hermetic
+> `./run` launcher ship under `skills/agent-factory/`. This document is the
+> architecture reference; sections that describe *planned* behavior are
+> historical and kept for provenance where still relevant.
 >
 > Decisions marked **Decision (confirmed)** were resolved with the user during
 > planning; the rest are auto-decided from repository evidence and are recorded
@@ -241,8 +243,9 @@ Two distinct, separable concerns:
   validates, and modifies. It does **not** need to stay running for a generated
   project to work.
 - **Generated project** — a standalone directory owning its `.pi/` config,
-  agents, skills, integrations, policies, and runtime state. Run with
-  `cd <project> && pi`. Fully independent of the factory.
+  agents, skills, integrations, policies, and runtime state. Run with the
+  generated `./run` launcher (isolated `PI_CODING_AGENT_DIR`). Fully
+  independent of the factory.
 
 ### C.2 Primitives (MVP)
 
@@ -466,11 +469,11 @@ configurations with actionable errors. No hand-rolled YAML subset.
 
 ### C.7 Runtime = Pi (Decision 2)
 
-- Interactive: `cd <project> && pi` — the **primary session is the
+- Interactive: `./run` — the **primary session is the
   orchestrator**, configured by `.pi/settings.json` (startup model +
   `defaultTools`) and `.pi/APPEND_SYSTEM.md` (its instructions). Specialist
   agents under `.pi/agents/*.md` are subagents it delegates to.
-- Headless: `pi -p "<workflow input>"` (or `--mode json`) runs a workflow
+- Headless: `./run -p "<workflow input>"` (or `--mode json`) runs a workflow
   one-shot. The "researcher refreshes knowledge regularly" requirement is met
   by a documented command the user (or a future scheduler/cron) invokes.
 - **No always-on daemon.** A recurring scheduler is a documented extension
@@ -547,7 +550,7 @@ Generated projects are **self-contained by declaration**, not by vendoring:
 
 Clean-environment acceptance test (spec 6): generate a coding-agent system →
 copy to an isolated environment with no undeclared global config → install its
-declared dependencies → `cd <dir> && pi` → verify the orchestrator, agents,
+declared dependencies → `./run` → verify the orchestrator, agents,
 skills, workflows, and integrations resolve → run a representative workflow and
 verify behavior. If any capability cannot be made portable in MVP, the gap is
 recorded and the acceptance criteria adjusted — never silently weakened.
