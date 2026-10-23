@@ -361,7 +361,7 @@ export function managedPaths(model) {
  *
  * @param {object} model the migrated, validated `system.yaml` document.
  * @param {Record<string, string>} [existingFiles] project-relative path → text.
- * @param {{ packages?: string[] }} [opts] extra deterministic inputs (pinned
+ * @param {{ piPackages?: string[] }} [opts] extra deterministic inputs (pinned
  *   dependency list for `.pi/settings.json` `packages`).
  * @returns {{ files: Array<{ path: string, content: string, action: string, desired?: string }>, warnings: string[], errors: string[] }}
  */

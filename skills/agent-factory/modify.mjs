@@ -2,7 +2,7 @@
  * modify — diff a validated model against the current project and produce a
  * plan for surgical application.
  *
- * Pure seam: `modifyPlan(model, existingFiles) -> { files, conflicts }`. It
+ * Pure seam: `modifyPlan(model, existingFiles) -> { files, conflicts, warnings, errors }`. It
  * reuses `generateProject` (identical ownership contract: derived files
  * regenerate merge-preserving; authored files are scaffold-once and
  * fingerprint-protected, never silently overwritten) and annotates every

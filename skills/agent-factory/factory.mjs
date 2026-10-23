@@ -369,6 +369,9 @@ function runImport(dir) {
 
   const { system, report } = importSystem(settings, piConfig, detected);
 
+  // Fail before writing anything if runtime dependencies cannot be resolved.
+  if (failOnErrors(generateProject(system, {}, { piPackages: readPiPackages() }).errors)) return;
+
   const systemPath = join(target, ".pi", "system.yaml");
   if (existsSync(systemPath)) {
     console.error(`error - ${systemPath} already exists; not overwriting (delete it first or run in a fresh project).`);
@@ -391,8 +394,7 @@ function runImport(dir) {
   // Conservative additive scaffolding: create missing native files only. Every
   // existing file is preserved; derived files are never regenerated here.
   const existing = readExisting(target, system);
-  const { files, errors: depErrors } = generateProject(system, existing, { piPackages: readPiPackages() });
-  if (failOnErrors(depErrors)) return;
+  const { files } = generateProject(system, existing, { piPackages: readPiPackages() });
   for (const f of files) {
     if (f.action !== "create") continue;
     writeGenerated(join(target, f.path), f);

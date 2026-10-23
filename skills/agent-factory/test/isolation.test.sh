@@ -107,8 +107,13 @@ if (!caps.packages.includes("npm:pi-subagents@0.65.0") || !caps.packages.include
 pass "A: effective-capability manifest is written and reflects the model"
 
 # ── B. Launcher integration (mocked pi — no model/credentials) ──
-# Proven by test/launcher.test.sh (cwd/env/args/exit/failure with a mocked pi).
-pass "B: launcher startup behavior verified by launcher.test.sh (mocked pi)"
+# The launcher itself is asserted by test/launcher.test.sh; run it here so the
+# B category fails loudly if that harness regresses.
+if bash "$here/launcher.test.sh"; then
+  pass "B: launcher startup behavior (cwd/env/args/exit) verified with a mocked pi"
+else
+  fail "B: launcher.test.sh failed"
+fi
 
 # ── C. Real Pi integration (pi-gated; SKIP-with-reason, never pass) ──
 if command -v pi >/dev/null 2>&1; then

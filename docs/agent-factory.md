@@ -284,7 +284,7 @@ generated-project/
 ├── .pi/
 │   ├── system.yaml            # declarative model (factory-owned, committed)
 │   ├── settings.json          # generated model/routing (factory-owned fragment)
-│   ├── mcp.json               # generated MCP servers (factory-owned)
+│   ├── mcp.json               # generated MCP servers (factory-owned; authoritative)
 │   ├── agents/                # *.md specialist subagents (authored; scaffold + edits)
 │   │   └── <specialist>.md
 │   ├── skills/                # SKILL.md dirs — incl. workflows (authored; scaffold + edits)
@@ -292,9 +292,13 @@ generated-project/
 │   │   └── ...
 │   ├── prompts/               # command shortcuts (authored)
 │   └── APPEND_SYSTEM.md       # primary orchestrator instructions (authored)
+├── .factory/                  # isolated runtime home (gitignored)
+│   ├── pi-home/               # PI_CODING_AGENT_DIR (credentials, isolated config)
+│   └── capabilities.json      # effective-capability manifest (derived, inspectable)
+├── run                        # hermetic launcher — the canonical entry point
 ├── data/                      # mutable outputs + shared knowledge (gitignored)
 │   └── knowledge/
-├── .gitignore                 # data/, .env, .pi/state.json, .pi/sessions/
+├── .gitignore                 # data/, .env, .factory/, .pi/state.json, .pi/sessions/
 ├── .env.example               # credential template (no secrets)
 └── README.md                  # how to run, workflows, approvals
 ```

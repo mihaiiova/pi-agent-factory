@@ -18,10 +18,6 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function isNonEmptyString(value) {
-  return typeof value === "string" && value.length > 0;
-}
-
 function sortUnique(list) {
   return [...new Set((Array.isArray(list) ? list : []).filter((v) => typeof v === "string"))].sort();
 }
@@ -62,7 +58,10 @@ export function effectiveCapabilities(model, opts = {}) {
       excludeTools: sortUnique(hiddenMcpTools(entry.name, model?.policies)),
     })),
     packages,
-    extensions: [],
+    // Declared package specs (npm:/git:) may register extension-provided
+    // tools; their concrete tool surface is enforced by Pi at runtime and is
+    // not assertable here (see notes).
+    extensions: Array.isArray(model?.packages) ? [...model.packages].sort() : [],
     notes: [
       "subagent tools are enforced by pi-subagents allowlists (a child lacks unlisted tools)",
       "orchestrator defaultTools bounds built-in tools; extension- and MCP-provided tools are enforced by Pi at runtime and are not assertable without a running process",

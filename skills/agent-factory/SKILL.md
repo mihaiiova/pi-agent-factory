@@ -29,7 +29,10 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    found installed.
 4. **Generate** — write `system.yaml`, then **preview first**: run
    `factory generate <dir> --dry-run` and show the planned diff. Only apply after
-   the user confirms.
+   the user confirms. Generation also writes `.factory/capabilities.json` — the
+   deterministic effective-capability manifest (orchestrator/subagent tools,
+   skills, MCP servers + exclusions, packages) derived from `system.yaml`, used
+   to inspect and cross-check the generated capability surface.
 5. **Configure** — help with credentials: env vars, `gh auth`, and MCP env vars.
    **Never write a secret into a committed file** — only `${ENV}` references and
    `.env.example` templates. **Done when** every required credential is declared as
