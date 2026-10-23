@@ -7,7 +7,7 @@ pass() { echo "ok - $1"; }
 fail() { echo "not ok - $1" >&2; exit 1; }
 
 # ── Pure-module node:test suites ────────────────────────────────
-for module in parse validate migrate models-mapping generate workflow-skill multi-agent discover mcp-gen policy; do
+for module in parse validate migrate models-mapping generate workflow-skill multi-agent discover mcp-gen policy modify skill-contract; do
   if out="$(node --test "$here/$module.test.mjs" 2>&1)"; then
     pass "$module.test.mjs"
   else
@@ -35,6 +35,20 @@ if bash "$here/factory-discover.test.sh"; then
   pass "factory-discover.test.sh"
 else
   fail "factory-discover.test.sh"
+fi
+
+# ── factory modify CLI harness ──────────────────────────────────
+if bash "$here/factory-modify.test.sh"; then
+  pass "factory-modify.test.sh"
+else
+  fail "factory-modify.test.sh"
+fi
+
+# ── builder flow behavioral harness ────────────────────────────
+if bash "$here/factory-behavior.test.sh"; then
+  pass "factory-behavior.test.sh"
+else
+  fail "factory-behavior.test.sh"
 fi
 
 echo
