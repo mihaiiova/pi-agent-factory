@@ -315,6 +315,11 @@ delegates to.
 
 ### C.5 `system.yaml` schema (draft v1)
 
+> Canonical reference: `skills/agent-factory/schema.md` is the field-by-field
+> schema, validation rules, migration path, and ownership contract. It is the
+> source of truth for the validator (`factory validate`); this section remains a
+> narrative overview. `yaml@2.8.3` is pinned in `pi.packages`.
+
 Small, flat, and directly mappable to native files:
 
 ```yaml
@@ -382,6 +387,12 @@ policies:
     - "Publishing requires human confirmation: the workflow drafts to data/articles/ and the user publishes."
 ```
 
+> **Illustrative, not a validating document.** This block abbreviates several
+> entries (marked with `…`) and references `analyze-and-draft`, `article-writer`,
+> and `researcher` that are not fully declared above. The complete,
+> validator-passing example is
+> `skills/agent-factory/test/fixtures/valid-seo/.pi/system.yaml`.
+
 The generator maps this 1:1:
 
 - `orchestrator` → `.pi/APPEND_SYSTEM.md` (prompt) + `.pi/settings.json`
@@ -413,6 +424,7 @@ for the orchestrator persona.
 
 - `factory validate <dir>` — validate `system.yaml` (schema) and the generated
   project (agents/skills/mcp references resolve; `pi mcp list` where available).
+  (Model-only in spec 1; generated-project checks arrive with the `generate` spec.)
 - `factory generate <dir> [--dry-run]` — scaffold missing files and regenerate
   factory-owned files; **never overwrite** authored content.
 - `factory discover` — deterministic capability inventory (see §C.8).
