@@ -19,6 +19,7 @@ import { generateSettings } from "../../extensions/pi-config/generate-settings.m
 import { workflowSkill } from "./workflow-skill.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
+import { buildRuntimePlan } from "./runtime.mjs";
 
 const MARKER = "agent-factory:generated v1";
 const MARKER_HTML_RE = /^<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->$/;
@@ -31,6 +32,7 @@ const GITIGNORE_BODY = [
   "data/knowledge/*",
   "!data/knowledge/.gitkeep",
   ".env",
+  ".factory/",
   ".pi/state.json",
   ".pi/sessions/",
   "",
@@ -45,6 +47,7 @@ export const GENERATED_PATHS = [
   ".gitignore",
   ".env.example",
   "data/knowledge/.gitkeep",
+  "run",
 ];
 
 function isPlainObject(value) {
@@ -170,8 +173,9 @@ function buildSettings(model, existingText, packages) {
   if (tools !== undefined) out.defaultTools = tools;
   else delete out.defaultTools;
 
-  if (Array.isArray(packages) && packages.length > 0) {
-    out.packages = packages;
+  const runtime = Array.isArray(packages) ? packages : [];
+  if (runtime.length > 0) {
+    out.packages = runtime;
   } else {
     delete out.packages;
   }
@@ -354,23 +358,25 @@ export function managedPaths(model) {
  */
 export function generateProject(model, existingFiles = {}, opts = {}) {
   const existing = isPlainObject(existingFiles) ? existingFiles : {};
-  const packages = isPlainObject(opts) && Array.isArray(opts.packages) ? opts.packages : undefined;
+  const piPackages = isPlainObject(opts) ? opts.piPackages : undefined;
+  const plan = buildRuntimePlan(model, { piPackages });
   const prompt = isPlainObject(model.orchestrator) && typeof model.orchestrator.prompt === "string"
     ? model.orchestrator.prompt
     : "";
 
   const files = [
-    derivedFile(".pi/settings.json", buildSettings(model, existing[".pi/settings.json"], packages), existing[".pi/settings.json"]),
+    derivedFile(".pi/settings.json", buildSettings(model, existing[".pi/settings.json"], plan.packages), existing[".pi/settings.json"]),
     derivedFile(".pi/mcp.json", buildMcpJson(model, existing[".pi/mcp.json"]), existing[".pi/mcp.json"]),
     authoredFile(".pi/APPEND_SYSTEM.md", "html", prompt, existing[".pi/APPEND_SYSTEM.md"]),
     authoredFile("README.md", "html", readmeBody(model), existing["README.md"]),
     authoredFile(".gitignore", "plain", GITIGNORE_BODY, existing[".gitignore"]),
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),
     sentinelFile("data/knowledge/.gitkeep", existing["data/knowledge/.gitkeep"]),
+    { ...derivedFile("run", plan.launcherScript, existing["run"]), executable: true },
     ...agentFiles(model, existing),
     ...skillFiles(model, existing),
   ];
 
   files.sort((a, b) => a.path.localeCompare(b.path));
-  return { files };
+  return { files, warnings: plan.warnings };
 }

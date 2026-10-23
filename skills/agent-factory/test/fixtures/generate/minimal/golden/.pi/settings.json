@@ -27,5 +27,9 @@
     "edit",
     "write",
     "subagent"
+  ],
+  "packages": [
+    "npm:pi-subagents@0.65.0",
+    "npm:pi-mcp-adapter@2.32.1"
   ]
 }

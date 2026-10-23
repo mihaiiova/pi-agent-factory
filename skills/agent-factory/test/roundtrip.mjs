@@ -7,7 +7,6 @@ import { importSystem } from "../import.mjs";
 import { generateProject } from "../generate.mjs";
 import { modifyPlan } from "../modify.mjs";
 import { validateSystem } from "../validate.mjs";
-import { declareDependencies } from "../deps.mjs";
 import { parseSystem } from "../parse.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -50,18 +49,17 @@ const DETECTED = {
   mcpServers: { cloudflare: { command: "npx", args: ["cloudflare-mcp", "--stdio"] } },
 };
 
-const PINS = declareDependencies(
-  ["npm:pi-mcp-adapter@2.32.1", "npm:pi-subagents@0.65.0", "npm:pi-web-access@0.27.0"],
-  "0000000000000000000000000000000000000000",
-  ["pi-subagents", "pi-mcp-adapter", "pi-web-access"],
-);
+const PINS = [
+  "npm:pi-subagents@0.65.0",
+  "npm:pi-mcp-adapter@2.32.1",
+];
 
 test("round-trip: import → generate preserves subagent routing, skills, workflows", () => {
   const { system } = importSystem(SETTINGS, PI_CONFIG, DETECTED);
   const { ok, errors } = validateSystem(system);
   assert.equal(ok, true, `imported system must validate: ${errors.join("; ")}`);
 
-  const { files } = generateProject(system, {}, { packages: PINS });
+  const { files } = generateProject(system, {}, { piPackages: ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"] });
 
   const settings = JSON.parse(files.find((f) => f.path === ".pi/settings.json").content);
   assert.deepEqual(settings.subagents.agentOverrides, {
@@ -89,7 +87,7 @@ test("round-trip: modify adds an agent and preserves unrelated authored content"
   const { system } = importSystem(SETTINGS, PI_CONFIG, DETECTED);
 
   // First generate, then simulate a user edit to an authored file.
-  const first = generateProject(system, {}, { packages: PINS });
+  const first = generateProject(system, {}, { piPackages: ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"] });
   const existing = Object.fromEntries(first.files.map((f) => [f.path, f.content]));
   const appendMarker = existing[".pi/APPEND_SYSTEM.md"].split("\n", 1)[0];
   existing[".pi/APPEND_SYSTEM.md"] = `${appendMarker}\nUser-added orchestrator line.\n`;
@@ -115,11 +113,10 @@ test("coding-agent template generates the expected native files with pinned pack
   const { ok, errors } = validateSystem(templateModel);
   assert.equal(ok, true, `template must validate: ${errors.join("; ")}`);
 
-  const { files } = generateProject(templateModel, {}, { packages: PINS });
+  const { files } = generateProject(templateModel, {}, { piPackages: ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"] });
   const settings = JSON.parse(files.find((f) => f.path === ".pi/settings.json").content);
 
-  assert.equal(settings.packages[0], "git:github.com/mihaiiova/pi-config@0000000000000000000000000000000000000000");
-  assert.ok(settings.packages.includes("npm:pi-subagents@0.65.0"));
+  assert.deepEqual(settings.packages, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"]);
   assert.ok(files.some((f) => f.path === ".pi/APPEND_SYSTEM.md"));
   assert.ok(files.filter((f) => f.path.startsWith(".pi/agents/")).length === 4);
   assert.ok(!files.some((f) => f.path.includes("/SKILL.md")), "package-provided skills are not duplicated locally");

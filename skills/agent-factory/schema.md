@@ -22,6 +22,7 @@ Top-level keys (all others rejected):
 | `integrations` | no | object | MCP servers + env requirements |
 | `workflows` | no | array | declared workflow boundaries (metadata only) |
 | `policies` | no | object | enforced + advisory policy |
+| `packages` | no | array of `npm:`/`git:` specs | additional runtime extension packages (primaries `pi-subagents`/`pi-mcp-adapter` are always included) |
 
 The **orchestrator is a top-level block**, not an `agents[]` entry. Pi has no
 "primary agent" file: the primary session is shaped by `.pi/settings.json`
@@ -158,11 +159,12 @@ Full text of `docs/agent-factory.md` §C.6 (generalizing
 `extensions/pi-config/generate-settings.mjs`):
 
 1. **Derived files** (`settings.json` model fragment + `packages` + `defaultTools`,
-   `mcp.json`) are factory-owned and regenerated on every `generate`;
-   **unknown keys the factory does not own are preserved** (the same merge the
-   model generator already performs). The `packages` list is a factory-owned
-   derived key computed from the pinned pi-config revision + `pi.packages`
-   (`deps.mjs`), not from `system.yaml`. Hand-editing a derived file is
+   `mcp.json`, and the `run` launcher) are factory-owned and regenerated on
+   every `generate`; **unknown keys the factory does not own are preserved**
+   (the same merge the model generator already performs). The `packages` list is
+   a factory-owned derived key computed from the Pi runtime primitives
+   (`pi-subagents`, `pi-mcp-adapter`) plus any `system.yaml` `packages` the
+   model declares (`deps.mjs` `runtimePackages`). Hand-editing a derived file is
    unsupported — change the model instead.
 2. **Authored files** (agents, skills, prompts, `APPEND_SYSTEM.md`, README,
    `.gitignore`, `.env.example`) are user-owned. The factory scaffolds them

@@ -19,6 +19,7 @@ const EXPECTED_PATHS = [
   ".pi/settings.json",
   "README.md",
   "data/knowledge/.gitkeep",
+  "run",
 ];
 
 function byPath(files, path) {
@@ -167,7 +168,9 @@ test("authored scaffold carries an agent-factory marker and the scaffolded body"
 
 test("golden tree: minimal fixture produces the committed snapshot", () => {
   const goldenDir = resolve(fixtureRoot, "golden");
-  const { files } = generateProject(model, {});
+  const { files } = generateProject(model, {}, {
+    piPackages: ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"],
+  });
 
   const produced = new Map(files.map((f) => [f.path, f.content]));
   const goldenPaths = readdirSync(goldenDir, { recursive: true, withFileTypes: true })
@@ -186,14 +189,35 @@ test("golden tree: minimal fixture produces the committed snapshot", () => {
   }
 });
 
-test("opts.packages are injected into the generated .pi/settings.json", () => {
-  const pins = ["git:github.com/mihaiiova/pi-config@abc123", "npm:pi-subagents@0.65.0"];
-  const { files } = generateProject(model, {}, { packages: pins });
-  const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.deepEqual(settings.packages, pins);
+test("runtime packages are computed from piPackages + declared model packages", () => {
+  const piPackages = [
+    "npm:pi-subagents@0.65.0",
+    "npm:pi-mcp-adapter@2.32.1",
+    "npm:pi-web-access@0.27.0",
+  ];
+  const withDeclared = generateProject(
+    { ...model, packages: ["npm:foo@1.0.0"] },
+    {},
+    { piPackages },
+  );
+  const settings = JSON.parse(byPath(withDeclared.files, ".pi/settings.json").content);
+  assert.deepEqual(settings.packages, [
+    "npm:pi-subagents@0.65.0",
+    "npm:pi-mcp-adapter@2.32.1",
+    "npm:foo@1.0.0",
+  ]);
 
-  // Without opts, no packages key is added (backward-compatible).
+  // Without piPackages, only declared packages are emitted (no primitives).
   const plain = generateProject(model, {});
   const plainSettings = JSON.parse(byPath(plain.files, ".pi/settings.json").content);
   assert.equal(plainSettings.packages, undefined);
+});
+
+test("generateProject emits the executable run launcher", () => {
+  const { files } = generateProject(model, {});
+  const run = byPath(files, "run");
+  assert.ok(run, "run launcher is emitted");
+  assert.equal(run.executable, true, "run launcher is marked executable");
+  assert.match(run.content, /PI_CODING_AGENT_DIR/);
+  assert.match(run.content, /exec pi/);
 });

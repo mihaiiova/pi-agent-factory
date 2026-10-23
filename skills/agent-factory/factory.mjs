@@ -15,8 +15,7 @@
  *
  * Later specs add nothing further; import completes the MVP command surface.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, chmodSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join, resolve, dirname, basename } from "node:path";
 import { homedir } from "node:os";
@@ -30,7 +29,7 @@ import { indent, diffLines } from "./diff.mjs";
 import { parseMcpFile, probeClis, scanSkills } from "./discover.mjs";
 import { loadYaml } from "./yaml-loader.mjs";
 import { importSystem } from "./import.mjs";
-import { declareDependencies } from "./deps.mjs";
+import { runtimePackages } from "./deps.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CURATED_CLIS = ["gh", "wrangler", "railway", "stripe", "npx", "git", "node"];
@@ -58,12 +57,15 @@ Exit codes:
   1  invalid, missing, or unparseable input; or an unknown command
 `;
 
-const RUNTIME_PACKAGES = ["pi-subagents", "pi-mcp-adapter", "pi-web-access"];
-
-
 function fail(message) {
   console.error(`error - ${message}`);
   process.exitCode = 1;
+}
+
+function printWarnings(warnings) {
+  for (const warning of Array.isArray(warnings) ? warnings : []) {
+    console.error(`warning - ${warning}`);
+  }
 }
 
 function isObject(value) {
@@ -194,12 +196,10 @@ function detectSkills(dir) {
   return scanSkills(skillFiles);
 }
 
-function gitRevParseHead() {
-  try {
-    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf-8" }).trim();
-  } catch {
-    return "";
-  }
+function writeGenerated(targetPath, file) {
+  mkdirSync(dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, file.content, "utf-8");
+  if (file.executable === true) chmodSync(targetPath, 0o755);
 }
 
 function readPiPackages() {
@@ -298,12 +298,8 @@ function runGenerate(dir, dryRun) {
   }
 
   const existing = readExisting(dir, normalized);
-  const packages = declareDependencies(
-    readPiPackages(),
-    process.env.FACTORY_PI_REV || gitRevParseHead(),
-    RUNTIME_PACKAGES,
-  );
-  const { files } = generateProject(normalized, existing, { packages });
+  const { files, warnings } = generateProject(normalized, existing, { piPackages: readPiPackages() });
+  printWarnings(warnings);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
   const conflicts = files.filter((f) => f.action === "conflict");
 
@@ -315,8 +311,7 @@ function runGenerate(dir, dryRun) {
 
   for (const f of changes) {
     const target = join(resolve(dir), f.path);
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, f.content, "utf-8");
+    writeGenerated(target, f);
     console.log(`wrote ${f.path} (${f.action})`);
   }
   mkdirSync(join(resolve(dir), ".pi", "agents"), { recursive: true });
@@ -376,12 +371,10 @@ function runImport(dir) {
   // Conservative additive scaffolding: create missing native files only. Every
   // existing file is preserved; derived files are never regenerated here.
   const existing = readExisting(target, system);
-  const { files } = generateProject(system, existing);
+  const { files } = generateProject(system, existing, { piPackages: readPiPackages() });
   for (const f of files) {
     if (f.action !== "create") continue;
-    const fileTarget = join(target, f.path);
-    mkdirSync(dirname(fileTarget), { recursive: true });
-    writeFileSync(fileTarget, f.content, "utf-8");
+    writeGenerated(join(target, f.path), f);
     console.log(`scaffolded ${f.path}`);
   }
   mkdirSync(join(target, ".pi", "agents"), { recursive: true });
@@ -405,7 +398,8 @@ async function runModify(dir, dryRun, yes) {
   }
 
   const existing = readExisting(dir, normalized);
-  const { files, conflicts } = modifyPlan(normalized, existing);
+  const { files, conflicts, warnings } = modifyPlan(normalized, existing, { piPackages: readPiPackages() });
+  printWarnings(warnings);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
 
   // Always preview the full planned diff before touching anything.
@@ -426,8 +420,7 @@ async function runModify(dir, dryRun, yes) {
 
   const apply = (f) => {
     const target = join(resolve(dir), f.path);
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, f.content, "utf-8");
+    writeGenerated(target, f);
     console.log(`wrote ${f.path} (${f.action})`);
   };
 

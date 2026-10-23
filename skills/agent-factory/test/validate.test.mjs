@@ -148,3 +148,19 @@ test("validateSystem rejects duplicate enforced rules for the same agent or mcp"
   const errors2 = validateSystem(doc2).errors;
   assert.ok(errors2.some((e) => e.includes("duplicate mcp rule")), "duplicate mcp rule rejected");
 });
+
+test("validateSystem accepts declared npm:/git: packages and rejects bad specs", () => {
+  const ok = validateSystem(validDoc({ packages: ["npm:foo@1.0.0", "git:github.com/x/y@v1"] }));
+  assert.deepEqual(ok, { ok: true, errors: [] });
+
+  for (const bad of [
+    ["file:../../local"],
+    ["GH_TOKEN=secret"],
+    ["not-a-package"],
+    "not-an-array",
+  ]) {
+    const { ok: valid, errors } = validateSystem(validDoc({ packages: bad }));
+    assert.equal(valid, false, `should reject ${JSON.stringify(bad)}`);
+    assert.ok(errors.some((e) => e.includes("document.packages")), `error names packages: ${errors.join("; ")}`);
+  }
+});

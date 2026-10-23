@@ -58,17 +58,17 @@ pass "factory import refuses to overwrite an existing system.yaml"
 # ── clean-environment (deterministic): pinned packages ─────────
 gen="$(mktemp -d)"
 cp -r "$templates/coding-agent/.pi" "$gen/.pi"
-FACTORY_PI_REV=0000000000000000000000000000000000000000 node "$factory" generate "$gen" >/dev/null
+node "$factory" generate "$gen" >/dev/null
 node -e '
 const s = require(process.argv[1]);
-if (!Array.isArray(s.packages)) process.exit(1);
-if (s.packages[0] !== "git:github.com/mihaiiova/pi-config@0000000000000000000000000000000000000000") process.exit(1);
-if (!s.packages.includes("npm:pi-subagents@0.65.0")) process.exit(1);
-if (!s.packages.includes("npm:pi-mcp-adapter@2.32.1")) process.exit(1);
-if (!s.packages.includes("npm:pi-web-access@0.27.0")) process.exit(1);
-' "$gen/.pi/settings.json" || fail "generated settings.json missing pinned packages"
+const expect = ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"];
+if (JSON.stringify(s.packages) !== JSON.stringify(expect)) {
+  console.error("packages = " + JSON.stringify(s.packages));
+  process.exit(1);
+}
+' "$gen/.pi/settings.json" || fail "generated settings.json missing minimal runtime packages"
 rm -rf "$gen"
-pass "clean-env: generated settings.json declares the pinned git + npm packages"
+pass "clean-env: generated settings.json declares only the runtime primitives"
 
 # ── clean-environment (gated): isolated install + run ──────────
 # The full isolation test (copy to a clean env → install declared deps → `pi`
@@ -78,7 +78,7 @@ pass "clean-env: generated settings.json declares the pinned git + npm packages"
 if command -v pi >/dev/null 2>&1 && [[ -n "${RUN_CLEAN_ENV_TEST:-}" ]]; then
   iso="$(mktemp -d)"
   cp -r "$templates/coding-agent/.pi" "$iso/.pi"
-  FACTORY_PI_REV=0000000000000000000000000000000000000000 node "$factory" generate "$iso" >/dev/null
+  node "$factory" generate "$iso" >/dev/null
   if out="$(cd "$iso" && timeout 90 pi -p "describe yourself" 2>&1)"; then
     pass "clean-env: generated coding-agent runs headlessly in an isolated dir"
   else

@@ -12,7 +12,7 @@ const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const TOP_LEVEL_KEYS = [
   "schema", "name", "description", "models", "orchestrator",
-  "agents", "skills", "integrations", "workflows", "policies",
+  "agents", "skills", "integrations", "workflows", "policies", "packages",
 ];
 const MODELS_KEYS = ["tiers", "parentTier", "subagents"];
 const TIER_KEYS = ["model", "thinking"];
@@ -71,6 +71,21 @@ function checkKebabCase(value, path, errors) {
         `hyphens between segments, no leading/trailing hyphen)`,
     );
   }
+}
+
+const PACKAGE_SPEC_RE = /^(npm|git):[^\s]+$/;
+
+function checkPackageSpecs(value, path, errors) {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array of strings`);
+    return;
+  }
+  value.forEach((spec, i) => {
+    if (!isNonEmptyString(spec) || !PACKAGE_SPEC_RE.test(spec)) {
+      errors.push(`${path}[${i}] must be an "npm:" or "git:" package spec`);
+    }
+  });
 }
 
 /** Collect names from a list of named blocks, reporting duplicates. */
@@ -135,6 +150,8 @@ export function validateSystem(doc) {
   if (doc.description !== undefined && !isNonEmptyString(doc.description)) {
     errors.push("document.description must be a non-empty string");
   }
+
+  checkPackageSpecs(doc.packages, "document.packages", errors);
 
   // ── models ──────────────────────────────────────────────────
   const tierNames = new Set();
