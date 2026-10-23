@@ -116,7 +116,7 @@ Allowed keys: `enforced` (array) and `advisory` (array of strings).
 - `enforced[]` entries carry exactly one discriminator:
   - `{ agent: <agents[].name>, tools: [string, …] }` → subagent tool allowlist.
   - `{ mcp: <integrations.mcp[].name>, hide: [string, …] }` → MCP
-    `toolExposure: hidden` (unreachable tools).
+    `excludeTools` (the pi-mcp-adapter mechanism for making tools unreachable).
 - `advisory[]` are behavioral guidance strings (README + skill text).
 
 ## 2. Validation rules

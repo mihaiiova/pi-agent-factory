@@ -12,21 +12,35 @@
  *
  * Later specs add discover, import, and modify.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { parseSystem } from "./parse.mjs";
 import { migrate } from "./migrate.mjs";
 import { validateSystem } from "./validate.mjs";
 import { generateProject, managedPaths } from "./generate.mjs";
+import { parseMcpFile, probeClis, scanSkills } from "./discover.mjs";
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const CURATED_CLIS = ["gh", "wrangler", "railway", "stripe", "npx", "git", "node"];
+const KNOWN_INTEGRATION_SKILLS = [
+  "use-railway",
+  "cloudflare",
+  "stripe-best-practices",
+  "turnstile-spin",
+  "owlie",
+];
 
 const USAGE = `Usage: factory <command> [options]
 
 Commands:
   validate <dir>             validate <dir>/.pi/system.yaml against schema v1
-  generate <dir> [--dry-run] generate the single-agent project from system.yaml
+  generate <dir> [--dry-run] generate the project from system.yaml
+  discover [dir]             print a read-only capability inventory as JSON
 
 Exit codes:
-  0  valid / generated (reported conflicts do not fail the run)
+  0  valid / generated / discovered (reported conflicts do not fail the run)
   1  invalid, missing, or unparseable system.yaml; or an unknown command
 `;
 
@@ -92,6 +106,78 @@ function runValidate(dir) {
     for (const e of errors) console.error(`error - ${e}`);
     process.exitCode = 1;
   }
+}
+
+function listFiles(dir, predicate) {
+  const out = [];
+  const walk = (current) => {
+    if (!existsSync(current)) return;
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const path = join(current, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile() && predicate(entry.name, path)) out.push(path);
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+function readMcpFile(path) {
+  if (!existsSync(path)) return {};
+  try {
+    return parseMcpFile(readFileSync(path, "utf-8"), path).mcpServers;
+  } catch {
+    return {};
+  }
+}
+
+function runDiscover(dir) {
+  const target = resolve(dir ?? process.cwd());
+
+  const mcpServers = {};
+  for (const path of [
+    join(homedir(), ".pi", "agent", "mcp.json"),
+    join(homedir(), ".config", "mcp", "mcp.json"),
+    join(target, ".mcp.json"),
+    join(target, ".pi", "mcp.json"),
+  ]) {
+    Object.assign(mcpServers, readMcpFile(path));
+  }
+
+  const skillFiles = {};
+  for (const dir of [
+    join(REPO_ROOT, "skills"),
+    join(homedir(), ".pi", "agent", "skills"),
+    join(target, ".pi", "skills"),
+  ]) {
+    for (const path of listFiles(dir, (name) => name === "SKILL.md")) {
+      try {
+        skillFiles[path] = readFileSync(path, "utf-8");
+      } catch {
+        // unreadable — skip
+      }
+    }
+  }
+
+  const subagents = listFiles(join(target, ".pi", "agents"), (name) => name.endsWith(".md"))
+    .map((path) => path.slice(path.lastIndexOf("/") + 1, -3));
+
+  const inventory = {
+    skills: scanSkills(skillFiles),
+    mcpServers,
+    clis: probeClis(CURATED_CLIS),
+    subagents,
+    knownIntegrations: KNOWN_INTEGRATION_SKILLS,
+  };
+
+  process.stdout.write(`${JSON.stringify(inventory, null, 2)}\n`);
+  process.exitCode = 0;
 }
 
 function pad(action) {
@@ -221,6 +307,11 @@ function main(argv) {
       return;
     }
     runGenerate(dir, dryRun);
+    return;
+  }
+
+  if (command === "discover") {
+    runDiscover(dir);
     return;
   }
 

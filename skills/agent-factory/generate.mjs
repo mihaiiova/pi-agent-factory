@@ -17,6 +17,8 @@
 import { createHash } from "node:crypto";
 import { generateSettings } from "../../extensions/pi-config/generate-settings.mjs";
 import { workflowSkill } from "./workflow-skill.mjs";
+import { mcpFromIntegrations } from "./mcpGen.mjs";
+import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 
 const MARKER = "agent-factory:generated v1";
 const MARKER_HTML_RE = /^<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->$/;
@@ -171,7 +173,7 @@ function buildSettings(model, existingText) {
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 
-function buildMcpJson(existingText) {
+function buildMcpJson(model, existingText) {
   let existing = {};
   if (typeof existingText === "string") {
     try {
@@ -183,8 +185,33 @@ function buildMcpJson(existingText) {
   if (!isPlainObject(existing)) existing = {};
 
   const out = { ...existing };
-  if (!isPlainObject(out.mcpServers)) out.mcpServers = {};
+  const integrations = isPlainObject(model.integrations) ? model.integrations : {};
+  const existingServers = isPlainObject(existing.mcpServers) ? existing.mcpServers : {};
+  out.mcpServers = mcpFromIntegrations(integrations.mcp, existingServers, model.policies);
   return `${JSON.stringify(out, null, 2)}\n`;
+}
+
+function policySection(model) {
+  const policies = isPlainObject(model.policies) ? model.policies : {};
+  const enforced = Array.isArray(policies.enforced) ? policies.enforced : [];
+  const advisory = advisoryText(policies);
+
+  const lines = ["## Policy", "", "### Enforced (cannot be bypassed)", ""];
+  const enforcedLines = [];
+  for (const rule of enforced) {
+    if (!isPlainObject(rule)) continue;
+    if (typeof rule.agent === "string" && Array.isArray(rule.tools)) {
+      const tools = rule.tools.length ? rule.tools.join(", ") : "(none)";
+      enforcedLines.push(`- \`${rule.agent}\` is restricted to tools: ${tools}`);
+    } else if (typeof rule.mcp === "string" && Array.isArray(rule.hide) && rule.hide.length) {
+      enforcedLines.push(`- MCP server \`${rule.mcp}\` hides tools: ${rule.hide.join(", ")}`);
+    }
+  }
+  lines.push(...(enforcedLines.length ? enforcedLines : ["None declared."]));
+  lines.push("", "### Advisory (guidance — not enforced)", "");
+  lines.push(...(advisory.length ? advisory.map((line) => `- ${line}`) : ["None declared."]));
+  lines.push("");
+  return lines.join("\n");
 }
 
 function readmeBody(model) {
@@ -201,6 +228,7 @@ function readmeBody(model) {
     "cd <project-dir> && pi",
     "```",
     "",
+    policySection(model),
   ].join("\n");
 }
 
@@ -215,13 +243,13 @@ function envBody(model) {
     .join("\n") + "\n";
 }
 
-function agentBody(agent, tiers) {
+function agentBody(agent, tiers, tools) {
   const tier = isPlainObject(tiers[agent.model]) ? tiers[agent.model] : {};
   const lines = ["---"];
   lines.push(`name: ${agent.name}`);
   if (isNonEmptyString(agent.description)) lines.push(`description: ${yamlString(agent.description)}`);
-  if (Array.isArray(agent.tools) && agent.tools.length > 0) {
-    lines.push(`tools: [${agent.tools.join(", ")}]`);
+  if (Array.isArray(tools)) {
+    lines.push(`tools: [${tools.join(", ")}]`);
   }
   if (isNonEmptyString(tier.model)) lines.push(`model: ${tier.model}`);
   if (isNonEmptyString(tier.thinking)) lines.push(`thinking: ${tier.thinking}`);
@@ -278,7 +306,8 @@ function agentFiles(model, existing) {
     : {};
   return agentEntries(model).map((agent) => {
     const path = agentPath(agent);
-    return authoredFile(path, "trailing-html", agentBody(agent, tiers), existing[path]);
+    const tools = enforcedAgentTools(agent.name, model.policies, agent.tools);
+    return authoredFile(path, "trailing-html", agentBody(agent, tiers, tools), existing[path]);
   });
 }
 
@@ -318,7 +347,7 @@ export function generateProject(model, existingFiles = {}) {
 
   const files = [
     derivedFile(".pi/settings.json", buildSettings(model, existing[".pi/settings.json"]), existing[".pi/settings.json"]),
-    derivedFile(".pi/mcp.json", buildMcpJson(existing[".pi/mcp.json"]), existing[".pi/mcp.json"]),
+    derivedFile(".pi/mcp.json", buildMcpJson(model, existing[".pi/mcp.json"]), existing[".pi/mcp.json"]),
     authoredFile(".pi/APPEND_SYSTEM.md", "html", prompt, existing[".pi/APPEND_SYSTEM.md"]),
     authoredFile("README.md", "html", readmeBody(model), existing["README.md"]),
     authoredFile(".gitignore", "plain", GITIGNORE_BODY, existing[".gitignore"]),

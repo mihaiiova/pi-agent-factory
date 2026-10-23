@@ -254,7 +254,7 @@ Two distinct, separable concerns:
 | **Workflow** | implement as convention | a skill that orchestrates subagents; declared metadata in `system.yaml` | — |
 | **Trigger** | manual only | `trigger: {kind: manual}` + headless `pi -p` | schedule (deferred) |
 | **State / Knowledge** | implement as convention | `data/` (gitignored) + `data/knowledge/`; optional `.pi/state.json` | richer memory (deferred) |
-| **Policy** | implement (advisory + least-privilege) | subagent `tools:` allowlists + MCP `toolExposure: hidden` (enforced); README/skill guidance (advisory) | `tool_call` guard extension (deferred) |
+| **Policy** | implement (advisory + least-privilege) | subagent `tools:` allowlists + MCP `excludeTools` (enforced); README/skill guidance (advisory) | `tool_call` guard extension (deferred) |
 
 No workflow engine is built: workflows are skills that call the existing
 `subagent` tool. Declared workflow metadata exists only for discoverability,
@@ -382,7 +382,7 @@ policies:
     - agent: seo-analyst
       tools: [read, grep, find, ls]     # → subagent allowlist (pi-subagents)
     - mcp: openseo
-      hide: ["publish_*", "delete_*"]   # → toolExposure: hidden (unreachable)
+      hide: ["publish_*", "delete_*"]   # → excludeTools (unreachable)
   advisory:                            # behavioral guidance — README + skill text
     - "Publishing requires human confirmation: the workflow drafts to data/articles/ and the user publishes."
 ```
@@ -407,7 +407,7 @@ The generator maps this 1:1:
 - `workflows[]` → the named `skill` plus a `README.md` table; the skill
   orchestrates `subagent` calls but does not prescribe internal steps.
 - `policies.enforced[]` → agent `tools:` allowlists (pi-subagents) + MCP
-  `toolExposure: hidden` (unreachable tools). `policies.advisory[]` → `README.md`
+  `excludeTools` (unreachable tools). `policies.advisory[]` → `README.md`
   + skill text. A `tool_call`-guard extension is the deferred mechanism for
   enforcing a *present* tool's use.
 

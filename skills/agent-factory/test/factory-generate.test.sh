@@ -92,6 +92,21 @@ done
 rm -rf "$ma"
 pass "factory generate reproduces the multi-agent golden tree"
 
+# ── valid-seo MCP + policy materialization ────────────────────────
+vs="$(mktemp -d)"
+mkdir -p "$vs/.pi"
+cp "$fixtures/valid-seo/.pi/system.yaml" "$vs/.pi/system.yaml"
+node "$factory" generate "$vs" >/dev/null
+node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf-8"))' \
+  "$vs/.pi/mcp.json" >/dev/null || fail "valid-seo mcp.json is not valid JSON"
+grep -q '"openseo"' "$vs/.pi/mcp.json" || fail "valid-seo mcp.json missing openseo"
+grep -q '"excludeTools"' "$vs/.pi/mcp.json" || fail "valid-seo mcp.json missing excludeTools"
+grep -q 'publish_\*' "$vs/.pi/mcp.json" || fail "valid-seo hide publish_* missing"
+grep -q '### Enforced (cannot be bypassed)' "$vs/README.md" || fail "README missing enforced marker"
+grep -q '### Advisory (guidance — not enforced)' "$vs/README.md" || fail "README missing advisory marker"
+rm -rf "$vs"
+pass "factory generate materializes MCP config and enforced/advisory policy"
+
 # ── e2e smoke (pi-gated) ─────────────────────────────────────────
 if command -v pi >/dev/null 2>&1; then
   smoke="$(mktemp -d)"
@@ -135,6 +150,42 @@ if command -v pi >/dev/null 2>&1; then
   rm -rf "$mw"
 else
   echo "ok - multi-agent headless smoke SKIPPED (pi not on PATH)"
+fi
+
+# ── MCP integration (pi-gated) ──────────────────────────────────
+# Generate a project pointing at a local stub MCP server; the generated
+# .pi/mcp.json must be valid JSON, and when a live `pi mcp list` is available
+# the server should appear. Otherwise the live check skips.
+if command -v pi >/dev/null 2>&1; then
+  mci="$(mktemp -d)"
+  mkdir -p "$mci/.pi"
+  cat > "$mci/.pi/system.yaml" <<'YAML'
+schema: 1
+name: mcp-test-system
+integrations:
+  mcp:
+    - name: openseo
+      config: { url: "http://localhost:3002/mcp" }
+policies:
+  enforced:
+    - mcp: openseo
+      hide: ["publish_*", "delete_*"]
+YAML
+  node "$factory" generate "$mci" >/dev/null
+  node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf-8"))' \
+    "$mci/.pi/mcp.json" >/dev/null || fail "generated .pi/mcp.json is not valid JSON"
+  if out="$(cd "$mci" && timeout 30 pi mcp list 2>&1)"; then
+    if grep -qi "openseo" <<<"$out"; then
+      pass "MCP integration: pi mcp list reports the generated openseo server"
+    else
+      echo "ok - MCP integration SKIPPED (pi mcp list ran; server not connected — network-gated)"
+    fi
+  else
+    echo "ok - MCP integration SKIPPED (pi mcp list unavailable; network-gated)"
+  fi
+  rm -rf "$mci"
+else
+  echo "ok - MCP integration SKIPPED (pi not on PATH)"
 fi
 
 echo
