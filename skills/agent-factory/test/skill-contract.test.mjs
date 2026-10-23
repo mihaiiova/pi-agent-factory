@@ -26,6 +26,12 @@ test("SKILL.md reuses the graded interview and previews before applying", () => 
   assert.ok(skill.includes("--dry-run"), "references the preview-before-apply dry-run");
 });
 
+test("SKILL.md recommends not-installed capabilities with install instructions", () => {
+  assert.ok(skill.includes("knownIntegrations"), "names the discovery source for not-installed candidates");
+  assert.ok(/not-installed/.test(skill), "recommends not-installed items");
+  assert.ok(/install\s+instructions/.test(skill), "promises install instructions");
+});
+
 test("SKILL.md states the enforced-vs-advisory split and the ownership contract", () => {
   assert.ok(skill.includes("Enforced"), "states the enforced category");
   assert.ok(skill.includes("Advisory"), "states the advisory category");

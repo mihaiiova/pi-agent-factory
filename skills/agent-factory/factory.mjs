@@ -6,7 +6,7 @@
  *   validate <dir>             parse + migrate + validate <dir>/.pi/system.yaml
  *   generate <dir> [--dry-run] materialize a Pi project from system.yaml
  *   discover [dir]             print a read-only capability inventory as JSON
- *   modify <dir> [flags]        diff project vs model and apply confirmed changes
+ *   modify <dir> [--dry-run] [--yes]  diff project vs model, apply confirmed changes
  *
  * Exit codes:
  *   0  valid / generated / discovered / modified (reported conflicts do not fail)
@@ -199,8 +199,8 @@ function pad(action) {
   return action.padEnd(9, " ");
 }
 
-function printPlan(systemPath, dir, files, existing) {
-  console.log(`Planned changes (dry run — nothing written) for ${systemPath}:`);
+function printPlan(systemPath, dir, files, existing, label) {
+  console.log(`${label} for ${systemPath}:`);
   if (!existsSync(join(resolve(dir), ".pi", "agents"))) {
     console.log(`  ${pad("create")} .pi/agents/ (empty directory)`);
   }
@@ -210,12 +210,10 @@ function printPlan(systemPath, dir, files, existing) {
     if (f.action === "create") {
       console.log(indent(f.content, "    + "));
     } else if (f.action === "write") {
-      console.log(indent(diffLines(existing[f.path] ?? "", f.content), "    "));
+      console.log(indent(f.diff ?? diffLines(existing[f.path] ?? "", f.content), "    "));
     } else if (f.action === "conflict") {
-      console.log(`    current (user):`);
-      console.log(indent(existing[f.path] ?? "", "      "));
-      console.log(`    proposed (model):`);
-      console.log(indent(f.desired ?? "", "      "));
+      console.log(`    (user edit vs model change — proposed diff)`);
+      console.log(indent(f.diff ?? diffLines(existing[f.path] ?? "", f.desired ?? ""), "    "));
     }
   }
 }
@@ -238,7 +236,7 @@ function runGenerate(dir, dryRun) {
   const conflicts = files.filter((f) => f.action === "conflict");
 
   if (dryRun) {
-    printPlan(systemPath, dir, files, existing);
+    printPlan(systemPath, dir, files, existing, "Planned changes (dry run — nothing written)");
     process.exitCode = 0;
     return;
   }
@@ -274,9 +272,17 @@ async function runModify(dir, dryRun, yes) {
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
 
   // Always preview the full planned diff before touching anything.
-  printPlan(systemPath, dir, files, existing);
+  printPlan(systemPath, dir, files, existing, dryRun
+    ? "Planned changes (dry run — nothing written)"
+    : "Preview of changes to apply");
 
-  if (dryRun || (!yes && !process.stdin.isTTY)) {
+  if (dryRun) {
+    process.exitCode = 0;
+    return;
+  }
+
+  if (!yes && !process.stdin.isTTY) {
+    console.error("error - non-interactive without --yes: no changes applied (preview only). Use --dry-run or --yes.");
     process.exitCode = 0;
     return;
   }
