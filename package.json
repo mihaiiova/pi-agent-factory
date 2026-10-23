@@ -1,6 +1,6 @@
 {
   "name": "pi-config",
-  "version": "0.3.1-dev",
+  "version": "0.4.1-dev",
   "private": true,
   "keywords": [
     "pi-package"
