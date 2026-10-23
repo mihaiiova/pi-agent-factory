@@ -72,6 +72,26 @@ grep -q "coding" "$ca/.pi/APPEND_SYSTEM.md" || fail "coding-agent APPEND_SYSTEM.
 rm -rf "$ca"
 pass "factory generate on the coding-agent fixture produces the orchestrator surface"
 
+# ── multi-agent materialization + golden ────────────────────────
+ma="$(mktemp -d)"
+cp -r "$fixtures/generate/multi-agent/.pi" "$ma/"
+node "$factory" generate "$ma" >/dev/null
+for a in seo-analyst article-writer researcher; do
+  [[ -f "$ma/.pi/agents/$a.md" ]] || fail "multi-agent generate did not create .pi/agents/$a.md"
+done
+[[ -f "$ma/.pi/skills/analyze-and-draft/SKILL.md" ]] || fail "workflow skill missing"
+[[ -f "$ma/.pi/skills/refresh-product-knowledge/SKILL.md" ]] || fail "skill missing"
+grep -q '^name: seo-analyst$' "$ma/.pi/agents/seo-analyst.md" || fail "agent frontmatter name wrong"
+grep -q 'tools: \[read, grep, find, ls\]' "$ma/.pi/agents/seo-analyst.md" || fail "agent tools allowlist wrong"
+grep -q 'model: deepseek/deepseek-v4-flash' "$ma/.pi/agents/seo-analyst.md" || fail "agent model tier not mapped"
+grep -q 'Approval boundary: publish' "$ma/.pi/skills/analyze-and-draft/SKILL.md" || fail "workflow approval boundary missing"
+tail -n1 "$ma/.pi/agents/seo-analyst.md" | grep -q 'agent-factory:generated v1 sha256=' || fail "agent missing trailing marker"
+for f in $(cd "$fixtures/generate/multi-agent/golden" && find . -type f | sort); do
+  cmp -s "$fixtures/generate/multi-agent/golden/$f" "$ma/$f" || fail "golden mismatch: $f"
+done
+rm -rf "$ma"
+pass "factory generate reproduces the multi-agent golden tree"
+
 # ── e2e smoke (pi-gated) ─────────────────────────────────────────
 if command -v pi >/dev/null 2>&1; then
   smoke="$(mktemp -d)"

@@ -17,7 +17,7 @@ import { join, resolve, dirname } from "node:path";
 import { parseSystem } from "./parse.mjs";
 import { migrate } from "./migrate.mjs";
 import { validateSystem } from "./validate.mjs";
-import { generateProject, GENERATED_PATHS } from "./generate.mjs";
+import { generateProject, managedPaths } from "./generate.mjs";
 
 const USAGE = `Usage: factory <command> [options]
 
@@ -64,9 +64,9 @@ function loadModel(dir) {
   return { systemPath, normalized, ok, errors };
 }
 
-function readExisting(dir) {
+function readExisting(dir, model) {
   const existing = {};
-  for (const rel of GENERATED_PATHS) {
+  for (const rel of managedPaths(model)) {
     const path = join(resolve(dir), rel);
     if (existsSync(path)) {
       try {
@@ -152,7 +152,7 @@ function runGenerate(dir, dryRun) {
     return;
   }
 
-  const existing = readExisting(dir);
+  const existing = readExisting(dir, normalized);
   const { files } = generateProject(normalized, existing);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
   const conflicts = files.filter((f) => f.action === "conflict");

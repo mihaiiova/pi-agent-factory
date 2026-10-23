@@ -16,10 +16,12 @@
  */
 import { createHash } from "node:crypto";
 import { generateSettings } from "../../extensions/pi-config/generate-settings.mjs";
+import { workflowSkill } from "./workflowSkill.mjs";
 
 const MARKER = "agent-factory:generated v1";
 const MARKER_HTML_RE = /^<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->$/;
 const MARKER_PLAIN_RE = /^# agent-factory:generated v1 sha256=([0-9a-f]{64})$/;
+const MARKER_HTML_TRAILING_RE = /\n<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->[ \t]*\n?$/;
 
 const GITIGNORE_BODY = [
   "data/*",
@@ -47,24 +49,37 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function yamlString(value) {
+  const s = String(value);
+  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 function sha256(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-function markerLine(style, body) {
-  const hash = sha256(body);
-  return style === "html"
-    ? `<!-- ${MARKER} sha256=${hash} -->`
-    : `# ${MARKER} sha256=${hash}`;
+function markerLineText(style, hash) {
+  return style === "plain" ? `# ${MARKER} sha256=${hash}` : `<!-- ${MARKER} sha256=${hash} -->`;
 }
 
 function markedContent(style, body) {
-  return `${markerLine(style, body)}\n${body}`;
+  const line = markerLineText(style, sha256(body));
+  if (style === "trailing-html") return `${body}\n${line}\n`;
+  return `${line}\n${body}`;
 }
 
 /** Split a marked file into `{ hash, body }`, or null when no marker is present. */
 function parseMarked(content, style) {
   if (typeof content !== "string") return null;
+  if (style === "trailing-html") {
+    const match = content.match(MARKER_HTML_TRAILING_RE);
+    if (!match) return null;
+    return { hash: match[1], body: content.slice(0, match.index) };
+  }
   const nl = content.indexOf("\n");
   const firstLine = nl === -1 ? content : content.slice(0, nl);
   const body = nl === -1 ? "" : content.slice(nl + 1);
@@ -200,6 +215,83 @@ function envBody(model) {
     .join("\n") + "\n";
 }
 
+function agentBody(agent, tiers) {
+  const tier = isPlainObject(tiers[agent.model]) ? tiers[agent.model] : {};
+  const lines = ["---"];
+  lines.push(`name: ${agent.name}`);
+  if (isNonEmptyString(agent.description)) lines.push(`description: ${yamlString(agent.description)}`);
+  if (Array.isArray(agent.tools) && agent.tools.length > 0) {
+    lines.push(`tools: [${agent.tools.join(", ")}]`);
+  }
+  if (isNonEmptyString(tier.model)) lines.push(`model: ${tier.model}`);
+  if (isNonEmptyString(tier.thinking)) lines.push(`thinking: ${tier.thinking}`);
+  const prompt = isNonEmptyString(agent.prompt) ? agent.prompt : "";
+  if (prompt) {
+    lines.push("systemPrompt: |");
+    for (const line of prompt.replace(/\n$/, "").split("\n")) lines.push(`  ${line}`);
+  } else {
+    lines.push('systemPrompt: ""');
+  }
+  lines.push("---");
+  return lines.join("\n") + "\n";
+}
+
+function skillFileBody(skill, workflowBySkill) {
+  const lines = ["---"];
+  lines.push(`name: ${skill.name}`);
+  if (isNonEmptyString(skill.description)) lines.push(`description: ${yamlString(skill.description)}`);
+  lines.push("---");
+
+  let body = "";
+  if (isNonEmptyString(skill.body)) {
+    body = skill.body;
+  } else {
+    const wf = workflowBySkill.get(skill.name);
+    if (wf) body = workflowSkill(wf).body;
+  }
+  return lines.join("\n") + "\n\n" + body;
+}
+
+function agentFiles(model, existing) {
+  const agents = Array.isArray(model.agents) ? model.agents : [];
+  const tiers = isPlainObject(model.models) && isPlainObject(model.models.tiers)
+    ? model.models.tiers
+    : {};
+  return agents
+    .filter((agent) => isPlainObject(agent) && isNonEmptyString(agent.name))
+    .map((agent) => {
+      const path = `.pi/agents/${agent.name}.md`;
+      return authoredFile(path, "trailing-html", agentBody(agent, tiers), existing[path]);
+    });
+}
+
+function skillFiles(model, existing) {
+  const skills = Array.isArray(model.skills) ? model.skills : [];
+  const workflows = Array.isArray(model.workflows) ? model.workflows : [];
+  const workflowBySkill = new Map();
+  for (const wf of workflows) {
+    if (isPlainObject(wf) && isNonEmptyString(wf.skill)) workflowBySkill.set(wf.skill, wf);
+  }
+  return skills
+    .filter((skill) => isPlainObject(skill) && isNonEmptyString(skill.name))
+    .map((skill) => {
+      const path = `.pi/skills/${skill.name}/SKILL.md`;
+      return authoredFile(path, "trailing-html", skillFileBody(skill, workflowBySkill), existing[path]);
+    });
+}
+
+/** Every project-relative path `generate` may write for a given model. */
+export function managedPaths(model) {
+  const paths = [...GENERATED_PATHS];
+  for (const agent of Array.isArray(model.agents) ? model.agents : []) {
+    if (isPlainObject(agent) && isNonEmptyString(agent.name)) paths.push(`.pi/agents/${agent.name}.md`);
+  }
+  for (const skill of Array.isArray(model.skills) ? model.skills : []) {
+    if (isPlainObject(skill) && isNonEmptyString(skill.name)) paths.push(`.pi/skills/${skill.name}/SKILL.md`);
+  }
+  return paths;
+}
+
 /**
  * Compute the planned file writes for a validated model against the current
  * project files on disk.
@@ -222,6 +314,8 @@ export function generateProject(model, existingFiles = {}) {
     authoredFile(".gitignore", "plain", GITIGNORE_BODY, existing[".gitignore"]),
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),
     sentinelFile("data/knowledge/.gitkeep", existing["data/knowledge/.gitkeep"]),
+    ...agentFiles(model, existing),
+    ...skillFiles(model, existing),
   ];
 
   files.sort((a, b) => a.path.localeCompare(b.path));
