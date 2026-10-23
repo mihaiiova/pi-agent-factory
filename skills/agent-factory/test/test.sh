@@ -7,7 +7,7 @@ pass() { echo "ok - $1"; }
 fail() { echo "not ok - $1" >&2; exit 1; }
 
 # ── Pure-module node:test suites ────────────────────────────────
-for module in parse validate migrate models-mapping; do
+for module in parse validate migrate models-mapping generate; do
   if out="$(node --test "$here/$module.test.mjs" 2>&1)"; then
     pass "$module.test.mjs"
   else
@@ -21,6 +21,13 @@ if bash "$here/factory-validate.test.sh"; then
   pass "factory-validate.test.sh"
 else
   fail "factory-validate.test.sh"
+fi
+
+# ── factory generate CLI harness ────────────────────────────────
+if bash "$here/factory-generate.test.sh"; then
+  pass "factory-generate.test.sh"
+else
+  fail "factory-generate.test.sh"
 fi
 
 echo

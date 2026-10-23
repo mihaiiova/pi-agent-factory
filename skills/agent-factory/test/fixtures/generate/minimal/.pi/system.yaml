@@ -1,0 +1,18 @@
+schema: 1
+name: seo-agent-system
+description: "SEO analysis + article drafting"
+models:
+  tiers:
+    high: { model: openai-codex/gpt-5.6-terra, thinking: medium }
+    medium: { model: deepseek/deepseek-v4-pro, thinking: high }
+    small: { model: deepseek/deepseek-v4-flash, thinking: low }
+  parentTier: high
+  subagents: { worker: medium, scout: small, reviewer: small, oracle: high }
+orchestrator:
+  name: orchestrator
+  description: "Primary SEO agent that coordinates the system"
+  prompt: |
+    You coordinate the SEO system. Delegate analysis to specialists and draft
+    articles, then write outputs under data/.
+  model: high
+  tools: [read, grep, find, ls, bash, edit, write, subagent]
