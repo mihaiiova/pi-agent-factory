@@ -2,7 +2,7 @@
  * modify — diff a validated model against the current project and produce a
  * plan for surgical application.
  *
- * Pure seam: `modifyPlan(model, existingFiles) -> { files, conflicts }`. It
+ * Pure seam: `modifyPlan(model, existingFiles) -> { files, conflicts, warnings, errors }`. It
  * reuses `generateProject` (identical ownership contract: derived files
  * regenerate merge-preserving; authored files are scaffold-once and
  * fingerprint-protected, never silently overwritten) and annotates every
@@ -23,7 +23,7 @@ function isPlainObject(value) {
  */
 export function modifyPlan(model, existingFiles = {}, opts = {}) {
   const existing = isPlainObject(existingFiles) ? existingFiles : {};
-  const { files, warnings } = generateProject(model, existing, opts);
+  const { files, warnings, errors } = generateProject(model, existing, opts);
 
   const annotated = files.map((f) => {
     if (f.action === "write") {
@@ -36,5 +36,5 @@ export function modifyPlan(model, existingFiles = {}, opts = {}) {
   });
 
   const conflicts = annotated.filter((f) => f.action === "conflict");
-  return { files: annotated, conflicts, warnings };
+  return { files: annotated, conflicts, warnings, errors };
 }

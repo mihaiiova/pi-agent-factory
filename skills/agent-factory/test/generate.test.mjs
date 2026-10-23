@@ -102,8 +102,10 @@ test("unrelated keys in .pi/mcp.json survive regeneration", () => {
   const { files } = generateProject(model, existing);
   const mcp = JSON.parse(byPath(files, ".pi/mcp.json").content);
 
-  assert.equal(mcp.extra, true, "unrelated key preserved");
-  assert.deepEqual(mcp.mcpServers, { openseo: { url: "http://localhost:3002/mcp" } });
+  assert.equal(mcp.extra, true, "non-capability key preserved");
+  // system.yaml is authoritative: the model declares no MCP servers, so a
+  // previously-present (undeclared) server is dropped, not preserved.
+  assert.deepEqual(mcp.mcpServers, {}, "undeclared server removed");
 });
 
 test("user edits to an authored file survive when the model is unchanged", () => {
@@ -211,6 +213,13 @@ test("runtime packages are computed from piPackages + declared model packages", 
   const plain = generateProject(model, {});
   const plainSettings = JSON.parse(byPath(plain.files, ".pi/settings.json").content);
   assert.equal(plainSettings.packages, undefined);
+});
+
+test("generateProject reports missing runtime primitives as errors", () => {
+  const { files, errors } = generateProject(model, {}, { piPackages: [] });
+  assert.ok(errors.length >= 2, "both required primitives are reported missing");
+  const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
+  assert.equal(settings.packages, undefined, "no incomplete packages list is emitted");
 });
 
 test("generateProject emits the executable run launcher", () => {

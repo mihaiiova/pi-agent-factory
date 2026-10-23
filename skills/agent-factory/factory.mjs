@@ -25,11 +25,11 @@ import { migrate } from "./migrate.mjs";
 import { validateSystem } from "./validate.mjs";
 import { generateProject, managedPaths } from "./generate.mjs";
 import { modifyPlan } from "./modify.mjs";
+import { effectiveCapabilities, checkCapabilities } from "./capabilities.mjs";
 import { indent, diffLines } from "./diff.mjs";
 import { parseMcpFile, probeClis, scanSkills } from "./discover.mjs";
 import { loadYaml } from "./yaml-loader.mjs";
 import { importSystem } from "./import.mjs";
-import { runtimePackages } from "./deps.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CURATED_CLIS = ["gh", "wrangler", "railway", "stripe", "npx", "git", "node"];
@@ -66,6 +66,13 @@ function printWarnings(warnings) {
   for (const warning of Array.isArray(warnings) ? warnings : []) {
     console.error(`warning - ${warning}`);
   }
+}
+
+function failOnErrors(errors) {
+  if (!Array.isArray(errors) || errors.length === 0) return false;
+  for (const error of errors) console.error(`error - ${error}`);
+  process.exitCode = 1;
+  return true;
 }
 
 function isObject(value) {
@@ -298,7 +305,8 @@ function runGenerate(dir, dryRun) {
   }
 
   const existing = readExisting(dir, normalized);
-  const { files, warnings } = generateProject(normalized, existing, { piPackages: readPiPackages() });
+  const { files, warnings, errors: depErrors } = generateProject(normalized, existing, { piPackages: readPiPackages() });
+  if (failOnErrors(depErrors)) return;
   printWarnings(warnings);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
   const conflicts = files.filter((f) => f.action === "conflict");
@@ -315,6 +323,18 @@ function runGenerate(dir, dryRun) {
     console.log(`wrote ${f.path} (${f.action})`);
   }
   mkdirSync(join(resolve(dir), ".pi", "agents"), { recursive: true });
+
+  // Write the deterministic effective-capability manifest and verify the
+  // just-generated config matches the model (defense against drift).
+  const settingsFile = files.find((f) => f.path === ".pi/settings.json");
+  const mcpFile = files.find((f) => f.path === ".pi/mcp.json");
+  const settingsJson = settingsFile ? JSON.parse(settingsFile.content) : {};
+  const mcpJson = mcpFile ? JSON.parse(mcpFile.content) : {};
+  const caps = effectiveCapabilities(normalized, { piPackages: readPiPackages() });
+  mkdirSync(join(resolve(dir), ".factory"), { recursive: true });
+  writeFileSync(join(resolve(dir), ".factory", "capabilities.json"), `${JSON.stringify(caps, null, 2)}\n`, "utf-8");
+  const check = checkCapabilities(normalized, { settings: settingsJson, mcpJson }, { piPackages: readPiPackages() });
+  for (const e of check.errors) console.error(`warning - ${e}`);
 
   for (const c of conflicts) {
     console.error(`conflict - ${c.path}: user edit vs model change; not applied. Proposed:\n${c.desired}`);
@@ -348,6 +368,9 @@ function runImport(dir) {
   };
 
   const { system, report } = importSystem(settings, piConfig, detected);
+
+  // Fail before writing anything if runtime dependencies cannot be resolved.
+  if (failOnErrors(generateProject(system, {}, { piPackages: readPiPackages() }).errors)) return;
 
   const systemPath = join(target, ".pi", "system.yaml");
   if (existsSync(systemPath)) {
@@ -398,7 +421,8 @@ async function runModify(dir, dryRun, yes) {
   }
 
   const existing = readExisting(dir, normalized);
-  const { files, conflicts, warnings } = modifyPlan(normalized, existing, { piPackages: readPiPackages() });
+  const { files, conflicts, warnings, errors: depErrors } = modifyPlan(normalized, existing, { piPackages: readPiPackages() });
+  if (failOnErrors(depErrors)) return;
   printWarnings(warnings);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
 

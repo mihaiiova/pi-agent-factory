@@ -30,17 +30,39 @@ function parseNpmSpec(entry) {
   return { name, version };
 }
 
-/** A declared package must be an `npm:` or `git:` spec, never a local path. */
-function isValidDeclaredSpec(spec) {
-  return isString(spec) && !LOCAL_PATH_RE.test(spec) && /^(npm|git):[^\s]+$/.test(spec);
+/** A declared package must be an `npm:`/`git:` spec, pinned, never a local path. */
+function declaredSpecError(spec) {
+  if (!isString(spec) || spec === "") return "declared package must be a non-empty string";
+  if (LOCAL_PATH_RE.test(spec)) {
+    return `declared package "${spec}" must not be a local path (file:/link:/abs/./../)`;
+  }
+  if (spec.startsWith("npm:")) {
+    const parsed = parseNpmSpec(spec);
+    if (!parsed || !parsed.version) {
+      return `declared package "${spec}" must be a pinned npm:<name>@<version>`;
+    }
+    return null;
+  }
+  if (spec.startsWith("git:")) {
+    const rest = spec.slice(4);
+    const at = rest.lastIndexOf("@");
+    if (at <= 0 || at === rest.length - 1) {
+      return `declared package "${spec}" must be a pinned git:<repo>@<ref>`;
+    }
+    return null;
+  }
+  return `declared package "${spec}" must be an npm: or git: spec`;
 }
 
 /**
  * @param {string[]} [piPackages] pi-config's own `pi.packages` (`npm:<name>@<version>`).
  * @param {string[]} [declared] the model's declared `packages` (npm:/git: specs).
- * @returns {string[]} the runtime `packages` list (primitives first, then declared).
+ * @returns {{ packages: string[], errors: string[] }} primitives first, then declared;
+ *   `errors` is non-empty when a required primitive is missing/unpinned or a
+ *   declared spec is invalid/conflicting (never silently incomplete).
  */
 export function runtimePackages(piPackages, declared = []) {
+  const errors = [];
   const pins = [];
 
   const byName = new Map();
@@ -51,12 +73,31 @@ export function runtimePackages(piPackages, declared = []) {
 
   for (const name of RUNTIME_PRIMITIVES) {
     const entry = byName.get(name);
-    if (entry) pins.push(entry);
+    if (!entry) {
+      errors.push(`required runtime dependency "${name}" is not present in pi-config's pi.packages`);
+      continue;
+    }
+    const parsed = parseNpmSpec(entry);
+    if (!parsed || !parsed.version) {
+      errors.push(`required runtime dependency "${name}" must be a pinned npm:<name>@<version> (got "${entry}")`);
+      continue;
+    }
+    pins.push(entry);
   }
 
   for (const spec of Array.isArray(declared) ? declared : []) {
-    if (isValidDeclaredSpec(spec) && !pins.includes(spec)) pins.push(spec);
+    const parsed = parseNpmSpec(spec);
+    if (parsed && RUNTIME_PRIMITIVES.includes(parsed.name)) {
+      const pinned = byName.get(parsed.name);
+      if (pinned && pinned !== spec) {
+        errors.push(`declared package "${spec}" conflicts with the pinned runtime primitive "${pinned}"`);
+      }
+      continue; // primitive already pinned above; never re-emit
+    }
+    const err = declaredSpecError(spec);
+    if (err) errors.push(err);
+    else if (!pins.includes(spec)) pins.push(spec);
   }
 
-  return pins;
+  return { packages: pins, errors };
 }

@@ -73,7 +73,7 @@ function checkKebabCase(value, path, errors) {
   }
 }
 
-const PACKAGE_SPEC_RE = /^(npm|git):[^\s]+$/;
+const PACKAGE_SPEC_RE = /^(npm:(@[^/\s]+\/)?[^@\s]+@[^@\s]+|git:[^\s]+@[^\s]+)$/;
 
 function checkPackageSpecs(value, path, errors) {
   if (value === undefined) return;
@@ -83,7 +83,9 @@ function checkPackageSpecs(value, path, errors) {
   }
   value.forEach((spec, i) => {
     if (!isNonEmptyString(spec) || !PACKAGE_SPEC_RE.test(spec)) {
-      errors.push(`${path}[${i}] must be an "npm:" or "git:" package spec`);
+      errors.push(
+        `${path}[${i}] must be a pinned package spec: "npm:name@version" (scoped names allowed) or "git:...@ref"`,
+      );
     }
   });
 }

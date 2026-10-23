@@ -29,13 +29,19 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    found installed.
 4. **Generate** — write `system.yaml`, then **preview first**: run
    `factory generate <dir> --dry-run` and show the planned diff. Only apply after
-   the user confirms.
+   the user confirms. Generation also writes `.factory/capabilities.json` — the
+   deterministic effective-capability manifest (orchestrator/subagent tools,
+   skills, MCP servers + exclusions, packages) derived from `system.yaml`, used
+   to inspect and cross-check the generated capability surface.
 5. **Configure** — help with credentials: env vars, `gh auth`, and MCP env vars.
    **Never write a secret into a committed file** — only `${ENV}` references and
    `.env.example` templates. **Done when** every required credential is declared as
    a `${ENV}`/`.env.example` entry and no secret is committed.
-6. **Validate** — `factory validate <dir>`, then a headless smoke run
-   (`pi -p "<workflow input>"`).
+6. **Validate** — `factory validate <dir>`, then a headless smoke run through
+   the generated launcher (`./run -p "<workflow input>"`). The launcher is the
+   canonical entry point and runs the system under its own isolated Pi config
+   directory (`PI_CODING_AGENT_DIR=.factory/pi-home`), so the host's global
+   skills/MCP/extensions/credentials are not inherited.
 7. **Modify** — later sessions reopen the project, read `system.yaml`, preview with
    `factory modify <dir> --dry-run`, and apply only confirmed changes.
 

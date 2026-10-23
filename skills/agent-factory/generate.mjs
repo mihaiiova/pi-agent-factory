@@ -195,9 +195,9 @@ function buildMcpJson(model, existingText) {
   if (!isPlainObject(existing)) existing = {};
 
   const out = { ...existing };
+  delete out.mcpServers; // capability-bearing — authoritative from the model, never merged
   const integrations = isPlainObject(model.integrations) ? model.integrations : {};
-  const existingServers = isPlainObject(existing.mcpServers) ? existing.mcpServers : {};
-  out.mcpServers = mcpFromIntegrations(integrations.mcp, existingServers, model.policies);
+  out.mcpServers = mcpFromIntegrations(integrations.mcp, model.policies);
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 
@@ -234,9 +234,18 @@ function readmeBody(model) {
     "",
     "## Run",
     "",
+    "The generated `./run` launcher is the entry point. It starts Pi with the",
+    "project's own isolated config directory so your global skills, MCP servers,",
+    "extensions, and credentials are not inherited.",
+    "",
     "```sh",
-    "cd <project-dir> && pi",
+    "./run             # interactive",
+    "./run -p \"...\"   # headless one-shot",
     "```",
+    "",
+    "Authenticate once in the isolated context (`./run --login`), or export",
+    "`PI_API_KEY` / a provider key. See the policy section below for which",
+    "capabilities are enforced vs advisory.",
     "",
     policySection(model),
   ].join("\n");
@@ -352,9 +361,9 @@ export function managedPaths(model) {
  *
  * @param {object} model the migrated, validated `system.yaml` document.
  * @param {Record<string, string>} [existingFiles] project-relative path → text.
- * @param {{ packages?: string[] }} [opts] extra deterministic inputs (pinned
+ * @param {{ piPackages?: string[] }} [opts] extra deterministic inputs (pinned
  *   dependency list for `.pi/settings.json` `packages`).
- * @returns {{ files: Array<{ path: string, content: string, action: string, desired?: string }> }}
+ * @returns {{ files: Array<{ path: string, content: string, action: string, desired?: string }>, warnings: string[], errors: string[] }}
  */
 export function generateProject(model, existingFiles = {}, opts = {}) {
   const existing = isPlainObject(existingFiles) ? existingFiles : {};
@@ -378,5 +387,5 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
   ];
 
   files.sort((a, b) => a.path.localeCompare(b.path));
-  return { files, warnings: plan.warnings };
+  return { files, warnings: plan.warnings, errors: plan.errors };
 }

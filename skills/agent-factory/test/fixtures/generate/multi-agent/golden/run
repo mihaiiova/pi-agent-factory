@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 # Hermetic runtime launcher for a generated Pi agent system.
-# Resolves the project root from this script's own location, so it works
-# from any working directory. Gives the system its own Pi config dir so the
-# host's global skills/MCP/extensions/instructions/credentials never leak in.
+# Resolves the project root from this script's own location, then cd's into
+# it so project .pi/ resources are discovered regardless of the caller's
+# working directory. Gives the system its own Pi config dir so the host's
+# global skills/MCP/extensions/instructions/credentials never leak in.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if ! command -v pi >/dev/null 2>&1; then
   echo "run: pi is not installed or not on PATH" >&2
+  exit 1
+fi
+
+cd "$ROOT"
+
+if [[ ! -f ".pi/system.yaml" ]]; then
+  echo "run: .pi/system.yaml not found in $ROOT" >&2
   exit 1
 fi
 
