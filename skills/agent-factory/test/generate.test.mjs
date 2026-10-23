@@ -215,6 +215,13 @@ test("runtime packages are computed from piPackages + declared model packages", 
   assert.equal(plainSettings.packages, undefined);
 });
 
+test("generateProject reports missing runtime primitives as errors", () => {
+  const { files, errors } = generateProject(model, {}, { piPackages: [] });
+  assert.ok(errors.length >= 2, "both required primitives are reported missing");
+  const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
+  assert.equal(settings.packages, undefined, "no incomplete packages list is emitted");
+});
+
 test("generateProject emits the executable run launcher", () => {
   const { files } = generateProject(model, {});
   const run = byPath(files, "run");

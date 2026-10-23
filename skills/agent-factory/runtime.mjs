@@ -51,19 +51,21 @@ export function launcherScript() {
 /**
  * @param {object} model the migrated, validated `system.yaml` document.
  * @param {object} [opts] `{ piPackages?: string[] }` — pi-config's `pi.packages`.
- * @returns {{ agentDir: string, packages: string[], launcherScript: string, warnings: string[] }}
+ * @returns {{ agentDir: string, packages: string[], launcherScript: string, warnings: string[], errors: string[] }}
  */
 export function buildRuntimePlan(model, opts = {}) {
   const piPackages = opts?.piPackages;
   const declared = model?.packages;
+  const { packages, errors } = runtimePackages(piPackages, declared);
 
   return {
     agentDir: AGENT_DIR,
-    packages: runtimePackages(piPackages, declared),
+    packages,
     launcherScript: launcherScript(),
     warnings: [
       "credentials are not inherited from the host; run `pi --login` once in the isolated context or export PI_API_KEY / a provider key",
       "AGENTS.md/CLAUDE.md context files in parent directories are not suppressed by agent-dir isolation; keep generated projects out of a host tree that carries them",
     ],
+    errors,
   };
 }

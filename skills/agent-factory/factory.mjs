@@ -29,7 +29,6 @@ import { indent, diffLines } from "./diff.mjs";
 import { parseMcpFile, probeClis, scanSkills } from "./discover.mjs";
 import { loadYaml } from "./yaml-loader.mjs";
 import { importSystem } from "./import.mjs";
-import { runtimePackages } from "./deps.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CURATED_CLIS = ["gh", "wrangler", "railway", "stripe", "npx", "git", "node"];
@@ -66,6 +65,13 @@ function printWarnings(warnings) {
   for (const warning of Array.isArray(warnings) ? warnings : []) {
     console.error(`warning - ${warning}`);
   }
+}
+
+function failOnErrors(errors) {
+  if (!Array.isArray(errors) || errors.length === 0) return false;
+  for (const error of errors) console.error(`error - ${error}`);
+  process.exitCode = 1;
+  return true;
 }
 
 function isObject(value) {
@@ -298,7 +304,8 @@ function runGenerate(dir, dryRun) {
   }
 
   const existing = readExisting(dir, normalized);
-  const { files, warnings } = generateProject(normalized, existing, { piPackages: readPiPackages() });
+  const { files, warnings, errors: depErrors } = generateProject(normalized, existing, { piPackages: readPiPackages() });
+  if (failOnErrors(depErrors)) return;
   printWarnings(warnings);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
   const conflicts = files.filter((f) => f.action === "conflict");
@@ -371,7 +378,8 @@ function runImport(dir) {
   // Conservative additive scaffolding: create missing native files only. Every
   // existing file is preserved; derived files are never regenerated here.
   const existing = readExisting(target, system);
-  const { files } = generateProject(system, existing, { piPackages: readPiPackages() });
+  const { files, errors: depErrors } = generateProject(system, existing, { piPackages: readPiPackages() });
+  if (failOnErrors(depErrors)) return;
   for (const f of files) {
     if (f.action !== "create") continue;
     writeGenerated(join(target, f.path), f);
@@ -398,7 +406,8 @@ async function runModify(dir, dryRun, yes) {
   }
 
   const existing = readExisting(dir, normalized);
-  const { files, conflicts, warnings } = modifyPlan(normalized, existing, { piPackages: readPiPackages() });
+  const { files, conflicts, warnings, errors: depErrors } = modifyPlan(normalized, existing, { piPackages: readPiPackages() });
+  if (failOnErrors(depErrors)) return;
   printWarnings(warnings);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
 

@@ -354,7 +354,7 @@ export function managedPaths(model) {
  * @param {Record<string, string>} [existingFiles] project-relative path → text.
  * @param {{ packages?: string[] }} [opts] extra deterministic inputs (pinned
  *   dependency list for `.pi/settings.json` `packages`).
- * @returns {{ files: Array<{ path: string, content: string, action: string, desired?: string }> }}
+ * @returns {{ files: Array<{ path: string, content: string, action: string, desired?: string }>, warnings: string[], errors: string[] }}
  */
 export function generateProject(model, existingFiles = {}, opts = {}) {
   const existing = isPlainObject(existingFiles) ? existingFiles : {};
@@ -378,5 +378,5 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
   ];
 
   files.sort((a, b) => a.path.localeCompare(b.path));
-  return { files, warnings: plan.warnings };
+  return { files, warnings: plan.warnings, errors: plan.errors };
 }

@@ -23,7 +23,7 @@ function isPlainObject(value) {
  */
 export function modifyPlan(model, existingFiles = {}, opts = {}) {
   const existing = isPlainObject(existingFiles) ? existingFiles : {};
-  const { files, warnings } = generateProject(model, existing, opts);
+  const { files, warnings, errors } = generateProject(model, existing, opts);
 
   const annotated = files.map((f) => {
     if (f.action === "write") {
@@ -36,5 +36,5 @@ export function modifyPlan(model, existingFiles = {}, opts = {}) {
   });
 
   const conflicts = annotated.filter((f) => f.action === "conflict");
-  return { files: annotated, conflicts, warnings };
+  return { files: annotated, conflicts, warnings, errors };
 }

@@ -8,7 +8,13 @@ test("buildRuntimePlan derives the isolated agent dir, packages, and warnings", 
   const plan = buildRuntimePlan({ packages: ["npm:foo@1.0.0"] }, { piPackages: PI_PACKAGES });
   assert.equal(plan.agentDir, ".factory/pi-home");
   assert.deepEqual(plan.packages, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1", "npm:foo@1.0.0"]);
+  assert.deepEqual(plan.errors, []);
   assert.ok(plan.warnings.length >= 2, "warns about auth + parent context files");
+});
+
+test("buildRuntimePlan propagates dependency errors", () => {
+  const plan = buildRuntimePlan({}, { piPackages: [] });
+  assert.ok(plan.errors.length >= 1, "missing primitives surface as errors");
 });
 
 test("launcherScript sets the isolated agent dir and never copies auth.json", () => {

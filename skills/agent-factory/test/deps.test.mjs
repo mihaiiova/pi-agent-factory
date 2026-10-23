@@ -12,18 +12,20 @@ const PI_PACKAGES = [
 ];
 
 test("runtimePackages emits only the two runtime primitives, in order", () => {
-  const pins = runtimePackages(PI_PACKAGES);
-  assert.deepEqual(pins, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"]);
+  const { packages, errors } = runtimePackages(PI_PACKAGES);
+  assert.deepEqual(packages, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"]);
+  assert.deepEqual(errors, []);
 });
 
 test("runtimePackages appends declared npm:/git: specs after the primitives", () => {
-  const pins = runtimePackages(PI_PACKAGES, ["npm:foo@1.2.3", "git:github.com/x/y@v1"]);
-  assert.deepEqual(pins, [
+  const { packages, errors } = runtimePackages(PI_PACKAGES, ["npm:foo@1.2.3", "git:github.com/x/y@v1"]);
+  assert.deepEqual(packages, [
     "npm:pi-subagents@0.65.0",
     "npm:pi-mcp-adapter@2.32.1",
     "npm:foo@1.2.3",
     "git:github.com/x/y@v1",
   ]);
+  assert.deepEqual(errors, []);
 });
 
 test("runtimePackages never emits dev-only, web, local-path, or secret-shaped entries", () => {
@@ -40,13 +42,36 @@ test("runtimePackages never emits dev-only, web, local-path, or secret-shaped en
     "GH_TOKEN=secret",
     "npm:@juicesharp/rpiv-ask-user-question@2.9.0",
   ];
-  const pins = runtimePackages(hostile, ["file:../declared-local"]);
-  assert.deepEqual(pins, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"]);
+  const { packages } = runtimePackages(hostile, []);
+  assert.deepEqual(packages, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"]);
 });
 
-test("runtimePackages handles scoped npm names and tolerates empty inputs", () => {
-  assert.deepEqual(runtimePackages(undefined, undefined), []);
-  assert.deepEqual(runtimePackages([], []), []);
-  const pins = runtimePackages(["npm:@scope/thing@1.0.0", "npm:pi-subagents@0.65.0"], undefined);
-  assert.deepEqual(pins, ["npm:pi-subagents@0.65.0"]);
+test("a missing required primitive is an error, never silently omitted", () => {
+  const { packages, errors } = runtimePackages(["npm:pi-subagents@0.65.0"]);
+  assert.deepEqual(packages, ["npm:pi-subagents@0.65.0"]);
+  assert.ok(errors.some((e) => e.includes('"pi-mcp-adapter"')), "names the missing primitive");
+});
+
+test("an unpinned declared spec is rejected", () => {
+  const { errors } = runtimePackages(PI_PACKAGES, ["npm:foo", "git:github.com/x/y"]);
+  assert.ok(errors.some((e) => e.includes("npm:foo") && e.includes("pinned")), "unpinned npm rejected");
+  assert.ok(errors.some((e) => e.includes("git:github.com/x/y") && e.includes("pinned")), "unpinned git rejected");
+});
+
+test("a declared spec that conflicts with a pinned primitive is rejected", () => {
+  const { packages, errors } = runtimePackages(PI_PACKAGES, ["npm:pi-subagents@0.60.0"]);
+  assert.ok(!packages.includes("npm:pi-subagents@0.60.0"), "conflicting version not emitted");
+  assert.ok(errors.some((e) => e.includes("conflicts")), "conflict reported");
+});
+
+test("runtimePackages output is deterministic", () => {
+  const a = runtimePackages(PI_PACKAGES, ["npm:foo@1.0.0"]);
+  const b = runtimePackages(PI_PACKAGES, ["npm:foo@1.0.0"]);
+  assert.deepEqual(a, b);
+});
+
+test("runtimePackages tolerates empty inputs by reporting missing primitives", () => {
+  const { packages, errors } = runtimePackages(undefined, undefined);
+  assert.deepEqual(packages, []);
+  assert.equal(errors.length, 2, "both primitives are reported missing");
 });
