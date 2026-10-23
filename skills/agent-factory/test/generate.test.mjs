@@ -185,3 +185,15 @@ test("golden tree: minimal fixture produces the committed snapshot", () => {
     assert.equal(produced.get(path), expected, `golden mismatch: ${path}`);
   }
 });
+
+test("opts.packages are injected into the generated .pi/settings.json", () => {
+  const pins = ["git:github.com/mihaiiova/pi-config@abc123", "npm:pi-subagents@0.65.0"];
+  const { files } = generateProject(model, {}, { packages: pins });
+  const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
+  assert.deepEqual(settings.packages, pins);
+
+  // Without opts, no packages key is added (backward-compatible).
+  const plain = generateProject(model, {});
+  const plainSettings = JSON.parse(byPath(plain.files, ".pi/settings.json").content);
+  assert.equal(plainSettings.packages, undefined);
+});

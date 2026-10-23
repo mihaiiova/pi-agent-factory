@@ -7,14 +7,16 @@
  *   generate <dir> [--dry-run] materialize a Pi project from system.yaml
  *   discover [dir]             print a read-only capability inventory as JSON
  *   modify <dir> [--dry-run] [--yes]  diff project vs model, apply confirmed changes
+ *   import <dir>               reconstruct system.yaml from an existing project
  *
  * Exit codes:
- *   0  valid / generated / discovered / modified (reported conflicts do not fail)
+ *   0  valid / generated / discovered / modified / imported (reported conflicts do not fail)
  *   1  invalid, missing, or unparseable system.yaml; or an unknown command
  *
- * Later specs add import.
+ * Later specs add nothing further; import completes the MVP command surface.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { join, resolve, dirname, basename } from "node:path";
 import { homedir } from "node:os";
@@ -26,6 +28,9 @@ import { generateProject, managedPaths } from "./generate.mjs";
 import { modifyPlan } from "./modify.mjs";
 import { indent, diffLines } from "./diff.mjs";
 import { parseMcpFile, probeClis, scanSkills } from "./discover.mjs";
+import { loadYaml } from "./yaml-loader.mjs";
+import { importSystem } from "./import.mjs";
+import { declareDependencies } from "./deps.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CURATED_CLIS = ["gh", "wrangler", "railway", "stripe", "npx", "git", "node"];
@@ -45,11 +50,15 @@ Commands:
   discover [dir]             print a read-only capability inventory as JSON
   modify <dir> [--dry-run] [--yes]
                              diff project vs model and apply confirmed changes
+  import <dir>               reconstruct <dir>/.pi/system.yaml from an existing
+                             pi-config project (settings + pi-config + detected)
 
 Exit codes:
-  0  valid / generated / discovered / modified (reported conflicts do not fail)
-  1  invalid, missing, or unparseable system.yaml; or an unknown command
+  0  valid / generated / discovered / modified / imported
+  1  invalid, missing, or unparseable input; or an unknown command
 `;
+
+const RUNTIME_PACKAGES = ["pi-subagents", "pi-mcp-adapter", "pi-web-access"];
 
 
 function fail(message) {
@@ -144,6 +153,64 @@ function readMcpFile(path) {
   }
 }
 
+function splitFrontmatter(text) {
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!m) return { frontmatter: "", body: text };
+  return { frontmatter: m[1], body: text.slice(m[0].length) };
+}
+
+function kebabName(name) {
+  const kebab = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return kebab || "imported-system";
+}
+
+function detectAgents(dir) {
+  const agents = [];
+  for (const path of listFiles(join(dir, ".pi", "agents"), (name) => name.endsWith(".md"))) {
+    let text;
+    try { text = readFileSync(path, "utf-8"); } catch { continue; }
+    const { frontmatter, body } = splitFrontmatter(text);
+    let fm = {};
+    if (frontmatter) {
+      try { fm = parseSystem(frontmatter); } catch { fm = {}; }
+    }
+    if (!isObject(fm) || typeof fm.name !== "string" || !fm.name) continue;
+    agents.push({
+      name: fm.name,
+      description: typeof fm.description === "string" ? fm.description : "",
+      tools: Array.isArray(fm.tools) ? fm.tools : [],
+      model: typeof fm.model === "string" ? fm.model : "",
+      prompt: typeof fm.systemPrompt === "string" ? fm.systemPrompt : body,
+    });
+  }
+  return agents;
+}
+
+function detectSkills(dir) {
+  const skillFiles = {};
+  for (const path of listFiles(join(dir, ".pi", "skills"), (name) => name === "SKILL.md")) {
+    try { skillFiles[path] = readFileSync(path, "utf-8"); } catch { /* unreadable */ }
+  }
+  return scanSkills(skillFiles);
+}
+
+function gitRevParseHead() {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf-8" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function readPiPackages() {
+  try {
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf-8"));
+    return Array.isArray(pkg?.pi?.packages) ? pkg.pi.packages : [];
+  } catch {
+    return [];
+  }
+}
+
 function runDiscover(dir) {
   const target = resolve(dir ?? process.cwd());
 
@@ -231,7 +298,12 @@ function runGenerate(dir, dryRun) {
   }
 
   const existing = readExisting(dir, normalized);
-  const { files } = generateProject(normalized, existing);
+  const packages = declareDependencies(
+    readPiPackages(),
+    process.env.FACTORY_PI_REV || gitRevParseHead(),
+    RUNTIME_PACKAGES,
+  );
+  const { files } = generateProject(normalized, existing, { packages });
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
   const conflicts = files.filter((f) => f.action === "conflict");
 
@@ -251,6 +323,57 @@ function runGenerate(dir, dryRun) {
 
   for (const c of conflicts) {
     console.error(`conflict - ${c.path}: user edit vs model change; not applied. Proposed:\n${c.desired}`);
+  }
+  process.exitCode = 0;
+}
+
+function runImport(dir) {
+  const target = resolve(dir);
+  const settingsPath = join(target, ".pi", "settings.json");
+  const piConfigPath = join(target, ".pi", "pi-config.json");
+
+  let settings;
+  let piConfig;
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { fail(`unreadable ${settingsPath}`); return; }
+  }
+  if (existsSync(piConfigPath)) {
+    try { piConfig = JSON.parse(readFileSync(piConfigPath, "utf-8")); } catch { fail(`unreadable ${piConfigPath}`); return; }
+  }
+  if (!settings && !piConfig) {
+    fail(`no readable .pi/settings.json or .pi/pi-config.json at ${target}`);
+    return;
+  }
+
+  const detected = {
+    name: kebabName(basename(target)),
+    skills: detectSkills(target),
+    agents: detectAgents(target),
+    mcpServers: readMcpFile(join(target, ".pi", "mcp.json")),
+  };
+
+  const { system, report } = importSystem(settings, piConfig, detected);
+
+  const systemPath = join(target, ".pi", "system.yaml");
+  if (existsSync(systemPath)) {
+    console.error(`error - ${systemPath} already exists; not overwriting (delete it first or run in a fresh project).`);
+    process.exitCode = 1;
+    return;
+  }
+
+  let yamlText;
+  try {
+    yamlText = loadYaml().stringify(system);
+  } catch (err) {
+    fail(`failed to serialize system.yaml: ${err.message}`);
+    return;
+  }
+
+  mkdirSync(dirname(systemPath), { recursive: true });
+  writeFileSync(systemPath, yamlText, "utf-8");
+  console.log(`wrote .pi/system.yaml (imported: ${report.imported.join(", ")})`);
+  for (const flag of report.flagged) {
+    console.error(`flagged - ${flag.key}: ${flag.reason}`);
   }
   process.exitCode = 0;
 }
@@ -356,6 +479,16 @@ async function main(argv) {
       return;
     }
     await runModify(dir, dryRun, rest.includes("--yes"));
+    return;
+  }
+
+  if (command === "import") {
+    if (!dir) {
+      fail("missing <dir> argument");
+      process.stderr.write(USAGE);
+      return;
+    }
+    runImport(dir);
     return;
   }
 

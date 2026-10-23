@@ -75,7 +75,7 @@ pass "factory generate on the coding-agent fixture produces the orchestrator sur
 # ── multi-agent materialization + golden ────────────────────────
 ma="$(mktemp -d)"
 cp -r "$fixtures/generate/multi-agent/.pi" "$ma/"
-node "$factory" generate "$ma" >/dev/null
+FACTORY_PI_REV=0000000000000000000000000000000000000000 node "$factory" generate "$ma" >/dev/null
 for a in seo-analyst article-writer researcher; do
   [[ -f "$ma/.pi/agents/$a.md" ]] || fail "multi-agent generate did not create .pi/agents/$a.md"
 done

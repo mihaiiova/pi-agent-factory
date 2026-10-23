@@ -138,7 +138,7 @@ function sentinelFile(path, existing) {
   return { path, content: existing, action: "none" };
 }
 
-function buildSettings(model, existingText) {
+function buildSettings(model, existingText, packages) {
   const models = isPlainObject(model.models) ? model.models : {};
   const orchestrator = isPlainObject(model.orchestrator) ? model.orchestrator : {};
 
@@ -169,6 +169,10 @@ function buildSettings(model, existingText) {
     : undefined;
   if (tools !== undefined) out.defaultTools = tools;
   else delete out.defaultTools;
+
+  if (Array.isArray(packages) && packages.length > 0) {
+    out.packages = packages;
+  }
 
   return `${JSON.stringify(out, null, 2)}\n`;
 }
@@ -337,16 +341,19 @@ export function managedPaths(model) {
  *
  * @param {object} model the migrated, validated `system.yaml` document.
  * @param {Record<string, string>} [existingFiles] project-relative path → text.
+ * @param {{ packages?: string[] }} [opts] extra deterministic inputs (pinned
+ *   dependency list for `.pi/settings.json` `packages`).
  * @returns {{ files: Array<{ path: string, content: string, action: string, desired?: string }> }}
  */
-export function generateProject(model, existingFiles = {}) {
+export function generateProject(model, existingFiles = {}, opts = {}) {
   const existing = isPlainObject(existingFiles) ? existingFiles : {};
+  const packages = isPlainObject(opts) && Array.isArray(opts.packages) ? opts.packages : undefined;
   const prompt = isPlainObject(model.orchestrator) && typeof model.orchestrator.prompt === "string"
     ? model.orchestrator.prompt
     : "";
 
   const files = [
-    derivedFile(".pi/settings.json", buildSettings(model, existing[".pi/settings.json"]), existing[".pi/settings.json"]),
+    derivedFile(".pi/settings.json", buildSettings(model, existing[".pi/settings.json"], packages), existing[".pi/settings.json"]),
     derivedFile(".pi/mcp.json", buildMcpJson(model, existing[".pi/mcp.json"]), existing[".pi/mcp.json"]),
     authoredFile(".pi/APPEND_SYSTEM.md", "html", prompt, existing[".pi/APPEND_SYSTEM.md"]),
     authoredFile("README.md", "html", readmeBody(model), existing["README.md"]),
