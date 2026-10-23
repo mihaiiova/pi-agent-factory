@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mcpFromIntegrations } from "../mcpGen.mjs";
+import { mcpFromIntegrations } from "../mcp-gen.mjs";
 
 test("stdio and http entries are emitted as mcpServers", () => {
   const mcp = [

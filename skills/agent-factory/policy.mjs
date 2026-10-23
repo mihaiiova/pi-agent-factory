@@ -45,12 +45,15 @@ export function enforcedAgentTools(agentName, policies, declaredTools) {
  * @returns {string[]}
  */
 export function hiddenMcpTools(serverName, policies) {
+  const out = new Set();
   for (const rule of enforcedEntries(policies)) {
     if (isPlainObject(rule) && rule.mcp === serverName && Array.isArray(rule.hide)) {
-      return rule.hide.filter((pattern) => typeof pattern === "string");
+      for (const pattern of rule.hide) {
+        if (typeof pattern === "string") out.add(pattern);
+      }
     }
   }
-  return [];
+  return [...out];
 }
 
 /**

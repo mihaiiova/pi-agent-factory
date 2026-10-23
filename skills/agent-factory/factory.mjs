@@ -14,7 +14,7 @@
  * Later specs add import and modify.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parseSystem } from "./parse.mjs";
@@ -132,7 +132,7 @@ function listFiles(dir, predicate) {
 function readMcpFile(path) {
   if (!existsSync(path)) return {};
   try {
-    return parseMcpFile(readFileSync(path, "utf-8"), path).mcpServers;
+    return parseMcpFile(readFileSync(path, "utf-8")).mcpServers;
   } catch {
     return {};
   }
@@ -167,10 +167,18 @@ function runDiscover(dir) {
   }
 
   const subagents = listFiles(join(target, ".pi", "agents"), (name) => name.endsWith(".md"))
-    .map((path) => path.slice(path.lastIndexOf("/") + 1, -3));
+    .map((path) => basename(path, ".md"));
+
+  const skills = scanSkills(skillFiles);
+  const seenSkills = new Set();
+  const dedupedSkills = skills.filter((skill) => {
+    if (seenSkills.has(skill.dir)) return false;
+    seenSkills.add(skill.dir);
+    return true;
+  });
 
   const inventory = {
-    skills: scanSkills(skillFiles),
+    skills: dedupedSkills,
     mcpServers,
     clis: probeClis(CURATED_CLIS),
     subagents,

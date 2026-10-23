@@ -7,6 +7,7 @@
  * assembles these into the `factory discover` JSON inventory.
  */
 import { execFileSync } from "node:child_process";
+import { dirname, basename } from "node:path";
 import { loadYaml } from "./yaml-loader.mjs";
 
 function isPlainObject(value) {
@@ -21,10 +22,9 @@ function isPlainObject(value) {
  * inventory (never throws).
  *
  * @param {string} text
- * @param {string} [sourcePath] informational; unused by the parser.
  * @returns {{ mcpServers: Record<string, object> }}
  */
-export function parseMcpFile(text, sourcePath = "") {
+export function parseMcpFile(text) {
   let parsed;
   try {
     parsed = JSON.parse(text);
@@ -43,7 +43,7 @@ export function parseMcpFile(text, sourcePath = "") {
 
 function defaultProbe(cli) {
   try {
-    execFileSync("bash", ["-c", `command -v -- ${cli} >/dev/null 2>&1`], {
+    execFileSync("bash", ["-c", 'command -v -- "$1" >/dev/null 2>&1', "bash", cli], {
       stdio: "ignore",
     });
     return true;
@@ -81,11 +81,6 @@ function parseFrontmatter(content, parseYaml) {
   }
 }
 
-function dirname(path) {
-  const idx = path.lastIndexOf("/");
-  return idx === -1 ? path : path.slice(0, idx);
-}
-
 /**
  * Scan SKILL.md files for `{ name, description, dir }`. `skillFiles` maps a
  * path to its text content. The YAML frontmatter supplies `name`/`description`;
@@ -98,14 +93,15 @@ function dirname(path) {
  */
 export function scanSkills(skillFiles, opts = {}) {
   const parseYaml = typeof opts?.parse === "function" ? opts.parse : loadYaml().parse;
+  const entries = Object.entries(skillFiles).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const out = [];
-  for (const [path, content] of Object.entries(skillFiles)) {
+  for (const [path, content] of entries) {
     const fm = parseFrontmatter(content, parseYaml);
     const dir = dirname(path);
     const name =
       typeof fm.name === "string" && fm.name
         ? fm.name
-        : dir.slice(dir.lastIndexOf("/") + 1);
+        : basename(dir);
     const description = typeof fm.description === "string" ? fm.description : "";
     out.push({ name, description, dir });
   }

@@ -488,7 +488,9 @@ configurations with actionable errors. No hand-rolled YAML subset.
    and the target project's `.pi/skills/` for `SKILL.md` (name + description).
 2. **MCP servers** — parse `~/.pi/agent/mcp.json`, `~/.config/mcp/mcp.json`,
    `.mcp.json`, `.pi/mcp.json`; optionally `pi mcp list` for live status.
-3. **Subagents** — `subagent({action:"list"})` (builtins + user + project).
+3. **Subagents** — project `.pi/agents/*.md` files (the factory CLI scans the
+   project tree; the conversational builder additionally uses the live
+   `subagent({action:"list"})` to see builtin + user agents).
 4. **CLIs on PATH** — a curated allowlist of integration CLIs (`gh`, `wrangler`,
    `railway`, `stripe`, `npx`, …) probed with `command -v`.
 5. **Known integrations** — the set of pi-config integration skills

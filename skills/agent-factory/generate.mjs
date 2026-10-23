@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import { generateSettings } from "../../extensions/pi-config/generate-settings.mjs";
 import { workflowSkill } from "./workflow-skill.mjs";
-import { mcpFromIntegrations } from "./mcpGen.mjs";
+import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 
 const MARKER = "agent-factory:generated v1";

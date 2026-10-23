@@ -136,3 +136,15 @@ test("validateSystem rejects a policy rule with neither agent nor mcp", () => {
   const { errors } = validateSystem(doc);
   assert.ok(errors.some((e) => e.includes('exactly one of "agent" or "mcp"')));
 });
+
+test("validateSystem rejects duplicate enforced rules for the same agent or mcp", () => {
+  const doc = validDoc();
+  doc.policies.enforced.push({ agent: "seo-analyst", tools: ["read", "write"] });
+  const { errors } = validateSystem(doc);
+  assert.ok(errors.some((e) => e.includes("duplicate agent rule")), "duplicate agent rule rejected");
+
+  const doc2 = validDoc();
+  doc2.policies.enforced.push({ mcp: "openseo", hide: ["delete_*"] });
+  const errors2 = validateSystem(doc2).errors;
+  assert.ok(errors2.some((e) => e.includes("duplicate mcp rule")), "duplicate mcp rule rejected");
+});
