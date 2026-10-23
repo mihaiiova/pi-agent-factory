@@ -7,7 +7,7 @@ pass() { echo "ok - $1"; }
 fail() { echo "not ok - $1" >&2; exit 1; }
 
 # ── Pure-module node:test suites ────────────────────────────────
-for module in parse validate migrate models-mapping generate workflow-skill multi-agent discover mcp-gen policy modify skill-contract; do
+for module in parse validate migrate models-mapping generate workflow-skill multi-agent discover mcp-gen policy modify skill-contract deps import; do
   if out="$(node --test "$here/$module.test.mjs" 2>&1)"; then
     pass "$module.test.mjs"
   else
@@ -15,6 +15,14 @@ for module in parse validate migrate models-mapping generate workflow-skill mult
     fail "$module.test.mjs (run: node --test $here/$module.test.mjs)"
   fi
 done
+
+# ── round-trip + clean-env node:test suite ───────────────────────
+if out="$(node --test "$here/roundtrip.mjs" 2>&1)"; then
+  pass "roundtrip.mjs"
+else
+  printf '%s\n' "$out" >&2
+  fail "roundtrip.mjs (run: node --test $here/roundtrip.mjs)"
+fi
 
 # ── factory validate CLI exit-code harness ──────────────────────
 if bash "$here/factory-validate.test.sh"; then
@@ -49,6 +57,13 @@ if bash "$here/factory-behavior.test.sh"; then
   pass "factory-behavior.test.sh"
 else
   fail "factory-behavior.test.sh"
+fi
+
+# ── factory import CLI + clean-env harness ─────────────────────
+if bash "$here/factory-import.test.sh"; then
+  pass "factory-import.test.sh"
+else
+  fail "factory-import.test.sh"
 fi
 
 echo
