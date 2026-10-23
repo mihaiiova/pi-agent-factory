@@ -387,6 +387,12 @@ policies:
     - "Publishing requires human confirmation: the workflow drafts to data/articles/ and the user publishes."
 ```
 
+> **Illustrative, not a validating document.** This block abbreviates several
+> entries (marked with `…`) and references `analyze-and-draft`, `article-writer`,
+> and `researcher` that are not fully declared above. The complete,
+> validator-passing example is
+> `skills/agent-factory/test/fixtures/valid-seo/.pi/system.yaml`.
+
 The generator maps this 1:1:
 
 - `orchestrator` → `.pi/APPEND_SYSTEM.md` (prompt) + `.pi/settings.json`

@@ -7,10 +7,11 @@ pass() { echo "ok - $1"; }
 fail() { echo "not ok - $1" >&2; exit 1; }
 
 # ── Pure-module node:test suites ────────────────────────────────
-for module in parse validate migrate; do
-  if node --test "$here/$module.test.mjs" >/dev/null 2>&1; then
+for module in parse validate migrate models-mapping; do
+  if out="$(node --test "$here/$module.test.mjs" 2>&1)"; then
     pass "$module.test.mjs"
   else
+    printf '%s\n' "$out" >&2
     fail "$module.test.mjs (run: node --test $here/$module.test.mjs)"
   fi
 done

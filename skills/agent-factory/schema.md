@@ -46,8 +46,25 @@ models:
 
 Allowed keys: `tiers`, `parentTier`, `subagents`. Each tier's allowed keys are
 `model` (required non-empty string) and `thinking` (optional string). Tier names
-are arbitrary; `high`/`medium`/`small` is the pi-config convention. This maps
-directly to `extensions/pi-config/generate-settings.mjs` (`buildModelSettings`).
+are arbitrary; `high`/`medium`/`small` is the pi-config convention.
+
+The `models` block maps to `extensions/pi-config/generate-settings.mjs`
+(`buildModelSettings`) **by a rename adapter, not a fork**. `buildModelSettings`
+reads the key `subagentTiers`, while this schema spells it `subagents`; the
+adapter is:
+
+```js
+buildModelSettings({
+  tiers: models.tiers,
+  parentTier: models.parentTier,
+  subagentTiers: models.subagents,
+});
+```
+
+`test/models-mapping.test.mjs` proves this mapping (including that a declared
+`worker: medium` overrides `buildModelSettings`'s `DEFAULT_SUBAGENT_TIERS`
+fallback of `worker: high`). `migrate.mjs` performs the same rename for v0
+(`models.subagentTiers` → `models.subagents`).
 
 ### `orchestrator`
 

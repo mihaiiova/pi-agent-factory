@@ -54,6 +54,11 @@ agents:
       You reason about difficult design and architecture questions and recommend a path.
 
 skills:
+  - name: spec-new
+    description: "Discover and define a new spec or epic"
+    body: |
+      # New spec
+      Inspect the repository, interview for decisions, and publish the plan.
   - name: spec-start
     description: "Begin implementing a ready spec (branch, label, TDD)"
     body: |
@@ -90,7 +95,7 @@ integrations:
 workflows:
   - name: spec-new
     description: "Discover and define a new spec or epic"
-    skill: spec-start
+    skill: spec-new
     trigger: { kind: manual }
     entry: orchestrator
     agents: [scout, worker]

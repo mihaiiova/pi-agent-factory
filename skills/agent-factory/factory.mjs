@@ -30,7 +30,7 @@ Commands available in this spec:
 `;
 
 function fail(message) {
-  console.error(`Error: ${message}`);
+  console.error(`error - ${message}`);
   process.exitCode = 1;
 }
 
