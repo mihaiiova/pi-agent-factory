@@ -17,7 +17,7 @@ import { join, resolve, dirname } from "node:path";
 import { parseSystem } from "./parse.mjs";
 import { migrate } from "./migrate.mjs";
 import { validateSystem } from "./validate.mjs";
-import { generateProject } from "./generate.mjs";
+import { generateProject, GENERATED_PATHS } from "./generate.mjs";
 
 const USAGE = `Usage: factory <command> [options]
 
@@ -30,15 +30,6 @@ Exit codes:
   1  invalid, missing, or unparseable system.yaml; or an unknown command
 `;
 
-const GENERATED_PATHS = [
-  ".pi/settings.json",
-  ".pi/mcp.json",
-  ".pi/APPEND_SYSTEM.md",
-  "README.md",
-  ".gitignore",
-  ".env.example",
-  "data/knowledge/.gitkeep",
-];
 
 function fail(message) {
   console.error(`error - ${message}`);
@@ -107,6 +98,48 @@ function pad(action) {
   return action.padEnd(9, " ");
 }
 
+function indent(text, prefix) {
+  return text.split("\n").map((line) => `${prefix}${line}`).join("\n");
+}
+
+function diffLines(oldText, newText) {
+  const a = oldText.split("\n");
+  const b = newText.split("\n");
+  const n = a.length;
+  const m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const lines = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      lines.push(`  ${a[i]}`);
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      lines.push(`- ${a[i]}`);
+      i++;
+    } else {
+      lines.push(`+ ${b[j]}`);
+      j++;
+    }
+  }
+  while (i < n) {
+    lines.push(`- ${a[i]}`);
+    i++;
+  }
+  while (j < m) {
+    lines.push(`+ ${b[j]}`);
+    j++;
+  }
+  return lines.join("\n");
+}
+
 function runGenerate(dir, dryRun) {
   const { systemPath, error, normalized, ok, errors } = loadModel(dir);
   if (error) {
@@ -126,13 +159,22 @@ function runGenerate(dir, dryRun) {
 
   if (dryRun) {
     console.log(`Planned changes (dry run — nothing written) for ${systemPath}:`);
+    if (!existsSync(join(resolve(dir), ".pi", "agents"))) {
+      console.log(`  ${pad("create")} .pi/agents/ (empty directory)`);
+    }
     for (const f of files) {
       if (f.action === "none") continue;
       console.log(`  ${pad(f.action)} ${f.path}`);
-    }
-    console.log(`  ${pad("create")} .pi/agents/ (empty directory)`);
-    for (const c of conflicts) {
-      console.error(`  conflict ${c.path}: user edit vs model change; proposed:\n${c.desired}`);
+      if (f.action === "create") {
+        console.log(indent(f.content, "    + "));
+      } else if (f.action === "write") {
+        console.log(indent(diffLines(existing[f.path] ?? "", f.content), "    "));
+      } else if (f.action === "conflict") {
+        console.log(`    current (user):`);
+        console.log(indent(existing[f.path] ?? "", "      "));
+        console.log(`    proposed (model):`);
+        console.log(indent(f.desired ?? "", "      "));
+      }
     }
     process.exitCode = 0;
     return;

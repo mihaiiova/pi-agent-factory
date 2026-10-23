@@ -15,13 +15,33 @@
  *     header marker; a user edit is never silently overwritten.
  */
 import { createHash } from "node:crypto";
-import { buildModelSettings } from "../../extensions/pi-config/generate-settings.mjs";
+import { generateSettings } from "../../extensions/pi-config/generate-settings.mjs";
 
 const MARKER = "agent-factory:generated v1";
 const MARKER_HTML_RE = /^<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->$/;
 const MARKER_PLAIN_RE = /^# agent-factory:generated v1 sha256=([0-9a-f]{64})$/;
 
-const GITIGNORE_BODY = "data/\n.env\n.pi/state.json\n.pi/sessions/\n";
+const GITIGNORE_BODY = [
+  "data/*",
+  "!data/knowledge/",
+  "data/knowledge/*",
+  "!data/knowledge/.gitkeep",
+  ".env",
+  ".pi/state.json",
+  ".pi/sessions/",
+  "",
+].join("\n");
+
+/** Project-relative paths the single-agent generator materializes. */
+export const GENERATED_PATHS = [
+  ".pi/settings.json",
+  ".pi/mcp.json",
+  ".pi/APPEND_SYSTEM.md",
+  "README.md",
+  ".gitignore",
+  ".env.example",
+  "data/knowledge/.gitkeep",
+];
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -105,11 +125,12 @@ function buildSettings(model, existingText) {
   const models = isPlainObject(model.models) ? model.models : {};
   const orchestrator = isPlainObject(model.orchestrator) ? model.orchestrator : {};
 
-  const modelSettings = buildModelSettings({
-    tiers: models.tiers,
-    parentTier: models.parentTier,
-    subagentTiers: models.subagents,
-  });
+  // The orchestrator's declared tier is authoritative for the primary session;
+  // fall back to the models block's parentTier when it is absent.
+  const parentTier =
+    typeof orchestrator.model === "string" && orchestrator.model
+      ? orchestrator.model
+      : models.parentTier;
 
   let existing = {};
   if (typeof existingText === "string") {
@@ -121,24 +142,10 @@ function buildSettings(model, existingText) {
   }
   if (!isPlainObject(existing)) existing = {};
 
-  const out = { ...existing };
-
-  for (const key of ["defaultProvider", "defaultModel", "defaultThinkingLevel"]) {
-    if (modelSettings[key] !== undefined) out[key] = modelSettings[key];
-    else delete out[key];
-  }
-
-  if (modelSettings.subagents !== undefined) {
-    out.subagents = {
-      ...(isPlainObject(out.subagents) ? out.subagents : {}),
-      agentOverrides: modelSettings.subagents.agentOverrides,
-    };
-  } else if (isPlainObject(out.subagents) && "agentOverrides" in out.subagents) {
-    const rest = { ...out.subagents };
-    delete rest.agentOverrides;
-    if (Object.keys(rest).length > 0) out.subagents = rest;
-    else delete out.subagents;
-  }
+  const out = generateSettings(
+    { tiers: models.tiers, parentTier, subagentTiers: models.subagents },
+    existing,
+  );
 
   const tools = Array.isArray(orchestrator.tools) && orchestrator.tools.length > 0
     ? orchestrator.tools
@@ -146,6 +153,22 @@ function buildSettings(model, existingText) {
   if (tools !== undefined) out.defaultTools = tools;
   else delete out.defaultTools;
 
+  return `${JSON.stringify(out, null, 2)}\n`;
+}
+
+function buildMcpJson(existingText) {
+  let existing = {};
+  if (typeof existingText === "string") {
+    try {
+      existing = JSON.parse(existingText);
+    } catch {
+      existing = {};
+    }
+  }
+  if (!isPlainObject(existing)) existing = {};
+
+  const out = { ...existing };
+  if (!isPlainObject(out.mcpServers)) out.mcpServers = {};
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 
@@ -193,7 +216,7 @@ export function generateProject(model, existingFiles = {}) {
 
   const files = [
     derivedFile(".pi/settings.json", buildSettings(model, existing[".pi/settings.json"]), existing[".pi/settings.json"]),
-    derivedFile(".pi/mcp.json", `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`, existing[".pi/mcp.json"]),
+    derivedFile(".pi/mcp.json", buildMcpJson(existing[".pi/mcp.json"]), existing[".pi/mcp.json"]),
     authoredFile(".pi/APPEND_SYSTEM.md", "html", prompt, existing[".pi/APPEND_SYSTEM.md"]),
     authoredFile("README.md", "html", readmeBody(model), existing["README.md"]),
     authoredFile(".gitignore", "plain", GITIGNORE_BODY, existing[".gitignore"]),

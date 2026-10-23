@@ -76,6 +76,35 @@ test("unrelated keys in .pi/settings.json survive regeneration", () => {
   assert.equal(settings.defaultModel, "gpt-5.6-terra", "model-owned key overwritten");
 });
 
+test("orchestrator.model tier is authoritative for the primary session", () => {
+  const changed = {
+    ...model,
+    orchestrator: { ...model.orchestrator, model: "small" },
+  };
+
+  const { files } = generateProject(changed, {});
+  const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
+
+  assert.equal(settings.defaultProvider, "deepseek");
+  assert.equal(settings.defaultModel, "deepseek-v4-flash");
+  assert.equal(settings.defaultThinkingLevel, "low");
+});
+
+test("unrelated keys in .pi/mcp.json survive regeneration", () => {
+  const existing = {
+    ".pi/mcp.json": JSON.stringify({
+      mcpServers: { openseo: { url: "http://localhost:3002/mcp" } },
+      extra: true,
+    }),
+  };
+
+  const { files } = generateProject(model, existing);
+  const mcp = JSON.parse(byPath(files, ".pi/mcp.json").content);
+
+  assert.equal(mcp.extra, true, "unrelated key preserved");
+  assert.deepEqual(mcp.mcpServers, { openseo: { url: "http://localhost:3002/mcp" } });
+});
+
 test("user edits to an authored file survive when the model is unchanged", () => {
   const first = generateProject(model, {});
   const original = byPath(first.files, ".pi/APPEND_SYSTEM.md").content;
