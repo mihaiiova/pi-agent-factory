@@ -4,13 +4,14 @@
  *
  * Commands:
  *   validate <dir>             parse + migrate + validate <dir>/.pi/system.yaml
- *   generate <dir> [--dry-run] materialize a single-agent Pi project
+ *   generate <dir> [--dry-run] materialize a Pi project from system.yaml
+ *   discover [dir]             print a read-only capability inventory as JSON
  *
  * Exit codes:
- *   0  valid / generated (conflicts are reported but do not fail the run)
+ *   0  valid / generated / discovered (reported conflicts do not fail the run)
  *   1  invalid, missing, or unparseable system.yaml; or an unknown command
  *
- * Later specs add discover, import, and modify.
+ * Later specs add import and modify.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
