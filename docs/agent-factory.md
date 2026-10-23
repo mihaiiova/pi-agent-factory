@@ -315,6 +315,11 @@ delegates to.
 
 ### C.5 `system.yaml` schema (draft v1)
 
+> Canonical reference: `skills/agent-factory/schema.md` is the field-by-field
+> schema, validation rules, migration path, and ownership contract. It is the
+> source of truth for the validator (`factory validate`); this section remains a
+> narrative overview. `yaml@2.8.3` is pinned in `pi.packages`.
+
 Small, flat, and directly mappable to native files:
 
 ```yaml
