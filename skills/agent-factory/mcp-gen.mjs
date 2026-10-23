@@ -6,8 +6,9 @@
  * `url`/`headers`/`oauth`). Enforced `hide` lists become `excludeTools` on the
  * server (the pi-mcp-adapter mechanism that makes a tool unreachable). Secrets
  * are always `${ENV}` references declared in the model — this module never
- * substitutes or inlines literal values. Merge-preserving: servers not declared
- * in the model are kept.
+ * substitutes or inlines literal values. `system.yaml` is authoritative:
+ * `mcpServers` is built strictly from declared `integrations.mcp[]`; an
+ * undeclared server never survives regeneration.
  */
 import { hiddenMcpTools } from "./policy.mjs";
 
@@ -35,12 +36,11 @@ function mergeUnique(...lists) {
 
 /**
  * @param {Array} mcpList the validated `integrations.mcp[]` entries.
- * @param {Record<string, object>} existingServers current `mcpServers` map.
  * @param {object|undefined} policies the validated `policies` block.
- * @returns {Record<string, object>} the merged `mcpServers` map.
+ * @returns {Record<string, object>} the `mcpServers` map, strictly declared.
  */
-export function mcpFromIntegrations(mcpList, existingServers, policies) {
-  const servers = isPlainObject(existingServers) ? { ...existingServers } : {};
+export function mcpFromIntegrations(mcpList, policies) {
+  const servers = {};
 
   if (Array.isArray(mcpList)) {
     for (const entry of mcpList) {

@@ -102,8 +102,10 @@ test("unrelated keys in .pi/mcp.json survive regeneration", () => {
   const { files } = generateProject(model, existing);
   const mcp = JSON.parse(byPath(files, ".pi/mcp.json").content);
 
-  assert.equal(mcp.extra, true, "unrelated key preserved");
-  assert.deepEqual(mcp.mcpServers, { openseo: { url: "http://localhost:3002/mcp" } });
+  assert.equal(mcp.extra, true, "non-capability key preserved");
+  // system.yaml is authoritative: the model declares no MCP servers, so a
+  // previously-present (undeclared) server is dropped, not preserved.
+  assert.deepEqual(mcp.mcpServers, {}, "undeclared server removed");
 });
 
 test("user edits to an authored file survive when the model is unchanged", () => {

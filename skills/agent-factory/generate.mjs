@@ -195,9 +195,9 @@ function buildMcpJson(model, existingText) {
   if (!isPlainObject(existing)) existing = {};
 
   const out = { ...existing };
+  delete out.mcpServers; // capability-bearing — authoritative from the model, never merged
   const integrations = isPlainObject(model.integrations) ? model.integrations : {};
-  const existingServers = isPlainObject(existing.mcpServers) ? existing.mcpServers : {};
-  out.mcpServers = mcpFromIntegrations(integrations.mcp, existingServers, model.policies);
+  out.mcpServers = mcpFromIntegrations(integrations.mcp, model.policies);
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 
