@@ -1,4 +1,4 @@
-<!-- agent-factory:generated v1 sha256=921c2b96993c8fc9f5095132e6817201cd82d0a0039be90d0dd1e8b6b7f68dd5 -->
+<!-- agent-factory:generated v1 sha256=b12aeaa42bf4d8084f85957bf597ef8c6f9e78d8a385a6de33842554bdc2c276 -->
 # seo-agent-system
 
 SEO analysis + article drafting
@@ -8,3 +8,13 @@ SEO analysis + article drafting
 ```sh
 cd <project-dir> && pi
 ```
+
+## Policy
+
+### Enforced (cannot be bypassed)
+
+None declared.
+
+### Advisory (guidance — not enforced)
+
+None declared.

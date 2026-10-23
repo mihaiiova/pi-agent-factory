@@ -398,6 +398,24 @@ export function validateSystem(doc) {
               checkStringArray(rule.hide, `${path}.hide`, errors);
             }
           });
+
+          const seenAgents = new Set();
+          const seenMcps = new Set();
+          for (const rule of doc.policies.enforced) {
+            if (!isPlainObject(rule)) continue;
+            if (isNonEmptyString(rule.agent)) {
+              if (seenAgents.has(rule.agent)) {
+                errors.push(`document.policies.enforced has a duplicate agent rule for "${rule.agent}"`);
+              }
+              seenAgents.add(rule.agent);
+            }
+            if (isNonEmptyString(rule.mcp)) {
+              if (seenMcps.has(rule.mcp)) {
+                errors.push(`document.policies.enforced has a duplicate mcp rule for "${rule.mcp}"`);
+              }
+              seenMcps.add(rule.mcp);
+            }
+          }
         }
       }
 
