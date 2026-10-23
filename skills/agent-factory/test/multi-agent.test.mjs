@@ -94,6 +94,27 @@ test("N agents materialize to N .pi/agents/*.md files with correct frontmatter",
   assert.ok(writer.content.includes("thinking: high"));
 });
 
+test("declared inheritProjectContext / inheritSkills are emitted as frontmatter", () => {
+  const modelWithInherit = {
+    ...multiModel,
+    agents: [
+      {
+        name: "seo-analyst",
+        description: "Reads project context",
+        tools: ["read"],
+        model: "small",
+        prompt: "Analyze with project context.\n",
+        inheritProjectContext: true,
+        inheritSkills: true,
+      },
+    ],
+  };
+  const { files } = generateProject(modelWithInherit, {});
+  const analyst = byPath(files, ".pi/agents/seo-analyst.md");
+  assert.ok(analyst.content.includes("inheritProjectContext: true"));
+  assert.ok(analyst.content.includes("inheritSkills: true"));
+});
+
 test("skills materialize to .pi/skills/<name>/SKILL.md with body", () => {
   const { files } = generateProject(multiModel, {});
   const skill = byPath(files, ".pi/skills/refresh-product-knowledge/SKILL.md");

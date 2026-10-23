@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { workflowSkill } from "../workflowSkill.mjs";
+import { workflowSkill } from "../workflow-skill.mjs";
 
 const workflow = {
   name: "analyze-and-draft",
@@ -54,4 +54,13 @@ test("workflowSkill handles a minimal workflow without optional fields", () => {
   assert.ok(body.includes("# simple"));
   assert.ok(body.includes("Entry: orchestrator"));
   assert.ok(body.includes("none"), "missing approval defaults to none");
+});
+
+test("workflowSkill renders the declared trigger kind", () => {
+  const headless = workflowSkill({ ...workflow, trigger: { kind: "headless" } }).body;
+  assert.ok(headless.includes("trigger: { kind: headless }"), "headless trigger rendered");
+  assert.ok(!headless.includes("kind: manual }"), "manual trigger not rendered for headless");
+
+  const manual = workflowSkill(workflow).body;
+  assert.ok(manual.includes("trigger: { kind: manual }"), "manual trigger rendered");
 });

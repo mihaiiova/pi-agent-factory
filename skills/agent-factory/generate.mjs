@@ -16,7 +16,7 @@
  */
 import { createHash } from "node:crypto";
 import { generateSettings } from "../../extensions/pi-config/generate-settings.mjs";
-import { workflowSkill } from "./workflowSkill.mjs";
+import { workflowSkill } from "./workflow-skill.mjs";
 
 const MARKER = "agent-factory:generated v1";
 const MARKER_HTML_RE = /^<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->$/;
@@ -225,6 +225,8 @@ function agentBody(agent, tiers) {
   }
   if (isNonEmptyString(tier.model)) lines.push(`model: ${tier.model}`);
   if (isNonEmptyString(tier.thinking)) lines.push(`thinking: ${tier.thinking}`);
+  if (agent.inheritProjectContext === true) lines.push("inheritProjectContext: true");
+  if (agent.inheritSkills === true) lines.push("inheritSkills: true");
   const prompt = isNonEmptyString(agent.prompt) ? agent.prompt : "";
   if (prompt) {
     lines.push("systemPrompt: |");
@@ -252,43 +254,51 @@ function skillFileBody(skill, workflowBySkill) {
   return lines.join("\n") + "\n\n" + body;
 }
 
-function agentFiles(model, existing) {
+function agentEntries(model) {
   const agents = Array.isArray(model.agents) ? model.agents : [];
+  return agents.filter((agent) => isPlainObject(agent) && isNonEmptyString(agent.name));
+}
+
+function skillEntries(model) {
+  const skills = Array.isArray(model.skills) ? model.skills : [];
+  return skills.filter((skill) => isPlainObject(skill) && isNonEmptyString(skill.name));
+}
+
+function agentPath(agent) {
+  return `.pi/agents/${agent.name}.md`;
+}
+
+function skillPath(skill) {
+  return `.pi/skills/${skill.name}/SKILL.md`;
+}
+
+function agentFiles(model, existing) {
   const tiers = isPlainObject(model.models) && isPlainObject(model.models.tiers)
     ? model.models.tiers
     : {};
-  return agents
-    .filter((agent) => isPlainObject(agent) && isNonEmptyString(agent.name))
-    .map((agent) => {
-      const path = `.pi/agents/${agent.name}.md`;
-      return authoredFile(path, "trailing-html", agentBody(agent, tiers), existing[path]);
-    });
+  return agentEntries(model).map((agent) => {
+    const path = agentPath(agent);
+    return authoredFile(path, "trailing-html", agentBody(agent, tiers), existing[path]);
+  });
 }
 
 function skillFiles(model, existing) {
-  const skills = Array.isArray(model.skills) ? model.skills : [];
   const workflows = Array.isArray(model.workflows) ? model.workflows : [];
   const workflowBySkill = new Map();
   for (const wf of workflows) {
     if (isPlainObject(wf) && isNonEmptyString(wf.skill)) workflowBySkill.set(wf.skill, wf);
   }
-  return skills
-    .filter((skill) => isPlainObject(skill) && isNonEmptyString(skill.name))
-    .map((skill) => {
-      const path = `.pi/skills/${skill.name}/SKILL.md`;
-      return authoredFile(path, "trailing-html", skillFileBody(skill, workflowBySkill), existing[path]);
-    });
+  return skillEntries(model).map((skill) => {
+    const path = skillPath(skill);
+    return authoredFile(path, "trailing-html", skillFileBody(skill, workflowBySkill), existing[path]);
+  });
 }
 
 /** Every project-relative path `generate` may write for a given model. */
 export function managedPaths(model) {
   const paths = [...GENERATED_PATHS];
-  for (const agent of Array.isArray(model.agents) ? model.agents : []) {
-    if (isPlainObject(agent) && isNonEmptyString(agent.name)) paths.push(`.pi/agents/${agent.name}.md`);
-  }
-  for (const skill of Array.isArray(model.skills) ? model.skills : []) {
-    if (isPlainObject(skill) && isNonEmptyString(skill.name)) paths.push(`.pi/skills/${skill.name}/SKILL.md`);
-  }
+  for (const agent of agentEntries(model)) paths.push(agentPath(agent));
+  for (const skill of skillEntries(model)) paths.push(skillPath(skill));
   return paths;
 }
 

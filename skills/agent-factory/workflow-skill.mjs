@@ -1,5 +1,5 @@
 /**
- * workflowSkill — render a declared workflow's boundary fields into the body
+ * workflow-skill — render a declared workflow's boundary fields into the body
  * of its orchestrating SKILL.md.
  *
  * Pure seam: `workflowSkill(workflow) -> { name, description, body }`. The
@@ -39,6 +39,15 @@ export function workflowSkill(workflow) {
   const approval = isNonEmptyString(wf.approval) ? wf.approval : "none";
   const verify = isNonEmptyString(wf.verify) ? wf.verify : "none";
 
+  const triggerKind =
+    isPlainObject(wf.trigger) && isNonEmptyString(wf.trigger.kind)
+      ? wf.trigger.kind
+      : "manual";
+  const trigger =
+    triggerKind === "headless"
+      ? "Headless trigger (`trigger: { kind: headless }`): run with `pi -p \"<prompt>\"`."
+      : "Manual trigger (`trigger: { kind: manual }`): run interactively with `pi`, or headless with `pi -p \"<prompt>\"`.";
+
   const body = [
     `# ${name}`,
     "",
@@ -69,8 +78,7 @@ export function workflowSkill(workflow) {
     "",
     "## Trigger",
     "",
-    "Manual trigger (`trigger: { kind: manual }`): run interactively with `pi`,",
-    "or headless with `pi -p \"<prompt>\"`.",
+    trigger,
     "",
     "## Outputs",
     "",

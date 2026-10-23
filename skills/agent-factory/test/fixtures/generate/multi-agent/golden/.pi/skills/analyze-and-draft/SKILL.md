@@ -32,11 +32,10 @@ calls.
 
 ## Trigger
 
-Manual trigger (`trigger: { kind: manual }`): run interactively with `pi`,
-or headless with `pi -p "<prompt>"`.
+Manual trigger (`trigger: { kind: manual }`): run interactively with `pi`, or headless with `pi -p "<prompt>"`.
 
 ## Outputs
 
 Write all produced artifacts under the declared outputs paths above.
 
-<!-- agent-factory:generated v1 sha256=32baeb795fb3bd0affa2b976b9836b194cadd4c8f212782c18a2bd3ca4e75a1f -->
+<!-- agent-factory:generated v1 sha256=e119180681109ddbfb7439a4ace06e1645bd1c28028bcfe50fdf301b3435bdd0 -->

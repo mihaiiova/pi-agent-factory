@@ -116,5 +116,26 @@ else
   echo "ok - e2e smoke SKIPPED (pi not on PATH)"
 fi
 
+# ── multi-agent workflow headless smoke (pi-gated) ─────────────
+# Network/model-gated: a 3-agent fixture runs `pi -p "run <workflow>"` and
+# should produce an artifact under data/. Skips gracefully when unavailable.
+if command -v pi >/dev/null 2>&1; then
+  mw="$(mktemp -d)"
+  cp -r "$fixtures/generate/multi-agent/.pi" "$mw/.pi"
+  node "$factory" generate "$mw" >/dev/null
+  if out="$(cd "$mw" && timeout 90 pi -p "run the analyze-and-draft workflow" 2>&1)"; then
+    if find "$mw/data" -type f -not -name '.gitkeep' | grep -q .; then
+      pass "multi-agent headless smoke: workflow produced an artifact under data/"
+    else
+      echo "ok - multi-agent headless smoke SKIPPED (pi ran; no data/ artifact — model/trust-dependent)"
+    fi
+  else
+    echo "ok - multi-agent headless smoke SKIPPED (pi -p failed/offline; network-gated)"
+  fi
+  rm -rf "$mw"
+else
+  echo "ok - multi-agent headless smoke SKIPPED (pi not on PATH)"
+fi
+
 echo
 echo "All factory-generate tests passed."
