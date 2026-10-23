@@ -444,7 +444,9 @@ Ownership and reconciliation contract (generalizing `generate-settings.mjs`):
    when absent. On modification it records a content fingerprint of what it last
    wrote; if a file differs from that fingerprint *and* the model wants to
    change it, the factory treats it as a **conflict** and proposes a diff,
-   applying it only after confirmation. It never silently overwrites.
+   surfacing it for the user to resolve; it never silently overwrites (and, in
+   this MVP, never auto-applies a conflict — the user resolves it by editing the
+   file or re-running after a deliberate edit).
 3. **`system.yaml`** is factory-owned but user-editable; `modify` updates only
    the keys it is changing and preserves unknown keys (best-effort on comments).
 4. **Precedence:** the declarative model is authoritative for *derived* config;

@@ -6,14 +6,16 @@
  *   validate <dir>             parse + migrate + validate <dir>/.pi/system.yaml
  *   generate <dir> [--dry-run] materialize a Pi project from system.yaml
  *   discover [dir]             print a read-only capability inventory as JSON
+ *   modify <dir> [--dry-run] [--yes]  diff project vs model, apply confirmed changes
  *
  * Exit codes:
- *   0  valid / generated / discovered (reported conflicts do not fail the run)
+ *   0  valid / generated / discovered / modified (reported conflicts do not fail)
  *   1  invalid, missing, or unparseable system.yaml; or an unknown command
  *
- * Later specs add import and modify.
+ * Later specs add import.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { join, resolve, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -21,6 +23,8 @@ import { parseSystem } from "./parse.mjs";
 import { migrate } from "./migrate.mjs";
 import { validateSystem } from "./validate.mjs";
 import { generateProject, managedPaths } from "./generate.mjs";
+import { modifyPlan } from "./modify.mjs";
+import { indent, diffLines } from "./diff.mjs";
 import { parseMcpFile, probeClis, scanSkills } from "./discover.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -39,9 +43,11 @@ Commands:
   validate <dir>             validate <dir>/.pi/system.yaml against schema v1
   generate <dir> [--dry-run] generate the project from system.yaml
   discover [dir]             print a read-only capability inventory as JSON
+  modify <dir> [--dry-run] [--yes]
+                             diff project vs model and apply confirmed changes
 
 Exit codes:
-  0  valid / generated / discovered (reported conflicts do not fail the run)
+  0  valid / generated / discovered / modified (reported conflicts do not fail)
   1  invalid, missing, or unparseable system.yaml; or an unknown command
 `;
 
@@ -193,46 +199,23 @@ function pad(action) {
   return action.padEnd(9, " ");
 }
 
-function indent(text, prefix) {
-  return text.split("\n").map((line) => `${prefix}${line}`).join("\n");
-}
-
-function diffLines(oldText, newText) {
-  const a = oldText.split("\n");
-  const b = newText.split("\n");
-  const n = a.length;
-  const m = b.length;
-  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+function printPlan(systemPath, dir, files, existing, label) {
+  console.log(`${label} for ${systemPath}:`);
+  if (!existsSync(join(resolve(dir), ".pi", "agents"))) {
+    console.log(`  ${pad("create")} .pi/agents/ (empty directory)`);
+  }
+  for (const f of files) {
+    if (f.action === "none") continue;
+    console.log(`  ${pad(f.action)} ${f.path}`);
+    if (f.action === "create") {
+      console.log(indent(f.content, "    + "));
+    } else if (f.action === "write") {
+      console.log(indent(f.diff ?? diffLines(existing[f.path] ?? "", f.content), "    "));
+    } else if (f.action === "conflict") {
+      console.log(`    (user edit vs model change — proposed diff)`);
+      console.log(indent(f.diff ?? diffLines(existing[f.path] ?? "", f.desired ?? ""), "    "));
     }
   }
-  const lines = [];
-  let i = 0;
-  let j = 0;
-  while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      lines.push(`  ${a[i]}`);
-      i++;
-      j++;
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      lines.push(`- ${a[i]}`);
-      i++;
-    } else {
-      lines.push(`+ ${b[j]}`);
-      j++;
-    }
-  }
-  while (i < n) {
-    lines.push(`- ${a[i]}`);
-    i++;
-  }
-  while (j < m) {
-    lines.push(`+ ${b[j]}`);
-    j++;
-  }
-  return lines.join("\n");
 }
 
 function runGenerate(dir, dryRun) {
@@ -253,24 +236,7 @@ function runGenerate(dir, dryRun) {
   const conflicts = files.filter((f) => f.action === "conflict");
 
   if (dryRun) {
-    console.log(`Planned changes (dry run — nothing written) for ${systemPath}:`);
-    if (!existsSync(join(resolve(dir), ".pi", "agents"))) {
-      console.log(`  ${pad("create")} .pi/agents/ (empty directory)`);
-    }
-    for (const f of files) {
-      if (f.action === "none") continue;
-      console.log(`  ${pad(f.action)} ${f.path}`);
-      if (f.action === "create") {
-        console.log(indent(f.content, "    + "));
-      } else if (f.action === "write") {
-        console.log(indent(diffLines(existing[f.path] ?? "", f.content), "    "));
-      } else if (f.action === "conflict") {
-        console.log(`    current (user):`);
-        console.log(indent(existing[f.path] ?? "", "      "));
-        console.log(`    proposed (model):`);
-        console.log(indent(f.desired ?? "", "      "));
-      }
-    }
+    printPlan(systemPath, dir, files, existing, "Planned changes (dry run — nothing written)");
     process.exitCode = 0;
     return;
   }
@@ -289,7 +255,66 @@ function runGenerate(dir, dryRun) {
   process.exitCode = 0;
 }
 
-function main(argv) {
+async function runModify(dir, dryRun, yes) {
+  const { systemPath, error, normalized, ok, errors } = loadModel(dir);
+  if (error) {
+    fail(error);
+    return;
+  }
+  if (!ok) {
+    for (const e of errors) console.error(`error - ${e}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const existing = readExisting(dir, normalized);
+  const { files, conflicts } = modifyPlan(normalized, existing);
+  const changes = files.filter((f) => f.action === "create" || f.action === "write");
+
+  // Always preview the full planned diff before touching anything.
+  printPlan(systemPath, dir, files, existing, dryRun
+    ? "Planned changes (dry run — nothing written)"
+    : "Preview of changes to apply");
+
+  if (dryRun) {
+    process.exitCode = 0;
+    return;
+  }
+
+  if (!yes && !process.stdin.isTTY) {
+    console.error("error - non-interactive without --yes: no changes applied (preview only). Use --dry-run or --yes.");
+    process.exitCode = 0;
+    return;
+  }
+
+  const apply = (f) => {
+    const target = join(resolve(dir), f.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, f.content, "utf-8");
+    console.log(`wrote ${f.path} (${f.action})`);
+  };
+
+  if (yes) {
+    for (const f of changes) apply(f);
+  } else {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    for (const f of changes) {
+      const answer = await rl.question(`Apply ${f.path}? [y/N] `);
+      if (/^y(es)?$/i.test(answer.trim())) apply(f);
+      else console.log(`skipped ${f.path}`);
+    }
+    rl.close();
+  }
+
+  mkdirSync(join(resolve(dir), ".pi", "agents"), { recursive: true });
+
+  for (const c of conflicts) {
+    console.error(`conflict - ${c.path}: user edit vs model change; not applied. Proposed:\n${c.desired}`);
+  }
+  process.exitCode = 0;
+}
+
+async function main(argv) {
   const [command, dir, ...rest] = argv;
   const dryRun = rest.includes("--dry-run");
 
@@ -321,6 +346,16 @@ function main(argv) {
 
   if (command === "discover") {
     runDiscover(dir);
+    return;
+  }
+
+  if (command === "modify") {
+    if (!dir) {
+      fail("missing <dir> argument");
+      process.stderr.write(USAGE);
+      return;
+    }
+    await runModify(dir, dryRun, rest.includes("--yes"));
     return;
   }
 
