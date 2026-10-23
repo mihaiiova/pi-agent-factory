@@ -400,7 +400,7 @@ The generator maps this 1:1:
   `defaultTools` from `tools`).
 - `models` → `.pi/settings.json` (reusing the `generate-settings.mjs` logic).
 - `agents[]` → `.pi/agents/<name>.md` (frontmatter `tools:` = allowlist —
-  enforced; prompt = body).
+  enforced; prompt = body → `systemPrompt` frontmatter).
 - `skills[]` → `.pi/skills/<name>/SKILL.md`.
 - `integrations.mcp[]` → `.pi/mcp.json` `mcpServers`; `integrations.env[]` →
   `.env.example`.

@@ -1,0 +1,8 @@
+# agent-factory:generated v1 sha256=8e00282f0230290adc2490e7cffb035d64abc362b18f0179f3ea8d69217dde94
+data/*
+!data/knowledge/
+data/knowledge/*
+!data/knowledge/.gitkeep
+.env
+.pi/state.json
+.pi/sessions/

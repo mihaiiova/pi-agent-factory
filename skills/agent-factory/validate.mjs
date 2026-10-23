@@ -17,7 +17,7 @@ const TOP_LEVEL_KEYS = [
 const MODELS_KEYS = ["tiers", "parentTier", "subagents"];
 const TIER_KEYS = ["model", "thinking"];
 const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "tools"];
-const AGENT_KEYS = ["name", "description", "tools", "model", "prompt"];
+const AGENT_KEYS = ["name", "description", "tools", "model", "prompt", "inheritProjectContext", "inheritSkills"];
 const SKILL_KEYS = ["name", "description", "body"];
 const INTEGRATIONS_KEYS = ["mcp", "env"];
 const MCP_KEYS = ["name", "config"];
@@ -61,6 +61,15 @@ function checkNonEmptyString(value, path, errors) {
 function checkStringArray(value, path, errors) {
   if (!isStringArray(value)) {
     errors.push(`${path} must be an array of strings`);
+  }
+}
+
+function checkKebabCase(value, path, errors) {
+  if (typeof value === "string" && value.length > 0 && !KEBAB_CASE.test(value)) {
+    errors.push(
+      `${path} must be kebab-case (lowercase letters, digits, single ` +
+        `hyphens between segments, no leading/trailing hyphen)`,
+    );
   }
 }
 
@@ -217,7 +226,13 @@ export function validateSystem(doc) {
       if (!isPlainObject(agent)) return;
       checkUnknownKeys(agent, AGENT_KEYS, `document.agents[${i}]`, errors);
       checkNonEmptyString(agent.name, `document.agents[${i}].name`, errors);
+      checkKebabCase(agent.name, `document.agents[${i}].name`, errors);
       checkNonEmptyString(agent.model, `document.agents[${i}].model`, errors);
+      for (const key of ["inheritProjectContext", "inheritSkills"]) {
+        if (agent[key] !== undefined && typeof agent[key] !== "boolean") {
+          errors.push(`document.agents[${i}].${key} must be a boolean`);
+        }
+      }
       if (agent.description !== undefined && !isNonEmptyString(agent.description)) {
         errors.push(`document.agents[${i}].description must be a non-empty string`);
       }
@@ -237,6 +252,7 @@ export function validateSystem(doc) {
       if (!isPlainObject(skill)) return;
       checkUnknownKeys(skill, SKILL_KEYS, `document.skills[${i}]`, errors);
       checkNonEmptyString(skill.name, `document.skills[${i}].name`, errors);
+      checkKebabCase(skill.name, `document.skills[${i}].name`, errors);
       if (skill.description !== undefined && !isNonEmptyString(skill.description)) {
         errors.push(`document.skills[${i}].description must be a non-empty string`);
       }
@@ -265,6 +281,7 @@ export function validateSystem(doc) {
             }
             checkUnknownKeys(mcp, MCP_KEYS, `document.integrations.mcp[${i}]`, errors);
             checkNonEmptyString(mcp.name, `document.integrations.mcp[${i}].name`, errors);
+            checkKebabCase(mcp.name, `document.integrations.mcp[${i}].name`, errors);
             if (isNonEmptyString(mcp.name)) {
               if (mcpNames.has(mcp.name)) {
                 errors.push(`document.integrations.mcp[${i}] duplicates name "${mcp.name}"`);
@@ -308,6 +325,7 @@ export function validateSystem(doc) {
       if (!isPlainObject(wf)) return;
       checkUnknownKeys(wf, WORKFLOW_KEYS, `document.workflows[${i}]`, errors);
       checkNonEmptyString(wf.name, `document.workflows[${i}].name`, errors);
+      checkKebabCase(wf.name, `document.workflows[${i}].name`, errors);
       if (wf.description !== undefined && !isNonEmptyString(wf.description)) {
         errors.push(`document.workflows[${i}].description must be a non-empty string`);
       }
