@@ -1,0 +1,12 @@
+schema: 1
+name: unknown-key-system
+models:
+  tiers:
+    high: { model: openai-codex/gpt-5.6-terra, thinking: medium }
+  parentTier: high
+  subagents: {}
+orchestrator:
+  name: orchestrator
+  model: high
+  tools: [read, bash]
+mysteryKey: true
