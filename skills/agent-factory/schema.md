@@ -157,17 +157,21 @@ older versions valid.
 Full text of `docs/agent-factory.md` §C.6 (generalizing
 `extensions/pi-config/generate-settings.mjs`):
 
-1. **Derived files** (`settings.json` model fragment, `mcp.json`) are
-   factory-owned and regenerated from `system.yaml` on every `generate`;
+1. **Derived files** (`settings.json` model fragment + `packages` + `defaultTools`,
+   `mcp.json`) are factory-owned and regenerated on every `generate`;
    **unknown keys the factory does not own are preserved** (the same merge the
-   model generator already performs). Hand-editing a derived file is
+   model generator already performs). The `packages` list is a factory-owned
+   derived key computed from the pinned pi-config revision + `pi.packages`
+   (`deps.mjs`), not from `system.yaml`. Hand-editing a derived file is
    unsupported — change the model instead.
 2. **Authored files** (agents, skills, prompts, `APPEND_SYSTEM.md`, README,
    `.gitignore`, `.env.example`) are user-owned. The factory scaffolds them
    when absent. On modification it records a content fingerprint of what it
    last wrote; if a file differs from that fingerprint *and* the model wants to
    change it, the factory treats it as a **conflict** and proposes a diff,
-   applying it only after confirmation. It never silently overwrites.
+   surfacing it for the user to resolve; it never silently overwrites (and, in
+   this MVP, never auto-applies a conflict — the user resolves it by editing the
+   file or re-running after a deliberate edit).
 3. **`system.yaml`** is factory-owned but user-editable; `modify` updates only
    the keys it is changing and preserves unknown keys (best-effort on
    comments).

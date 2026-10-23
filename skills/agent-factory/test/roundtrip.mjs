@@ -75,11 +75,11 @@ test("round-trip: import → generate preserves subagent routing, skills, workfl
   const agentPaths = files.filter((f) => f.path.startsWith(".pi/agents/")).map((f) => f.path);
   assert.equal(agentPaths.length, 4, "four specialist agents materialize");
 
-  const skillNames = files
-    .filter((f) => f.path.includes("/SKILL.md"))
-    .map((f) => f.path.split("/")[2]);
+  const localSkills = files.filter((f) => f.path.includes("/SKILL.md"));
+  assert.equal(localSkills.length, 0, "spec-lifecycle skills are package-provided (external), not duplicated locally");
+  const declaredSkills = system.skills.map((s) => s.name);
   for (const wf of ["spec-new", "spec-start", "spec-review", "spec-close"]) {
-    assert.ok(skillNames.includes(wf), `spec-lifecycle skill ${wf} materialized`);
+    assert.ok(declaredSkills.includes(wf), `spec-lifecycle skill ${wf} is declared`);
   }
 
   assert.ok(files.some((f) => f.path === ".pi/mcp.json" && f.content.includes("cloudflare")), "MCP integration survives");
@@ -122,5 +122,5 @@ test("coding-agent template generates the expected native files with pinned pack
   assert.ok(settings.packages.includes("npm:pi-subagents@0.65.0"));
   assert.ok(files.some((f) => f.path === ".pi/APPEND_SYSTEM.md"));
   assert.ok(files.filter((f) => f.path.startsWith(".pi/agents/")).length === 4);
-  assert.ok(files.some((f) => f.path.includes("spec-start/SKILL.md")));
+  assert.ok(!files.some((f) => f.path.includes("/SKILL.md")), "package-provided skills are not duplicated locally");
 });

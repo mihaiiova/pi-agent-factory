@@ -18,7 +18,7 @@ const MODELS_KEYS = ["tiers", "parentTier", "subagents"];
 const TIER_KEYS = ["model", "thinking"];
 const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "tools"];
 const AGENT_KEYS = ["name", "description", "tools", "model", "prompt", "inheritProjectContext", "inheritSkills"];
-const SKILL_KEYS = ["name", "description", "body"];
+const SKILL_KEYS = ["name", "description", "body", "external"];
 const INTEGRATIONS_KEYS = ["mcp", "env"];
 const MCP_KEYS = ["name", "config"];
 const ENV_KEYS = ["name", "secret"];
@@ -258,6 +258,9 @@ export function validateSystem(doc) {
       }
       if (skill.body !== undefined && !isNonEmptyString(skill.body)) {
         errors.push(`document.skills[${i}].body must be a non-empty string`);
+      }
+      if (skill.external !== undefined && typeof skill.external !== "boolean") {
+        errors.push(`document.skills[${i}].external must be a boolean`);
       }
     });
   }

@@ -372,6 +372,20 @@ function runImport(dir) {
   mkdirSync(dirname(systemPath), { recursive: true });
   writeFileSync(systemPath, yamlText, "utf-8");
   console.log(`wrote .pi/system.yaml (imported: ${report.imported.join(", ")})`);
+
+  // Conservative additive scaffolding: create missing native files only. Every
+  // existing file is preserved; derived files are never regenerated here.
+  const existing = readExisting(target, system);
+  const { files } = generateProject(system, existing);
+  for (const f of files) {
+    if (f.action !== "create") continue;
+    const fileTarget = join(target, f.path);
+    mkdirSync(dirname(fileTarget), { recursive: true });
+    writeFileSync(fileTarget, f.content, "utf-8");
+    console.log(`scaffolded ${f.path}`);
+  }
+  mkdirSync(join(target, ".pi", "agents"), { recursive: true });
+
   for (const flag of report.flagged) {
     console.error(`flagged - ${flag.key}: ${flag.reason}`);
   }

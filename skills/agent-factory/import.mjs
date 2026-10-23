@@ -127,7 +127,9 @@ export function importSystem(settings, piConfig, detected) {
   }
   for (const name of SPEC_LIFECYCLE_SKILLS) {
     if (seenSkills.has(name)) continue;
-    skills.push({ name, description: `Spec lifecycle: ${name} (provided by the pinned pi-config package)` });
+    // Provided by the pinned pi-config package dependency — declared (not
+    // generated as a project-local SKILL.md that would shadow the package).
+    skills.push({ name, description: `Spec lifecycle: ${name} (provided by the pinned pi-config package)`, external: true });
     seenSkills.add(name);
   }
 
@@ -182,9 +184,21 @@ export function importSystem(settings, piConfig, detected) {
       reason: "spec lifecycle block is preserved in .pi/settings.json but is not expressed in system.yaml",
     });
   }
+  if (settingsObj.theme !== undefined) {
+    report.flagged.push({ key: "theme", reason: "theme is a settings-only cosmetic key, not expressible in system.yaml" });
+  }
+  if (settingsObj.packages !== undefined) {
+    report.flagged.push({ key: "packages", reason: "packages are re-declared by the factory (deps.mjs) from the pinned pi-config revision, not imported from settings" });
+  }
   for (const key of Object.keys(settingsObj)) {
     if (!KNOWN_SETTINGS_KEYS.has(key)) {
       report.flagged.push({ key, reason: `unsupported setting "${key}" cannot be expressed in system.yaml` });
+    }
+  }
+  const PI_CONFIG_MODELED = new Set(["tiers", "parentTier", "subagentTiers"]);
+  for (const key of Object.keys(isPlainObject(piConfig) ? piConfig : {})) {
+    if (!PI_CONFIG_MODELED.has(key)) {
+      report.flagged.push({ key: `pi-config.json.${key}`, reason: `unsupported pi-config key "${key}" cannot be expressed in system.yaml` });
     }
   }
   if (isPlainObject(settingsObj.subagents)) {

@@ -172,6 +172,8 @@ function buildSettings(model, existingText, packages) {
 
   if (Array.isArray(packages) && packages.length > 0) {
     out.packages = packages;
+  } else {
+    delete out.packages;
   }
 
   return `${JSON.stringify(out, null, 2)}\n`;
@@ -293,7 +295,12 @@ function agentEntries(model) {
 
 function skillEntries(model) {
   const skills = Array.isArray(model.skills) ? model.skills : [];
-  return skills.filter((skill) => isPlainObject(skill) && isNonEmptyString(skill.name));
+  // `external: true` skills are provided by a pinned package dependency, not
+  // generated into the project — so they produce no local SKILL.md and are not
+  // managed paths (they cannot shadow the package-provided implementation).
+  return skills.filter(
+    (skill) => isPlainObject(skill) && isNonEmptyString(skill.name) && skill.external !== true,
+  );
 }
 
 function agentPath(agent) {

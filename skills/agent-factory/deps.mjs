@@ -32,9 +32,14 @@ export function declareDependencies(piPackages, rev, used = []) {
   const usedSet = new Set(Array.isArray(used) ? used.filter(isString) : []);
   for (const entry of Array.isArray(piPackages) ? piPackages : []) {
     if (!isString(entry) || LOCAL_PATH_RE.test(entry)) continue;
-    const match = entry.match(/^npm:([^@\s]+)@(.+)$/);
-    if (!match) continue;
-    if (usedSet.has(match[1])) pins.push(entry);
+    if (!entry.startsWith("npm:")) continue;
+    const rest = entry.slice(4); // strip "npm:"
+    const at = rest.lastIndexOf("@");
+    if (at <= 0) continue;
+    const name = rest.slice(0, at); // handles scoped names (@scope/pkg)
+    const version = rest.slice(at + 1);
+    if (!name || !version || LOCAL_PATH_RE.test(version)) continue;
+    if (usedSet.has(name)) pins.push(entry);
   }
 
   return pins;

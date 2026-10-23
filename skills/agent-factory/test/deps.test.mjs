@@ -51,3 +51,13 @@ test("declareDependencies tolerates a missing rev and empty inputs", () => {
   assert.deepEqual(declareDependencies(undefined, undefined, undefined), []);
   assert.deepEqual(declareDependencies([], "", []), []);
 });
+
+test("declareDependencies handles scoped npm package names", () => {
+  const pins = declareDependencies(
+    ["npm:@juicesharp/rpiv-ask-user-question@2.9.0", "npm:pi-subagents@0.65.0"],
+    "abc",
+    ["@juicesharp/rpiv-ask-user-question"],
+  );
+  assert.ok(pins.includes("npm:@juicesharp/rpiv-ask-user-question@2.9.0"), "scoped name kept");
+  assert.ok(!pins.some((p) => p.includes("pi-subagents")), "unused pin dropped");
+});

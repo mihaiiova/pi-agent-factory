@@ -55,35 +55,23 @@ agents:
 
 skills:
   - name: spec-new
-    description: "Discover and define a new spec or epic"
-    body: |
-      # New spec
-      Inspect the repository, interview for decisions, and publish the plan.
+    description: "Discover and define a new spec or epic (provided by the pinned pi-config package)"
+    external: true
   - name: spec-start
-    description: "Begin implementing a ready spec (branch, label, TDD)"
-    body: |
-      # Start spec
-      Load one implementation spec, prepare its worktree, and implement test-first.
+    description: "Begin implementing a ready spec (provided by the pinned pi-config package)"
+    external: true
   - name: spec-review
-    description: "Verify a spec's implementation against its acceptance criteria"
-    body: |
-      # Review spec
-      Verify the implementation and record the review.
+    description: "Verify a spec's implementation (provided by the pinned pi-config package)"
+    external: true
   - name: spec-close
-    description: "Integrate a reviewed spec into the base branch"
-    body: |
-      # Close spec
-      Integrate the spec branch and finalize lifecycle state.
+    description: "Integrate a reviewed spec (provided by the pinned pi-config package)"
+    external: true
   - name: tdd
-    description: "Red-green-refactor development loop"
-    body: |
-      # Test-Driven Development
-      Write the failing test first, then the minimum implementation.
+    description: "Red-green-refactor loop (provided by the pinned pi-config package)"
+    external: true
   - name: code-review
-    description: "Code review procedure and persona"
-    body: |
-      # Code review
-      Review changes against public interfaces and acceptance criteria.
+    description: "Code review procedure (provided by the pinned pi-config package)"
+    external: true
 
 integrations:
   mcp:

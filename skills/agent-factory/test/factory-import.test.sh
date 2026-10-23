@@ -82,11 +82,11 @@ if command -v pi >/dev/null 2>&1 && [[ -n "${RUN_CLEAN_ENV_TEST:-}" ]]; then
   if out="$(cd "$iso" && timeout 90 pi -p "describe yourself" 2>&1)"; then
     pass "clean-env: generated coding-agent runs headlessly in an isolated dir"
   else
-    echo "ok - clean-env isolated run SKIPPED (pi -p failed/offline; network-gated)"
+    fail "clean-env: pi -p failed on the generated project (RUN_CLEAN_ENV_TEST=1)"
   fi
   rm -rf "$iso"
 else
-  echo "ok - clean-env isolated run SKIPPED (set RUN_CLEAN_ENV_TEST=1 and ensure `pi` + network)"
+  echo "ok - clean-env isolated run SKIPPED (set RUN_CLEAN_ENV_TEST=1 and ensure 'pi' + network)"
 fi
 
 echo
