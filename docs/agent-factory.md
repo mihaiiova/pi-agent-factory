@@ -424,6 +424,7 @@ for the orchestrator persona.
 
 - `factory validate <dir>` — validate `system.yaml` (schema) and the generated
   project (agents/skills/mcp references resolve; `pi mcp list` where available).
+  (Model-only in spec 1; generated-project checks arrive with the `generate` spec.)
 - `factory generate <dir> [--dry-run]` — scaffold missing files and regenerate
   factory-owned files; **never overwrite** authored content.
 - `factory discover` — deterministic capability inventory (see §C.8).
