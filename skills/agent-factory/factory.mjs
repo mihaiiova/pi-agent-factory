@@ -25,6 +25,7 @@ import { migrate } from "./migrate.mjs";
 import { validateSystem } from "./validate.mjs";
 import { generateProject, managedPaths } from "./generate.mjs";
 import { modifyPlan } from "./modify.mjs";
+import { effectiveCapabilities, checkCapabilities } from "./capabilities.mjs";
 import { indent, diffLines } from "./diff.mjs";
 import { parseMcpFile, probeClis, scanSkills } from "./discover.mjs";
 import { loadYaml } from "./yaml-loader.mjs";
@@ -322,6 +323,18 @@ function runGenerate(dir, dryRun) {
     console.log(`wrote ${f.path} (${f.action})`);
   }
   mkdirSync(join(resolve(dir), ".pi", "agents"), { recursive: true });
+
+  // Write the deterministic effective-capability manifest and verify the
+  // just-generated config matches the model (defense against drift).
+  const settingsFile = files.find((f) => f.path === ".pi/settings.json");
+  const mcpFile = files.find((f) => f.path === ".pi/mcp.json");
+  const settingsJson = settingsFile ? JSON.parse(settingsFile.content) : {};
+  const mcpJson = mcpFile ? JSON.parse(mcpFile.content) : {};
+  const caps = effectiveCapabilities(normalized, { piPackages: readPiPackages() });
+  mkdirSync(join(resolve(dir), ".factory"), { recursive: true });
+  writeFileSync(join(resolve(dir), ".factory", "capabilities.json"), `${JSON.stringify(caps, null, 2)}\n`, "utf-8");
+  const check = checkCapabilities(normalized, { settings: settingsJson, mcpJson }, { piPackages: readPiPackages() });
+  for (const e of check.errors) console.error(`warning - ${e}`);
 
   for (const c of conflicts) {
     console.error(`conflict - ${c.path}: user edit vs model change; not applied. Proposed:\n${c.desired}`);

@@ -7,7 +7,7 @@ pass() { echo "ok - $1"; }
 fail() { echo "not ok - $1" >&2; exit 1; }
 
 # ── Pure-module node:test suites ────────────────────────────────
-for module in parse validate migrate models-mapping generate workflow-skill multi-agent discover mcp-gen policy modify skill-contract deps runtime import; do
+for module in parse validate migrate models-mapping generate workflow-skill multi-agent discover mcp-gen policy modify skill-contract deps runtime import capabilities; do
   if out="$(node --test "$here/$module.test.mjs" 2>&1)"; then
     pass "$module.test.mjs"
   else
