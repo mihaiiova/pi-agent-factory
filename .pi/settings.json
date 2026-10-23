@@ -19,6 +19,9 @@
     }
   },
   "spec": {
+    "checks": {
+      "agent-factory": "bash skills/agent-factory/test/test.sh"
+    },
     "baseBranch": "development",
     "releaseBranch": "master",
     "tagPrefix": "v",

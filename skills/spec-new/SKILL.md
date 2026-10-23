@@ -108,7 +108,7 @@ It may inspect the codebase as deeply as needed to resolve design facts — via 
 
    Epic body sections: `# Summary`, `# Goals`, `# Non-goals`, `# Architecture / implementation direction`, `# Child specs`, `# Completion criteria`.
 
-8. **Apply the plan.** Run `scripts/spec/apply-plan.sh <plan.json>`. The trusted applier validates the plan, creates artifacts in dependency-safe order, links parent/child and blockers, manages lifecycle labels, and is **idempotent and convergent**: a rerun with the same `plan_id` and artifact id reuses the same GitHub issue and updates it to the latest title/body rather than leaving stale content. Do not create issues by hand.
+8. **Apply the plan.** Run `scripts/spec/apply-plan.sh <plan.json>`. The trusted applier uses the authenticated GitHub CLI token when `GH_TOKEN` is unset (or accepts an explicit `GH_TOKEN` for automation); if neither is available, run `gh auth login`. It validates the plan, creates artifacts in dependency-safe order, links parent/child and blockers, manages lifecycle labels, and is **idempotent and convergent**: a rerun with the same `plan_id` and artifact id reuses the same GitHub issue and updates it to the latest title/body rather than leaving stale content. Do not create issues by hand.
 
 9. **Report.** Summarize the created spec or epic, dependency graph, agreed testing seams, and readiness. A normal spec becomes `spec:ready`. An epic is a `spec:epic` container; unblocked children become `spec:ready` and blocked children become ready when their blockers close.
 

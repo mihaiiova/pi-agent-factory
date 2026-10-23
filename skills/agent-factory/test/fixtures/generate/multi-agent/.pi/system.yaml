@@ -1,0 +1,66 @@
+# SEO multi-agent fixture — orchestrator + analyst/writer/researcher + one workflow.
+schema: 1
+name: seo-agent-system
+description: "SEO analysis + article drafting with specialist subagents"
+
+models:
+  tiers:
+    high: { model: openai-codex/gpt-5.6-terra, thinking: medium }
+    medium: { model: deepseek/deepseek-v4-pro, thinking: high }
+    small: { model: deepseek/deepseek-v4-flash, thinking: low }
+  parentTier: high
+  subagents: { worker: medium, scout: small, reviewer: small, oracle: high }
+
+orchestrator:
+  name: orchestrator
+  description: "Primary SEO agent that coordinates specialist subagents"
+  prompt: |
+    You coordinate the SEO system. Delegate analysis to the analyst, drafting
+    to the writer, and knowledge upkeep to the researcher. Publish nothing
+    without the workflow's approval boundary.
+  model: high
+  tools: [read, grep, find, ls, bash, edit, write, subagent]
+
+agents:
+  - name: seo-analyst
+    description: "Analyzes SEO data and identifies opportunities"
+    tools: [read, grep, find, ls]
+    model: small
+    prompt: |
+      You analyze SEO data and identify opportunities. You have no write
+      access, so you never publish; publication requires the orchestrator.
+  - name: article-writer
+    description: "Drafts articles"
+    tools: [read, write]
+    model: medium
+    prompt: |
+      You draft articles. When you need more research, request it from the
+      researcher subagent.
+  - name: researcher
+    description: "Maintains shared product knowledge independently"
+    tools: [read, write, bash]
+    model: small
+    prompt: |
+      You independently maintain shared product knowledge under
+      data/knowledge/.
+
+skills:
+  - name: refresh-product-knowledge
+    description: "Scrape and distill product info into data/knowledge/"
+    body: |
+      # Refresh product knowledge
+      Scrape and distill product info into data/knowledge/.
+  - name: analyze-and-draft
+    description: "Analyze SEO data, pick opportunities, draft articles"
+
+workflows:
+  - name: analyze-and-draft
+    description: "Analyze SEO data, pick opportunities, draft articles"
+    skill: analyze-and-draft
+    trigger: { kind: manual }
+    entry: orchestrator
+    agents: [seo-analyst, article-writer, researcher]
+    inputs: [data/opportunities/*.md]
+    outputs: [data/analyses/, data/articles/]
+    approval: publish
+    verify: "a draft exists under data/articles/"

@@ -4,6 +4,10 @@ Shared pi configuration lives in the `pi-config` repo — a git-backed pi packag
 
 See [README.md](README.md) for the full structure and setup guide.
 
+## Cloudflare CLI
+
+When interacting with Cloudflare, use the cf CLI unless the project has a Wrangler configuration file.
+
 ## Spec lifecycle
 
 Use the formal spec lifecycle when explicitly requested. It is not a prerequisite for every coding task.

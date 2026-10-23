@@ -1,0 +1,35 @@
+{
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.6-terra",
+  "defaultThinkingLevel": "medium",
+  "subagents": {
+    "agentOverrides": {
+      "oracle": {
+        "model": "openai-codex/gpt-5.6-terra"
+      },
+      "reviewer": {
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "scout": {
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "worker": {
+        "model": "deepseek/deepseek-v4-pro"
+      }
+    }
+  },
+  "defaultTools": [
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "bash",
+    "edit",
+    "write",
+    "subagent"
+  ],
+  "packages": [
+    "npm:pi-subagents@0.65.0",
+    "npm:pi-mcp-adapter@2.32.1"
+  ]
+}

@@ -12,7 +12,13 @@ plan="${1:?usage: apply-plan.sh PLAN_JSON}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "$script_dir/validate-plan.sh" "$plan" >/dev/null
 
-: "${GH_TOKEN:?GH_TOKEN is required}"
+# Prefer an explicit automation token, but in an interactive Pi session reuse the
+# authenticated GitHub CLI token so spec publishing does not fail unnecessarily.
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  GH_TOKEN="$(gh auth token 2>/dev/null || true)"
+fi
+: "${GH_TOKEN:?GH_TOKEN is required; run gh auth login or set GH_TOKEN}"
+export GH_TOKEN
 PI_REPOSITORY="${PI_REPOSITORY:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 [[ -n "$PI_REPOSITORY" ]] || { echo "apply-plan: could not determine repository" >&2; exit 1; }
 

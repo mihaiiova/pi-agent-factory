@@ -1,0 +1,21 @@
+schema: 1
+name: bad-reference-system
+models:
+  tiers:
+    high: { model: openai-codex/gpt-5.6-terra, thinking: medium }
+    small: { model: deepseek/deepseek-v4-flash, thinking: high }
+  parentTier: high
+  subagents: { scout: small }
+orchestrator:
+  name: orchestrator
+  model: high
+  tools: [read, bash]
+agents:
+  - name: seo-analyst
+    model: small
+    tools: [read]
+workflows:
+  - name: analyze
+    skill: does-not-exist
+    entry: orchestrator
+    agents: [ghost-agent]

@@ -1,0 +1,35 @@
+ok - cohesive request validates as normal spec
+ok - decomposable request validates as epic
+ok - validate rejects: unknown dependency
+ok - validate rejects: cycle or unsorted
+ok - validate rejects: duplicate id
+ok - one-ticket wrapper rejected
+ok - single-child epic rejected
+ok - normal spec applies to one ready issue
+ok - epic children created in dependency-safe order
+ok - epic container labeled; only unblocked child is ready
+ok - child 'Blocked by' links resolve to the blocker issue
+ok - epic links back to every child
+ok - rerun is idempotent via markers
+ok - partial failure aborts without a complete signal
+ok - spec-start refuses an epic container
+ok - spec-start allows ready children and refuses blocked ones
+ok - spec-close surfaces epic-complete state and clears blockers
+ok - spec-audit is read-only and consolidates
+ok - spec-backlog does not mutate without approval
+ok - spec-new delegates inspection to a read-only scout with a handoff file
+ok - spec-start delegates the TDD loop to a worker via a trivial-spec heuristic
+ok - successful logs are captured without being printed
+ok - failures are bounded and do not stop later checks
+ok - settings-defined checks run from the product root
+All run-checks tests passed.
+ok - single user story classifies as trivial
+ok - multiple user stories classify as worker
+ok - missing User Stories section classifies as worker
+ok - epic container classifies as worker
+ok - reads a spec body from stdin
+ok - bulleted multiple user stories classify as worker
+
+All trivial-spec tests passed.
+
+All spec-orchestration tests passed.

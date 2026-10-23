@@ -1,0 +1,14 @@
+schema: 1
+name: malformed-workflow-system
+models:
+  tiers:
+    high: { model: openai-codex/gpt-5.6-terra, thinking: medium }
+  parentTier: high
+  subagents: {}
+orchestrator:
+  name: orchestrator
+  model: high
+  tools: [read, bash]
+workflows:
+  - name: lonely-workflow
+    inputs: not-an-array
