@@ -254,7 +254,7 @@ Two distinct, separable concerns:
 | **Workflow** | implement as convention | a skill that orchestrates subagents; declared metadata in `system.yaml` | — |
 | **Trigger** | manual only | `trigger: {kind: manual}` + headless `pi -p` | schedule (deferred) |
 | **State / Knowledge** | implement as convention | `data/` (gitignored) + `data/knowledge/`; optional `.pi/state.json` | richer memory (deferred) |
-| **Policy** | implement coarse | subagent `tools:` allowlists + tool annotations + acceptance gates | `tool_call` guard extension (deferred) |
+| **Policy** | implement (advisory + least-privilege) | subagent `tools:` allowlists + MCP `toolExposure: hidden` (enforced); README/skill guidance (advisory) | `tool_call` guard extension (deferred) |
 
 No workflow engine is built: workflows are skills that call the existing
 `subagent` tool. Declared workflow metadata exists only for discoverability,
@@ -266,9 +266,10 @@ procedure, exactly as `spec-new`/`code-review` do today.
 Hybrid model:
 
 - **Declared** (in `system.yaml`, validated): system name; model tiers & routing;
-  the set of agents and their tool allowlists & roles; skills; MCP servers; env
-  requirements; workflows (inputs, trigger kind, participating agents, output
-  paths); approval policies.
+  the orchestrator (instructions, model, tools); the set of specialist agents
+  and their tool allowlists; skills; MCP servers; env requirements; workflows
+  (purpose, inputs, entry agent, available specialists, output paths, approval
+  and verification requirements); enforced + advisory policies.
 - **Dynamic** (left to agents at runtime): which tools an agent selects, what it
   investigates, how it delegates, and every internal reasoning step. No graph of
   internal steps is modeled.
@@ -281,13 +282,13 @@ generated-project/
 │   ├── system.yaml            # declarative model (factory-owned, committed)
 │   ├── settings.json          # generated model/routing (factory-owned fragment)
 │   ├── mcp.json               # generated MCP servers (factory-owned)
-│   ├── agents/                # *.md agents (authored; factory scaffolds + edits)
-│   │   └── orchestrator.md
-│   ├── skills/                # SKILL.md dirs (authored; factory scaffolds + edits)
+│   ├── agents/                # *.md specialist subagents (authored; scaffold + edits)
+│   │   └── <specialist>.md
+│   ├── skills/                # SKILL.md dirs — incl. workflows (authored; scaffold + edits)
 │   │   ├── <workflow-1>/SKILL.md
 │   │   └── ...
 │   ├── prompts/               # command shortcuts (authored)
-│   └── APPEND_SYSTEM.md       # orchestrator instructions (authored)
+│   └── APPEND_SYSTEM.md       # primary orchestrator instructions (authored)
 ├── data/                      # mutable outputs + shared knowledge (gitignored)
 │   └── knowledge/
 ├── .gitignore                 # data/, .env, .pi/state.json, .pi/sessions/
@@ -307,6 +308,11 @@ generated-project/
 `system.yaml` is the only file the factory *owns outright*; derived config is
 regenerated from it; authored content is never blindly overwritten.
 
+The **orchestrator is the primary Pi session**, not a `.pi/agents/` file (see
+§C.7): its instructions live in `.pi/APPEND_SYSTEM.md` and its model/tools in
+`.pi/settings.json`. `.pi/agents/*.md` hold the specialist *subagents* it
+delegates to.
+
 ### C.5 `system.yaml` schema (draft v1)
 
 Small, flat, and directly mappable to native files:
@@ -324,17 +330,18 @@ models:                                # → .pi/settings.json (pi-config patter
   parentTier: high
   subagents: { worker: medium, scout: small, reviewer: small, oracle: high }
 
-agents:                                # → .pi/agents/*.md
-  - name: orchestrator
-    description: "Primary interactive agent that coordinates the system"
-    role: parent                       # parent | subagent
-    tools: [read, grep, find, ls, bash, edit, write, subagent]
-    model: high
-    prompt: |
-      You coordinate the SEO system. Delegate analysis to the analyst, …
+orchestrator:                          # the primary Pi session (no agent file)
+  name: orchestrator
+  description: "Primary interactive agent that coordinates the system"
+  prompt: |                           # → .pi/APPEND_SYSTEM.md
+    You coordinate the SEO system. Delegate analysis to the analyst, …
+  model: high                          # → defaultProvider/defaultModel/thinking
+  tools: [read, grep, find, ls, bash, edit, write, subagent]  # → defaultTools
+
+agents:                                # → .pi/agents/*.md (specialist subagents)
   - name: seo-analyst
     description: "Analyzes SEO data and recommends opportunities"
-    tools: [read, grep, find, ls]      # allowlist = policy
+    tools: [read, grep, find, ls]      # allowlist = policy (ENFORCED)
     model: small
     prompt: |
       You analyze SEO data via the OpenSEO MCP tools and recommend opportunities.
@@ -353,33 +360,52 @@ integrations:                          # → .pi/mcp.json + .env.example
   env:
     - { name: OPENSEO_URL, secret: false }
 
-workflows:                             # declared execution contract (no engine)
+workflows:                             # declared boundaries; decisions inside
   - name: analyze-and-draft
     description: "Analyze SEO data, pick opportunities, draft articles"
     skill: analyze-and-draft            # the orchestrating SKILL.md
     trigger: { kind: manual }           # manual | headless (schedule deferred)
-    agents: [seo-analyst, article-writer]
+    entry: orchestrator                 # primary agent that runs it
+    agents: [seo-analyst, article-writer, researcher]  # available specialists
+    inputs: [data/opportunities/*.md]
     outputs: [data/analyses/, data/articles/]
+    approval: publish                   # advisory boundary surfaced in instructions
+    verify: "a draft exists under data/articles/"       # completion check
 
-policies:                              # coarse, materialized into native seams
-  approvals:
-    - action: publish                  # human confirmation before publishing
-      require: human
+policies:
+  enforced:                            # capability boundaries — cannot be bypassed
+    - agent: seo-analyst
+      tools: [read, grep, find, ls]     # → subagent allowlist (pi-subagents)
+    - mcp: openseo
+      hide: ["publish_*", "delete_*"]   # → toolExposure: hidden (unreachable)
+  advisory:                            # behavioral guidance — README + skill text
+    - "Publishing requires human confirmation: the workflow drafts to data/articles/ and the user publishes."
 ```
 
 The generator maps this 1:1:
 
+- `orchestrator` → `.pi/APPEND_SYSTEM.md` (prompt) + `.pi/settings.json`
+  (`defaultProvider`/`defaultModel`/`defaultThinkingLevel` from the `model` tier,
+  `defaultTools` from `tools`).
 - `models` → `.pi/settings.json` (reusing the `generate-settings.mjs` logic).
-- `agents[]` → `.pi/agents/<name>.md` (frontmatter `tools:` = allowlist; prompt
-  = body).
+- `agents[]` → `.pi/agents/<name>.md` (frontmatter `tools:` = allowlist —
+  enforced; prompt = body).
 - `skills[]` → `.pi/skills/<name>/SKILL.md`.
 - `integrations.mcp[]` → `.pi/mcp.json` `mcpServers`; `integrations.env[]` →
   `.env.example`.
-- `workflows[]` → the named `skill` plus a `README.md` table; the skill itself
-  is authored/generated content that orchestrates `subagent` calls.
-- `policies.approvals[]` → `README.md` instructions + (where expressible) agent
-  `tools:` allowlists; a `tool_call` guard extension is the documented deferred
-  mechanism for finer control.
+- `workflows[]` → the named `skill` plus a `README.md` table; the skill
+  orchestrates `subagent` calls but does not prescribe internal steps.
+- `policies.enforced[]` → agent `tools:` allowlists (pi-subagents) + MCP
+  `toolExposure: hidden` (unreachable tools). `policies.advisory[]` → `README.md`
+  + skill text. A `tool_call`-guard extension is the deferred mechanism for
+  enforcing a *present* tool's use.
+
+**Orchestrator note (verified):** Pi has no "primary agent" file or swap
+mechanism — `.pi/agents/*.md` define *subagents* only. The primary interactive
+agent **is** the Pi session, shaped by `.pi/settings.json` (startup model +
+`defaultTools`) and `.pi/APPEND_SYSTEM.md` (its instructions). `SYSTEM.md` would
+*replace* the whole system prompt, so `APPEND_SYSTEM.md` is the correct surface
+for the orchestrator persona.
 
 ### C.6 Generator + edit preservation
 
@@ -394,27 +420,53 @@ The generator maps this 1:1:
 - `factory modify <dir>` — diff current project vs model and apply confirmed
   changes (used by the builder).
 
-Ownership contract (generalizing `generate-settings.mjs`):
+Ownership and reconciliation contract (generalizing `generate-settings.mjs`):
 
-1. Factory-owned derived files (`settings.json` model fragment, `mcp.json`)
-   are regenerated; **unrelated keys are preserved** (the same merge the model
-   generator already performs).
-2. Authored files are created only if absent; on modification the factory
-   proposes a **surgical diff** and applies it only after confirmation (the
-   `spec-init` reconcile discipline, extended to markdown/YAML content).
-3. `factory generate` is idempotent and convergent: re-running with the same
-   `system.yaml` yields the same result and never duplicates content.
+1. **Derived files** (`settings.json` model fragment, `mcp.json`) are
+   factory-owned and regenerated from `system.yaml` on every `generate`;
+   **unknown keys the factory does not own are preserved** (the same merge the
+   model generator already performs). Hand-editing a derived file is
+   unsupported — change the model instead.
+2. **Authored files** (agents, skills, prompts, `APPEND_SYSTEM.md`, README,
+   `.gitignore`, `.env.example`) are user-owned. The factory scaffolds them
+   when absent. On modification it records a content fingerprint of what it last
+   wrote; if a file differs from that fingerprint *and* the model wants to
+   change it, the factory treats it as a **conflict** and proposes a diff,
+   applying it only after confirmation. It never silently overwrites.
+3. **`system.yaml`** is factory-owned but user-editable; `modify` updates only
+   the keys it is changing and preserves unknown keys (best-effort on comments).
+4. **Precedence:** the declarative model is authoritative for *derived* config;
+   authored content is authoritative for *content*. On conflict the authored
+   file wins until the user confirms a merge.
+5. **Preview:** `generate --dry-run` and `modify --dry-run` print the full
+   planned diff and write nothing; the builder always previews before applying.
+6. **Idempotence:** `generate`/`modify` are pure functions of (model, disk) —
+   same inputs produce the same result and never duplicate content.
+
+`system.yaml` is parsed with the established **`yaml`** package (v2.8.3 — the
+parser already depended on by pinned `pi-subagents`), pinned explicitly in
+`pi.packages` and resolved by `factory.mjs` from the Pi package install dir (the
+same `~/.pi/agent/` convention `pi-sync` already uses). The validator rejects
+unknown keys, invalid references, malformed workflows, and incompatible
+configurations with actionable errors. No hand-rolled YAML subset.
 
 ### C.7 Runtime = Pi (Decision 2)
 
-- Interactive: `cd <project> && pi` — loads `.pi/` (agents, skills, mcp,
-  settings, `APPEND_SYSTEM.md`); the `orchestrator` agent (or the
-  `APPEND_SYSTEM.md` instructions) is the primary interactive surface.
+- Interactive: `cd <project> && pi` — the **primary session is the
+  orchestrator**, configured by `.pi/settings.json` (startup model +
+  `defaultTools`) and `.pi/APPEND_SYSTEM.md` (its instructions). Specialist
+  agents under `.pi/agents/*.md` are subagents it delegates to.
 - Headless: `pi -p "<workflow input>"` (or `--mode json`) runs a workflow
   one-shot. The "researcher refreshes knowledge regularly" requirement is met
   by a documented command the user (or a future scheduler/cron) invokes.
 - **No always-on daemon.** A recurring scheduler is a documented extension
   point, not MVP.
+- **Portability by declaration (not vendoring):** a generated project carries
+  all project-specific content in `.pi/` and *declares and pins* every external
+  dependency — `git:github.com/mihaiiova/pi-config@<sha>` plus the npm packages
+  it needs (`pi-subagents`, `pi-mcp-adapter`, `pi-web-access`) and its MCP
+  servers — in `.pi/settings.json` `packages`. It vendors nothing and relies on
+  no ambient global config; see §D.0.
 
 ### C.8 Capability discovery
 
@@ -444,17 +496,41 @@ This is read-only and local; it lets the builder recommend both installed and
    asking.
 3. **Design** — propose a system using the 7 primitives; recommend skills/MCP/
    CLIs (installed or not).
-4. **Generate** — write `system.yaml`, run `factory generate`, scaffold authored
-   content.
+4. **Generate** — write `system.yaml`, preview with `factory generate --dry-run`,
+   then apply; scaffold authored content.
 5. **Configure** — help with credentials/env (`gh auth`, `.env`, MCP env vars);
    never write secrets into committed files.
 6. **Validate** — `factory validate` + a headless smoke run.
 7. **Modify** — later sessions reopen the project, read `system.yaml` + current
-   files, and apply confirmed changes, preserving unrelated user edits.
+   files, preview with `--dry-run`, and apply only confirmed changes, preserving
+   unrelated user edits.
 
 ---
 
 ## D. Compatibility and migration plan
+
+### D.0 Portability model (declared dependencies)
+
+Generated projects are **self-contained by declaration**, not by vendoring:
+
+- Project-specific content (agents, skills, workflows, integrations) is
+  generated into `.pi/`.
+- Every external dependency is **declared and pinned** in `.pi/settings.json`
+  `packages`: `git:github.com/mihaiiova/pi-config@<commit-sha>` (provides the
+  shared spec-lifecycle skills, scripts, and extensions) plus the npm packages
+  the project uses (`pi-subagents`, `pi-mcp-adapter`, `pi-web-access`, …) and
+  its MCP servers. The factory reads pi-config's own `pi.packages` and current
+  `git rev-parse HEAD` to pin them.
+- Nothing is copied out of pi-config into the project (avoids a second,
+  independently maintained implementation), and nothing depends on a machine's
+  ambient global config.
+
+Clean-environment acceptance test (spec 6): generate a coding-agent system →
+copy to an isolated environment with no undeclared global config → install its
+declared dependencies → `cd <dir> && pi` → verify the orchestrator, agents,
+skills, workflows, and integrations resolve → run a representative workflow and
+verify behavior. If any capability cannot be made portable in MVP, the gap is
+recorded and the acceptance criteria adjusted — never silently weakened.
 
 ### D.1 Capability matrix
 
@@ -481,12 +557,14 @@ the `system.yaml` model without changing their behavior.
 The existing pi-config coding-agent setup is represented as a **reference
 generated project** (a template in the factory's corpus), not a rewrite:
 
-- Agents: `worker`/`scout`/`reviewer`/`oracle` (+ `orchestrator`) → `.pi/agents/*.md`.
+- Orchestrator → `.pi/APPEND_SYSTEM.md` + `.pi/settings.json` (primary session).
+- Specialists `worker`/`scout`/`reviewer`/`oracle` → `.pi/agents/*.md`.
 - Model routing → `system.yaml.models` (materialized identically to today).
-- Spec lifecycle → referenced pi-config skills (preserved, not duplicated),
-  declared as `workflows[]` (`spec-new`, `spec-start`, `spec-review`).
-- GitHub ops + checks + cost accounting → preserved pi-config skills/scripts,
-  declared as the project's workflow set.
+- Spec lifecycle → provided by the pinned `pi-config` package dependency
+  (preserved, not duplicated), declared as `workflows[]` (`spec-new`,
+  `spec-start`, `spec-review`).
+- GitHub ops + checks + cost accounting → provided by the pinned pi-config
+  package dependency, declared as the project's workflow set.
 - Functional equivalence is the bar; internal structure may differ.
 
 ### D.3 Import path (existing project, in place)
@@ -530,7 +608,8 @@ generated project** (a template in the factory's corpus), not a rewrite:
   `discover`/`import`/`modify`).
 - Single- and multi-agent project generation (native `.pi/` files).
 - Skills + workflows (skills orchestrating subagents), manual + headless triggers.
-- MCP/tool discovery + configuration + coarse policy.
+- MCP/tool discovery + configuration + policy (advisory guidance + enforced
+  least-privilege via allowlists and hidden MCP tools).
 - Conversational builder (interview → recommend → generate → validate → modify).
 - Import/recreate of the existing coding-agent setup + round-trip test.
 - The two example systems (SEO and coding) as acceptance scenarios.
@@ -538,8 +617,8 @@ generated project** (a template in the factory's corpus), not a rewrite:
 **Out of scope (deferred):**
 - Visual workflow editor; hosted management platform; general-purpose
   distributed scheduler; autonomous self-improvement.
-- Always-on runtime/daemon; fine-grained runtime approval extensions;
-  scheduled/webhook triggers.
+- Always-on runtime/daemon; runtime `tool_call`-guard extensions (enforcing
+  use of a tool that must remain present); scheduled/webhook triggers.
 - Generated TypeScript extension code (per Decision 3).
 - A general workflow *engine* (Pi's skill + subagent orchestration is sufficient).
 
@@ -550,6 +629,12 @@ generated project** (a template in the factory's corpus), not a rewrite:
 Six child specs, dependency-ordered, each vertically integrated and
 independently deliverable. The two examples are folded into the specs that
 naturally own them (SEO → specs 3 + 4; coding-agent → spec 6).
+
+**Compatibility is continuous, not a final-spec afterthought.** Spec 1
+introduces a `coding-agent` compatibility fixture (a representative
+`system.yaml` + expected generated tree + capability checklist); each
+subsequent spec extends what the fixture reproduces, and spec 6 runs the full
+round-trip + clean-environment test.
 
 ```text
 #1 model          (foundation: schema + validator + ownership contract)
@@ -572,24 +657,28 @@ naturally own them (SEO → specs 3 + 4; coding-agent → spec 6).
 
 | # | Spec | Depends on | Principal acceptance |
 |---|---|---|---|
-| 1 | `agent-factory-model` | — | `factory validate` accepts valid/refuses invalid `system.yaml`; schema + ownership contract documented and tested |
-| 2 | `agent-factory-scaffold` | 1 | `factory generate` produces a project where `cd <dir> && pi -p "…"` resolves the orchestrator; idempotent, preserves edits |
-| 3 | `agent-factory-multi-agent` | 2 | a 3–4 agent system (orchestrator/analyst/writer/researcher) runs a workflow headlessly and writes `data/` outputs |
-| 4 | `agent-factory-integrations` | 2 | `factory discover` reports OpenSEO; generated `.pi/mcp.json` connects it; policy allowlists materialized |
-| 5 | `agent-factory-builder` | 3, 4 | from a plain-language description the builder produces the multi-agent+MCP project; a later session modifies it preserving unrelated edits |
-| 6 | `agent-factory-migration` | 5 | round-trip test passes; the coding-agent setup is representable as a generated project |
+| 1 | `agent-factory-model` | — | `factory validate` accepts valid/refuses invalid `system.yaml` via the `yaml` package; schema + ownership/conflict contract documented and tested; `coding-agent` compatibility fixture introduced |
+| 2 | `agent-factory-scaffold` | 1 | `factory generate` produces a project where `cd <dir> && pi -p "…"` resolves the **primary orchestrator** (settings + `APPEND_SYSTEM.md`, not an agent file); idempotent; edit-preservation/conflict + `--dry-run` tests |
+| 3 | `agent-factory-multi-agent` | 2 | a 3–4 agent system (orchestrator/analyst/writer/researcher) runs a workflow headlessly and writes `data/` outputs; workflows declare boundaries but keep dynamic delegation |
+| 4 | `agent-factory-integrations` | 2 | `factory discover` reports OpenSEO; generated `.pi/mcp.json` connects it; policy split — enforced (allowlists + hidden MCP tools) vs advisory |
+| 5 | `agent-factory-builder` | 3, 4 | from a plain-language description the builder produces the multi-agent+MCP project (previewing diffs); a later session modifies it preserving unrelated edits |
+| 6 | `agent-factory-migration` | 5 | round-trip test passes; coding-agent setup recreatable via pinned `pi-config` dependency; clean-environment portability test passes |
 
 **Risks** (top): over-generalizing the schema (mitigate: YAGNI, two-example
-coverage); edit-preservation correctness (mitigate: marker/reconcile + tests);
-headless-run flakiness in CI (mitigate: small deterministic smoke, optional
-network-gated); compatibility drift with pi-subagents/pi-mcp-adapter upgrades
-(mitigate: pin versions, keep import conservative).
+coverage); edit-preservation/conflict correctness (mitigate: fingerprint +
+reconcile + `--dry-run` preview + tests); headless-run flakiness in CI
+(mitigate: small deterministic smoke, optional network-gated); YAML parsing
+edge cases (mitigate: the established `yaml` package + strict schema
+validation); portability gaps (mitigate: clean-environment test; record gaps
+rather than weaken the promise).
 
 **Testing approach:** node:test suites for the `factory` CLI's pure functions
-(schema, generator, merge, discovery parsing); golden-file tests for generated
-projects; shell harness for `factory` CLI exit codes; the round-trip test as a
-scripted end-to-end in spec 6. Skills/behaviors follow the existing
-"assert-against-extension-source + pure-module" convention.
+(schema, generator, merge, conflict/fingerprint, discovery parsing); golden-file
+tests for generated projects; shell harness for `factory` CLI exit codes; the
+`coding-agent` compatibility fixture asserted progressively from spec 1; the
+round-trip + clean-environment tests as scripted end-to-end in spec 6.
+Skills/behaviors follow the existing "assert-against-extension-source +
+pure-module" convention.
 
 ---
 
