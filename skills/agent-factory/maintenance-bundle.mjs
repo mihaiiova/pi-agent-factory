@@ -13,12 +13,14 @@ import { digest, json, readText, readJson, fingerprints, atomicWrite, transact }
 import { effectiveCapabilities, checkCapabilities } from './capabilities.mjs';
 
 export const SOURCE = 'mihaiiova/pi-agent-factory';
-export const CHANNEL = 'development';
+// New installations follow published release tags; `development` (branch head)
+// and pinned `tags/vX.Y.Z` identities remain accepted.
+export const CHANNEL = 'releases';
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const SHA = /^[a-f0-9]{40}$/;
 const LEGACY_SETTINGS_GENERATOR = 'extensions/pi-config/generate-settings.mjs';
 export function validateIdentity(meta) {
-  if (meta?.source !== SOURCE || !(meta.channel === CHANNEL || /^tags\/v[0-9]+\.[0-9]+\.[0-9]+$/.test(meta.channel))) throw new Error('Untrusted Factory source/channel; reconfigure only through a reviewed bootstrap');
+  if (meta?.source !== SOURCE || !(meta.channel === CHANNEL || meta.channel === 'development' || /^tags\/v[0-9]+\.[0-9]+\.[0-9]+$/.test(meta.channel))) throw new Error('Untrusted Factory source/channel; reconfigure only through a reviewed bootstrap');
   if (!SHA.test(meta.revision) || typeof meta.version !== 'string' || !/^[0-9A-Za-z.+-]{1,80}$/.test(meta.version)) throw new Error('Invalid Factory revision/version');
   if (meta.runtime !== undefined && !/^runtime\/[a-f0-9-]+$/.test(meta.runtime)) throw new Error('Invalid runtime path');
   return meta;

@@ -21,7 +21,9 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    answers. **Done when** the outcome is unambiguous enough to design against.
 2. **Discover** — run `factory discover`. It reports the machine's full Pi model
    line-up (`models`, from `pi --list-models`), the user's own installed skills,
-   MCP servers, subagents and CLIs. Resolve discoverable facts rather than asking.
+   MCP servers and subagents. It knows no CLIs of its own: when the user names
+   command-line tools the system will use, add `--cli <name>` for each to check
+   they are installed. Resolve discoverable facts rather than asking.
 3. **Design** — define the system from zero using the seven primitives
    (`orchestrator`, `agents`, `skills`, `integrations`, `workflows`, `policies`,
    `packages`).

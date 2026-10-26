@@ -69,14 +69,16 @@ including switching an agent's model — and `/factory-update apply` confirms
 them.
 
 On every start, `./run` checks in the background whether a newer Factory
-revision exists, by comparing the git commit the project was generated from
-with the `development` branch on GitHub. A notice appears only when an update
+release exists, by comparing the git commit the project was generated from
+with the newest `vX.Y.Z` release tag on GitHub. A notice appears only when an update
 is available, or — at most once a day — when the check keeps failing for a
 reason other than being offline (for example, the project was generated from a
 commit that was never pushed). Updates install only via `/factory-update update`.
 
-Generate real systems from pushed commits on `development`; a project stamped
-with an unpushed or unmerged commit cannot be compared. Bootstrap older
+Generate real systems from a pushed commit (ideally a release checkout); a
+project stamped with an unpushed commit cannot be compared. A project generated
+from a commit newer than the latest release reports up to date until a release
+that contains it is tagged. Bootstrap older
 generated systems without recreating them:
 
 ```sh
@@ -92,6 +94,12 @@ boundaries, installation metadata, recovery and rollback.
 ```sh
 bash skills/agent-factory/test/test.sh
 ```
+
+### Releasing
+
+Generated projects update from release tags. To publish one, merge
+`development` into `master`, set `package.json` `version` to `X.Y.Z`, tag the
+commit `vX.Y.Z` and push the tag.
 
 ## Install
 

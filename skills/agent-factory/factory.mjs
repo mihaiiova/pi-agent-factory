@@ -5,7 +5,9 @@
  * Commands:
  *   validate <dir>             parse + validate <dir>/.pi/system.yaml
  *   generate <dir> [--dry-run] materialize a Pi project from system.yaml
- *   discover [dir]             print a read-only capability inventory as JSON
+ *   discover [dir] [--cli <name>]...
+                             print a read-only capability inventory as JSON;
+                             probes only the CLIs named with --cli
  *   modify <dir> [--dry-run] [--yes]  diff project vs model, apply confirmed changes
  *   import <dir>               reconstruct system.yaml from an existing project
  *   change <dir> --operations <file> [--dry-run] [--yes] declarative change batch
@@ -41,14 +43,15 @@ import { planChange, applyChange } from './maintenance.mjs';
 import { recoveryPlan, applyRecovery } from './maintenance-store.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const CURATED_CLIS = ["gh", "wrangler", "railway", "stripe", "npx", "git", "node"];
 
 const USAGE = `Usage: factory <command> [options]
 
 Commands:
   validate <dir>             validate <dir>/.pi/system.yaml against schema v1
   generate <dir> [--dry-run] generate the project from system.yaml
-  discover [dir]             print a read-only capability inventory as JSON
+  discover [dir] [--cli <name>]...
+                             print a read-only capability inventory as JSON;
+                             probes only the CLIs named with --cli
   modify <dir> [--dry-run] [--yes]
                              diff project vs model and apply confirmed changes
   recover <dir> [--dry-run] [--yes]
@@ -316,7 +319,7 @@ function readPiPackages() {
   }
 }
 
-function runDiscover(dir) {
+function runDiscover(dir, clis) {
   const target = resolve(dir ?? process.cwd());
 
   const mcpServers = {};
@@ -358,7 +361,7 @@ function runDiscover(dir) {
   const inventory = {
     skills: dedupedSkills,
     mcpServers,
-    clis: probeClis(CURATED_CLIS),
+    clis: probeClis(clis),
     subagents,
     models: modelCatalog(),
   };
@@ -612,7 +615,21 @@ async function main(argv) {
   }
 
   if (command === "discover") {
-    runDiscover(dir);
+    // The factory knows no CLIs of its own: probe only those the user names.
+    const args = argv.slice(1);
+    const clis = [];
+    let target;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--cli") {
+        const name = args[++i];
+        if (!/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(name ?? "")) {
+          fail(`invalid --cli name: ${name ?? "(missing)"}`);
+          return;
+        }
+        clis.push(name);
+      } else if (target === undefined) target = args[i];
+    }
+    runDiscover(target, [...new Set(clis)]);
     return;
   }
 

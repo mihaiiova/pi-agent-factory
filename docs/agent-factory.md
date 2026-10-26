@@ -509,8 +509,8 @@ configurations with actionable errors. No hand-rolled YAML subset.
 3. **Subagents** — project `.pi/agents/*.md` files (the factory CLI scans the
    project tree; the conversational builder additionally uses the live
    `subagent({action:"list"})` to see builtin + user agents).
-4. **CLIs on PATH** — a curated allowlist of integration CLIs (`gh`, `wrangler`,
-   `railway`, `stripe`, `npx`, …) probed with `command -v`.
+4. **CLIs on PATH** — only the CLIs the user names (`discover --cli <name>`),
+   probed with `command -v`. The factory has no built-in CLI list.
 5. **Known integrations** — the set of pi-config integration skills
    (`use-railway`, `cloudflare`, `stripe-best-practices`, `turnstile-spin`,
    `owlie`, …), matched against (2)/(4) and the user's description.

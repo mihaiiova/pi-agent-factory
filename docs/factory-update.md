@@ -169,13 +169,15 @@ extensions. `yaml` is vendored at the exact version in that Factory revision's
 by a Factory upgrade.
 
 Installation records the trusted repository (`mihaiiova/pi-agent-factory`), update
-channel (`development`), actual git revision, actual repository version, bundle
+channel (`releases`), actual git revision, actual repository version, bundle
 integrity, schema/protocol support, dependency pins, and entrypoint fingerprints.
 Uncommitted Factory builds are explicitly marked `developmentSnapshot`; the
 content digest identifies the actual installed bytes rather than claiming they
 were contained in HEAD. Use a committed checkout for remotely reproducible
-installations. The channel field can later support stable release selection;
-pinned `tags/vX.Y.Z` identities are already accepted. Arbitrary repositories and
+installations. The `releases` channel follows the highest
+`vX.Y.Z` tag of the trusted repository (pre-release and other tags are ignored).
+Older installations on the `development` channel keep following that branch
+head, and pinned `tags/vX.Y.Z` identities are accepted. Arbitrary repositories and
 URLs are not accepted from requests or model content.
 
 `.factory/` remains gitignored by the existing Factory contract. A generated
@@ -203,7 +205,7 @@ Run /factory-update check for details.
 
 `/factory-update check` then reports the error, when it started failing and, for
 a 404, the unpushed-commit hint. The next successful check clears the record.
-Current installations are silent. A newer compatible channel head produces only
+Current installations are silent. A newer compatible release produces only
 a terminal UI notice:
 
 ```text
@@ -216,8 +218,8 @@ modified. `PI_OFFLINE=1`, `./run --offline`, or `PI_NO_UPDATE_CHECK=1` suppress
 automatic checks. An explicit `check` bypasses the cache and reports installed
 identity, source/channel, latest revision, compatibility/migration information,
 and `checked` versus `unavailable` (not a false "up to date"). Explicit checks
-and updates search up to 20 development-history commits when the channel head
-is incompatible, selecting the newest compatible candidate and reporting both
+and updates search up to 20 older releases (or, on the `development` channel,
+development-history commits) when the newest one is incompatible, selecting the newest compatible candidate and reporting both
 head and target. Automatic startup checks inspect only the head (or a candidate
 already cached by an explicit check), keeping routine discovery lightweight. Revision ordering is verified against the trusted repository's GitHub comparison
 API: an older channel head is not an upgrade, and diverged/unknown history is

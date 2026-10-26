@@ -65,7 +65,7 @@ function network({ sha = latestSha, broken = false } = {}) {
   const fetcher = async url => {
     calls.push(url);
     if (broken) throw new Error('offline fixture');
-    const value = url.includes('/compare/') ? { status: 'ahead' } : url.includes('/commits/') ? { sha } : url.endsWith('package.json') ? { ...pkg, version: pkg.version + '+fixture' } : manifest;
+    const value = url.includes('/compare/') ? { status: 'ahead' } : url.includes('/tags?') ? [{ name: 'v9.0.0', commit: { sha } }] : url.endsWith('package.json') ? { ...pkg, version: pkg.version + '+fixture' } : manifest;
     return { ok: true, status: 200, text: async () => json(value) };
   };
   return { calls, fetcher };
@@ -84,7 +84,7 @@ test('generation includes standalone maintenance, real revision metadata and onl
   const root = project(t);
   const installation = readJson(root, '.factory/installation.json');
   assert.equal(installation.source, 'mihaiiova/pi-agent-factory');
-  assert.equal(installation.channel, 'development');
+  assert.equal(installation.channel, 'releases');
   assert.equal(installation.revision, execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
   assert.equal(installation.version, pkg.version);
   assert.ok(existsSync(join(root, '.pi/extensions/factory-update/index.ts')));
@@ -413,12 +413,29 @@ test('git source staging pins the fixed repository and exact SHA, never hooks/ch
   await assert.rejects(verifiedSource('development', runner), /Invalid update revision/);
 });
 
-test('explicit checks select the newest compatible revision behind an incompatible channel head', async t => {
+test('the releases channel follows the highest version tag, not tag list order', async t => {
+  const root = project(t);
+  const fetcher = async url => {
+    const value = url.includes('/compare/') ? { status: 'ahead' }
+      : url.includes('/tags?') ? [{ name: 'v9.0.9', commit: { sha: 'c'.repeat(40) } }, { name: 'v9.10.0', commit: { sha: latestSha } }, { name: 'nightly', commit: { sha: 'd'.repeat(40) } }, { name: 'v10.0.0-rc.1', commit: { sha: 'e'.repeat(40) } }]
+      : url.endsWith('package.json') ? { ...pkg, version: pkg.version + '+fixture' } : manifest;
+    return { ok: true, status: 200, text: async () => json(value) };
+  };
+  const result = await checkForUpdates(root, { force: true, fetcher });
+  assert.equal(result.latest.revision, latestSha);
+  assert.equal(result.updateAvailable, true);
+  const none = await checkForUpdates(root, { force: true, fetcher: async () => ({ ok: true, status: 200, text: async () => '[]' }) });
+  assert.equal(none.status, 'unavailable');
+  assert.match(none.error, /No release tags/);
+  assert.equal(none.transient, false);
+});
+
+test('explicit checks select the newest compatible release behind an incompatible latest release', async t => {
   const root = project(t);
   const head = 'b'.repeat(40);
   const fetcher = async url => {
-    const value = url.includes('/compare/') ? { status: 'ahead' } : url.includes('/commits?') ? [{ sha: head }, { sha: latestSha }, { sha: bundle.installation.revision }]
-      : url.includes('/commits/') ? { sha: head }
+    const value = url.includes('/compare/') ? { status: 'ahead' }
+      : url.includes('/tags?') ? [{ name: 'v9.1.0', commit: { sha: head } }, { name: 'v9.0.0', commit: { sha: latestSha } }]
       : url.endsWith('package.json') ? { ...pkg, version: pkg.version + '+fixture' }
       : url.includes(head) ? { ...manifest, protocol: 2, schemas: [2] } : manifest;
     return { ok: true, status: 200, text: async () => json(value) };
@@ -431,6 +448,23 @@ test('explicit checks select the newest compatible revision behind an incompatib
   const plan = await prepareUpdate(root, { ...updateOptions(), fetcher });
   assert.equal(plan.bundle.installation.revision, latestSha);
   assert.equal(plan.preview.channelHead.revision, head);
+});
+
+test('development-channel installations still search development history', async t => {
+  const root = project(t);
+  const installation = { ...readJson(root, '.factory/installation.json'), channel: 'development' };
+  writeFileSync(join(root, '.factory/installation.json'), json(installation));
+  const head = 'b'.repeat(40);
+  const fetcher = async url => {
+    const value = url.includes('/compare/') ? { status: 'ahead' } : url.includes('/commits?') ? [{ sha: head }, { sha: latestSha }]
+      : url.includes('/commits/') ? { sha: head }
+      : url.endsWith('package.json') ? { ...pkg, version: pkg.version + '+fixture' }
+      : url.includes(head) ? { ...manifest, protocol: 2, schemas: [2] } : manifest;
+    return { ok: true, status: 200, text: async () => json(value) };
+  };
+  const result = await checkForUpdates(root, { force: true, fetcher });
+  assert.equal(result.installed.channel, 'development');
+  assert.equal(result.target.revision, latestSha);
 });
 
 test('staging and failed checks preserve working installation; approved upgrades retain offline rollback', async t => {

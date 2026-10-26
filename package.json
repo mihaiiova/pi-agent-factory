@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-factory",
-  "version": "0.4.1-dev",
+  "version": "0.5.0",
   "private": true,
   "keywords": [
     "pi-package"

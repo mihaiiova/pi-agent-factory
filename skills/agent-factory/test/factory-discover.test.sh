@@ -50,6 +50,18 @@ if (JSON.stringify(inv.models) !== JSON.stringify(["provider-a/model-large", "pr
 ' || fail "discover does not report the full Pi model line-up"
 pass "factory discover reports the full Pi model line-up"
 
+printf '%s\n' "$out" | node -e '
+const inv = JSON.parse(require("fs").readFileSync(0, "utf-8"));
+if (JSON.stringify(inv.clis) !== "{}") process.exit(1);
+' || fail "discover probes CLIs nobody named"
+named="$(PATH="$work/bin:$PATH" node "$factory" discover "$work" --cli sh --cli no-such-cli-xyz --cli sh 2>&1)" || fail "discover --cli exited non-zero"
+printf '%s\n' "$named" | node -e '
+const inv = JSON.parse(require("fs").readFileSync(0, "utf-8"));
+if (JSON.stringify(inv.clis) !== JSON.stringify({ sh: true, "no-such-cli-xyz": false })) process.exit(1);
+' || fail "discover --cli does not probe exactly the named CLIs"
+if node "$factory" discover "$work" --cli '-x' >/dev/null 2>&1; then fail "discover accepted an invalid --cli name"; fi
+pass "factory discover probes only the CLIs the user names"
+
 factory_root="$(cd "$here/../../.." && pwd)"
 printf '%s\n' "$out" | node -e '
 const inv = JSON.parse(require("fs").readFileSync(0, "utf-8"));

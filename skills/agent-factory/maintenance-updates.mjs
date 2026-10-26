@@ -12,6 +12,7 @@ import { diffLines } from './diff.mjs';
 const exec = promisify(execFile);
 const TTL = 24 * 60 * 60 * 1000;
 const FAILURE = '.factory/update-failure.json';
+const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
 // Statuses meaning "try again later"; anything else is the source answering.
 const TRANSIENT_HTTP = new Set([403, 408, 429]);
 function transient(error) {
@@ -70,22 +71,28 @@ export async function checkForUpdates(root, { force = false, now = Date.now(), f
     } catch { /* no successful cached check */ }
   }
   try {
+    // The releases channel follows the highest vX.Y.Z tag; other channels name
+    // a git ref (the development branch or one pinned tag).
+    const releases = installed.channel === 'releases' ? await releaseRevisions({ fetcher, signal }) : null;
     const ref = installed.channel.startsWith('tags/') ? installed.channel.slice(5) : installed.channel;
-    const commit = await fetchJson(`https://api.github.com/repos/${SOURCE}/commits/${encodeURIComponent(ref)}`, { fetcher, signal });
-    const latest = await revisionInfo(installed, commit.sha, { fetcher, signal });
+    const head = releases ? releases[0] : (await fetchJson(`https://api.github.com/repos/${SOURCE}/commits/${encodeURIComponent(ref)}`, { fetcher, signal })).sha;
+    const latest = await revisionInfo(installed, head, { fetcher, signal });
     let target = latest;
     // Explicit checks/updates can resolve the newest compatible revision behind
-    // an incompatible development head. Startup stays at a few lightweight
-    // requests (or uses a compatible candidate cached by an explicit check).
-    if (force && installed.channel === 'development' && installed.schemas?.includes(schema) && !report(installed, latest, schema).compatible) {
-      const history = await fetchJson(`https://api.github.com/repos/${SOURCE}/commits?sha=development&per_page=20`, { fetcher, signal });
-      if (!Array.isArray(history)) throw new Error('Invalid compatible-revision history');
-      for (const entry of history.slice(0, 20)) {
-        if (entry.sha === latest.revision) continue;
+    // an incompatible channel head (older releases or development history).
+    // Startup stays at a few lightweight requests (or uses a compatible
+    // candidate cached by an explicit check).
+    if (force && (releases || installed.channel === 'development') && installed.schemas?.includes(schema) && !report(installed, latest, schema).compatible) {
+      const history = releases ?? await fetchJson(`https://api.github.com/repos/${SOURCE}/commits?sha=development&per_page=20`, { fetcher, signal }).then(entries => {
+        if (!Array.isArray(entries)) throw new Error('Invalid compatible-revision history');
+        return entries.map(entry => entry?.sha);
+      });
+      for (const sha of history.slice(0, 20)) {
+        if (sha === latest.revision) continue;
         try {
-          const candidate = await revisionInfo(installed, entry.sha, { fetcher, signal });
+          const candidate = await revisionInfo(installed, sha, { fetcher, signal });
           if (report(installed, candidate, schema).compatible) { target = candidate; break; }
-        } catch { /* older commits may predate the maintenance manifest */ }
+        } catch { /* older revisions may predate the maintenance manifest */ }
       }
     }
     let comparison = null;
@@ -103,6 +110,17 @@ export async function checkForUpdates(root, { force = false, now = Date.now(), f
     if (!result.transient) result.failure = recordFailure(root, error.message, now);
     return result;
   }
+}
+/** Release tag revisions, newest version first. */
+async function releaseRevisions(opts) {
+  const tags = await fetchJson(`https://api.github.com/repos/${SOURCE}/tags?per_page=100`, opts);
+  if (!Array.isArray(tags)) throw new Error('Invalid release tag list');
+  const releases = tags
+    .filter(tag => RELEASE_TAG.test(tag?.name ?? '') && SHA.test(tag?.commit?.sha ?? ''))
+    .map(tag => ({ sha: tag.commit.sha, key: tag.name.match(RELEASE_TAG).slice(1).map(Number) }))
+    .sort((a, b) => b.key[0] - a.key[0] || b.key[1] - a.key[1] || b.key[2] - a.key[2]);
+  if (!releases.length) throw new Error('No release tags published');
+  return releases.map(release => release.sha);
 }
 /** Persist a non-transient failure so it is not swallowed on every start. */
 function recordFailure(root, message, now) {
