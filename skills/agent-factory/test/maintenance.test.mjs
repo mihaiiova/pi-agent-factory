@@ -83,7 +83,7 @@ function updateOptions(extra = {}) { return { fetcher: network().fetcher, source
 test('generation includes standalone maintenance, real revision metadata and only minimal dependencies', t => {
   const root = project(t);
   const installation = readJson(root, '.factory/installation.json');
-  assert.equal(installation.source, 'mihaiiova/pi-config');
+  assert.equal(installation.source, 'mihaiiova/pi-agent-factory');
   assert.equal(installation.channel, 'development');
   assert.equal(installation.revision, execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
   assert.equal(installation.version, pkg.version);
@@ -134,7 +134,7 @@ test('bootstrap recognizes the historical TUI login-comment launcher without acc
     assert.deepEqual(snapshot(root), before, 'preview never rewrites the historical launcher');
     assert.match(plan.writes.run, /exec pi --no-context-files/);
     applyBootstrap(root, plan, true);
-    assert.equal(readJson(root, '.factory/installation.json').source, 'mihaiiova/pi-config');
+    assert.equal(readJson(root, '.factory/installation.json').source, 'mihaiiova/pi-agent-factory');
   }
   for (const edited of [legacy.replace('exec pi "$@"', 'exec pi --tools bash "$@"'), legacy.replace('exec pi "$@"', 'export PRIVATE_FLAG=custom\nexec pi "$@"')]) {
     const root = project(t, { legacy: true });
@@ -303,7 +303,7 @@ test('startup checks cache successes for 24h, stay silent offline/current and re
   const result = await checkForUpdates(root, { force: true, fetcher: newer.fetcher });
   assert.equal(result.compatible, true);
   assert.equal(result.migrationRequired, false);
-  assert.equal(result.installed.source, 'mihaiiova/pi-config');
+  assert.equal(result.installed.source, 'mihaiiova/pi-agent-factory');
 });
 
 test('a persistent check failure is recorded, announced at most daily and cleared by success; offline stays silent', async t => {
@@ -399,7 +399,7 @@ test('git source staging pins the fixed repository and exact SHA, never hooks/ch
     assert.equal(options.env.NODE_OPTIONS, undefined);
     assert.equal(options.env.GITHUB_TOKEN, undefined);
     if (args.includes('fetch')) {
-      assert.ok(args.includes('https://github.com/mihaiiova/pi-config.git'));
+      assert.ok(args.includes('https://github.com/mihaiiova/pi-agent-factory.git'));
       assert.equal(args.at(-1), latestSha);
     }
     if (args.includes('rev-parse')) return { stdout: latestSha + '\n' };

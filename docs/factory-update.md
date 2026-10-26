@@ -1,13 +1,13 @@
 # Generated-system maintenance: `/factory-update`
 
 Agent Factory remains the development-environment builder. `/agent-factory` is
-its convenience alias. Generated systems do **not** install global pi-config.
+its convenience alias. Generated systems do **not** install the global Agent Factory.
 They contain a minimal, versioned Factory maintenance engine and expose a
 separate `/factory-update` command.
 
 ## Try it
 
-From a pi-config checkout with its pinned packages installed:
+From an Agent Factory checkout with its pinned packages installed:
 
 ```sh
 mkdir -p /tmp/my-agent/.pi
@@ -68,8 +68,8 @@ automatically.
 No recreation or import is needed if `.pi/system.yaml` already exists:
 
 ```sh
-node /path/to/pi-config/skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --dry-run
-node /path/to/pi-config/skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --yes
+node /path/to/pi-agent-factory/skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --dry-run
+node /path/to/pi-agent-factory/skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --yes
 cd /path/to/agent
 ./run
 ```
@@ -126,8 +126,8 @@ consider that package's other capabilities before removing it.
 CLI equivalents (noninteractive application requires explicit `--yes`):
 
 ```sh
-node /path/to/pi-config/skills/agent-factory/factory.mjs change /path/to/agent --operations changes.json --dry-run
-node /path/to/pi-config/skills/agent-factory/factory.mjs change /path/to/agent --operations changes.json --yes
+node /path/to/pi-agent-factory/skills/agent-factory/factory.mjs change /path/to/agent --operations changes.json --dry-run
+node /path/to/pi-agent-factory/skills/agent-factory/factory.mjs change /path/to/agent --operations changes.json --yes
 ```
 
 Existing derived settings/MCP/launcher drift blocks unrelated change requests.
@@ -168,7 +168,7 @@ extensions. `yaml` is vendored at the exact version in that Factory revision's
 `pi.packages`; normal operational dependency pins remain separate and unchanged
 by a Factory upgrade.
 
-Installation records the trusted repository (`mihaiiova/pi-config`), update
+Installation records the trusted repository (`mihaiiova/pi-agent-factory`), update
 channel (`development`), actual git revision, actual repository version, bundle
 integrity, schema/protocol support, dependency pins, and entrypoint fingerprints.
 Uncommitted Factory builds are explicitly marked `developmentSnapshot`; the

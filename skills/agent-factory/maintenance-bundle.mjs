@@ -12,7 +12,7 @@ import { launcherScript } from './runtime.mjs';
 import { digest, json, readText, readJson, fingerprints, atomicWrite, transact } from './maintenance-store.mjs';
 import { effectiveCapabilities, checkCapabilities } from './capabilities.mjs';
 
-export const SOURCE = 'mihaiiova/pi-config';
+export const SOURCE = 'mihaiiova/pi-agent-factory';
 export const CHANNEL = 'development';
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const SHA = /^[a-f0-9]{40}$/;

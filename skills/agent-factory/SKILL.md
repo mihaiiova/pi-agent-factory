@@ -65,7 +65,7 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
 8. **Upgrade tooling** — `/factory-update check|update|rollback` use pinned trusted
    Factory metadata, cached nonblocking startup discovery, staged exact revisions,
    explicit confirmation and retained offline rollback. No automatic activation,
-   functional model change or global pi-config dependency. Restart after applying.
+   functional model change or dependency on the global Agent Factory install. Restart after applying.
    Bootstrap older projects with `factory bootstrap-update <dir> --dry-run`, then
    `--yes`; conflicts/migrations must be resolved explicitly. See
    `../../docs/factory-update.md` for architecture, recovery and limitations.

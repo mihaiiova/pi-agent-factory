@@ -193,7 +193,7 @@ Full text of `docs/agent-factory.md` §C.6:
 Maintenance front doors (`.pi/extensions/factory-update/index.ts` and
 `.pi/skills/factory-update/SKILL.md`) are reserved infrastructure outside authored
 operational skill ownership. Versioned engines and exact YAML dependency pins are
-bundled beneath `.factory/runtime/`; they do not import global pi-config. Upgrades
+bundled beneath `.factory/runtime/`; they do not import the global Agent Factory install. Upgrades
 switch installation metadata, not operational declarations/content. Maintenance
 change proposals delete removed agent/skill scaffolds only when intact, reject
 authored conflicts, and require separately confirmed drift reconciliation.
