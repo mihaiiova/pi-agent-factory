@@ -29,7 +29,7 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/.pi"
 cp "$fixtures/generate/multi-agent/.pi/system.yaml" "$work/.pi/system.yaml"
 node "$factory" generate "$work" >/dev/null
-edit_yaml "$work/.pi/system.yaml" 'doc.agents.push({ name: "editor", tools: ["write"], model: "medium", prompt: "Draft.\n" })'
+edit_yaml "$work/.pi/system.yaml" 'doc.agents.push({ name: "editor", tools: ["write"], model: "provider-a/model-medium", prompt: "Draft.\n" })'
 
 if ! node "$factory" modify "$work" --dry-run >/dev/null 2>&1; then
   fail "modify --dry-run should exit 0"

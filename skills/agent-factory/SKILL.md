@@ -15,18 +15,28 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
 
 ## Lifecycle
 
-1. **Understand** — a graded interview (`spec.decisionThreshold` + `grill-me` /
-   `grill-with-docs`). Ask only genuinely-required questions; never re-ask a fact
-   the next step already answers. **Done when** the unresolved decisions fall below
-   the threshold and the outcome is unambiguous enough to design against.
-2. **Discover** — run `factory discover`. Resolve discoverable facts (installed
-   skills, MCP servers, subagents, CLIs) rather than asking.
-3. **Design** — propose a system using the seven primitives (`orchestrator`,
-   `models`, `agents`, `skills`, `integrations`, `workflows`, `policies`). Recommend
-   at least one skill/MCP server — installed or not-installed — with install
-   instructions when it is not already present. The not-installed candidates come
-   from `factory discover`'s `knownIntegrations` list minus what discovery already
-   found installed.
+1. **Understand** — interview for the outcome: what the system must achieve, which
+   distinct roles it needs, and what each role may touch. Ask only genuinely-required
+   questions, one decision at a time; never re-ask a fact the next step already
+   answers. **Done when** the outcome is unambiguous enough to design against.
+2. **Discover** — run `factory discover`. It reports the machine's full Pi model
+   line-up (`models`, from `pi --list-models`), the user's own installed skills,
+   MCP servers, subagents and CLIs. Resolve discoverable facts rather than asking.
+3. **Design** — define the system from zero using the seven primitives
+   (`orchestrator`, `agents`, `skills`, `integrations`, `workflows`, `policies`,
+   `packages`).
+   - **Models:** the factory ships no default models. For the orchestrator and
+     for each subagent, ask which model to use, offering the entire discovered
+     line-up, and record it as `model: provider/id` (plus an optional
+     `thinking:` level) on that agent. Agents may share a model or each use a
+     different one. Any model can be changed later (step 7).
+   - **Skills:** the factory ships no skills and never recommends one unprompted.
+     Use only skills the user asks for or provides: an inline `body` they
+     describe, a pinned package (`source: npm:<name>@<version>` or
+     `git:<repo>@<ref>`), or a directory they point at (`source: ./path`,
+     `../path`, `/abs/path` or `~/path`), which is vendored into
+     `.pi/skills/<name>/`. Attach skills to the agents that need them with
+     `agents[].skills`.
 4. **Generate** — write `system.yaml`, then **preview first**: run
    `factory generate <dir> --dry-run` and show the planned diff. Only apply after
    the user confirms. Generation also writes `.factory/capabilities.json` — the
@@ -46,7 +56,9 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    skill/command and minimal standalone deterministic engine. Within `./run`, use
    `/factory-update <request>` to inspect/discover/preview a structured model
    change, `/factory-update apply` to confirm it, or `/factory-update review` for
-   read-only recommendations. The operational loadout is not broadened. Changes
+   read-only recommendations. Switch any agent's model with an `assign`
+   operation (`{"op":"assign","name":"<agent>","model":"provider/id"}`). The
+   operational loadout is not broadened. Changes
    go through `system.yaml`, never direct settings/MCP edits. CLI equivalents:
    `factory change <dir> --operations <json-file> --dry-run`, then `--yes` after
    approval. Existing `factory modify <dir> --dry-run` reconciliation is preserved.

@@ -5,19 +5,34 @@ import { tmpdir } from 'node:os';
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { SOURCE, SHA, validateIdentity, validateManifest, yamlPin, buildBundle, installedYamlDir, stageBundle, verifyBundle } from './maintenance-bundle.mjs';
-import { readText, readJson, fingerprints, assertUnchanged, transact, json, safePath } from './maintenance-store.mjs';
+import { readText, readJson, fingerprints, assertUnchanged, transact, json, safePath, atomicWrite } from './maintenance-store.mjs';
 import { loadYaml } from './yaml-loader.mjs';
 import { managedPaths } from './generate.mjs';
 import { diffLines } from './diff.mjs';
 const exec = promisify(execFile);
 const TTL = 24 * 60 * 60 * 1000;
+const FAILURE = '.factory/update-failure.json';
+// Statuses meaning "try again later"; anything else is the source answering.
+const TRANSIENT_HTTP = new Set([403, 408, 429]);
+function transient(error) {
+  error.transient = true;
+  return error;
+}
 function cleanEnv(home) {
   return { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, TMPDIR: home, LANG: 'C.UTF-8', PI_OFFLINE: '1', PI_CODING_AGENT_DIR: join(home, 'pi-home') };
 }
 export async function fetchJson(url, { fetcher = fetch, signal } = {}) {
-  const response = await fetcher(url, { redirect: 'error', headers: { Accept: 'application/vnd.github+json' }, signal: signal ?? AbortSignal.timeout(4000) });
-  if (!response.ok) throw new Error(`Update source unavailable (HTTP ${response.status})`);
-  const text = await response.text();
+  // Network failures and timeouts are transient; a definite answer that the
+  // check cannot use (404, malformed metadata) is a persistent failure.
+  let response, text;
+  try {
+    response = await fetcher(url, { redirect: 'error', headers: { Accept: 'application/vnd.github+json' }, signal: signal ?? AbortSignal.timeout(4000) });
+  } catch (error) { throw transient(error); }
+  if (!response.ok) {
+    const error = new Error(`Update source unavailable (HTTP ${response.status})`);
+    throw response.status >= 500 || TRANSIENT_HTTP.has(response.status) ? transient(error) : error;
+  }
+  try { text = await response.text(); } catch (error) { throw transient(error); }
   if (text.length > 1000000) throw new Error('Oversized update response');
   return JSON.parse(text);
 }
@@ -80,12 +95,27 @@ export async function checkForUpdates(root, { force = false, now = Date.now(), f
       comparison = { from: installed.revision, to: target.revision, status: compared.status };
     }
     // Cache only successful checks, never a network failure mistaken for current.
-    const { atomicWrite } = await import('./maintenance-store.mjs');
     try { atomicWrite(root, '.factory/update-cache.json', json({ key, checkedAt: now, latest, target, comparison })); } catch { /* read-only project: successful check is still useful */ }
+    try { rmSync(safePath(root, FAILURE), { force: true }); } catch { /* best effort */ }
     return report(installed, latest, schema, target, comparison);
   } catch (error) {
-    return { status: 'unavailable', installed, latest: null, updateAvailable: null, compatible: null, migrationRequired: null, error: error.message };
+    const result = { status: 'unavailable', installed, latest: null, updateAvailable: null, compatible: null, migrationRequired: null, error: error.message, transient: error?.transient === true };
+    if (!result.transient) result.failure = recordFailure(root, error.message, now);
+    return result;
   }
+}
+/** Persist a non-transient failure so it is not swallowed on every start. */
+function recordFailure(root, message, now) {
+  let previous = null;
+  try { previous = readJson(root, FAILURE); } catch { /* first failure */ }
+  const failure = {
+    firstFailedAt: Number.isFinite(previous?.firstFailedAt) && previous.firstFailedAt <= now ? previous.firstFailedAt : now,
+    lastFailedAt: now,
+    error: message,
+    ...(Number.isFinite(previous?.notifiedAt) ? { notifiedAt: previous.notifiedAt } : {}),
+  };
+  try { atomicWrite(root, FAILURE, json(failure)); } catch { /* read-only project */ }
+  return failure;
 }
 export function checkSummary(result) {
   const installed = result.installed;
@@ -95,7 +125,11 @@ export function checkSummary(result) {
     `Latest revision: ${result.latest ? `${result.latest.version} (${result.latest.revision})` : 'unknown'}`,
   ];
   if (result.target && result.target.revision !== result.latest?.revision) lines.push(`Compatible target: ${result.target.version} (${result.target.revision})`);
-  if (result.status !== 'checked') lines.push(`Could not check: ${result.error}`);
+  if (result.status !== 'checked') {
+    lines.push(`Could not check: ${result.error}`);
+    if (result.failure) lines.push(`Failing since: ${new Date(result.failure.firstFailedAt).toISOString()}`);
+    if (/HTTP 404/.test(result.error ?? '')) lines.push(`If this project was generated from an unpushed Factory commit (${installed.revision.slice(0, 12)}), push it to ${installed.source} so updates can be compared.`);
+  }
   else lines.push(`Update: ${result.updateAvailable === true ? 'available' : result.updateAvailable === null ? 'ordering unknown/diverged; not installable' : result.ordering === 'behind' ? 'channel is older than installed revision' : 'up to date with compatible channel revisions'}`);
   lines.push(`Schema migration required: ${result.migrationRequired === null ? 'unknown' : result.migrationRequired ? 'yes' : 'no'}`);
   lines.push(`Compatibility: ${result.compatibility ?? 'could not establish before installation'}`);
@@ -109,7 +143,17 @@ export function updateNotice(result) {
 export function startupCheck(root, notify, opts = {}) {
   // Do not return/await this promise from session_start: Pi startup stays live.
   if (process.env.PI_NO_UPDATE_CHECK === '1' || process.env.PI_OFFLINE === '1' || process.argv.includes('--offline')) return Promise.resolve();
-  return checkForUpdates(root, opts).then(result => { const message = updateNotice(result); if (message) notify(message); }).catch(() => {});
+  return checkForUpdates(root, opts).then(result => {
+    const message = updateNotice(result) ?? failureNotice(root, result, opts.now ?? Date.now());
+    if (message) notify(message);
+  }).catch(() => {});
+}
+/** At most one notice per day for a check that keeps failing; offline stays silent. */
+function failureNotice(root, result, now) {
+  const failure = result.failure;
+  if (result.status === 'checked' || !failure || (Number.isFinite(failure.notifiedAt) && now - failure.notifiedAt < TTL)) return null;
+  try { atomicWrite(root, FAILURE, json({ ...failure, notifiedAt: now })); } catch { /* read-only project */ }
+  return `Factory update check is failing: ${result.error}\nRun /factory-update check for details.`;
 }
 export async function verifiedSource(revision, run = exec) {
   if (!SHA.test(revision)) throw new Error('Invalid update revision');

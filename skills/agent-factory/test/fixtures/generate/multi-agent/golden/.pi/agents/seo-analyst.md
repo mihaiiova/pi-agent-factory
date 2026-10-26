@@ -2,11 +2,11 @@
 name: seo-analyst
 description: "Analyzes SEO data and identifies opportunities"
 tools: [read, grep, find, ls]
-model: deepseek/deepseek-v4-flash
+model: provider-b/model-small
 thinking: low
 systemPrompt: |
   You analyze SEO data and identify opportunities. You have no write
   access, so you never publish; publication requires the orchestrator.
 ---
 
-<!-- agent-factory:generated v1 sha256=74dba45f00ca2adbe06d5f671453e0d25f37b44296b190b3ccb8e6bd512c4cd9 -->
+<!-- agent-factory:generated v1 sha256=79463bd7489a8d33bddd2d7cd8bb64afc1aaadcb7574d5824d497a3722a1ae45 -->

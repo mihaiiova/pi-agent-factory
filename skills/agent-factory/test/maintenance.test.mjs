@@ -10,7 +10,7 @@ import { generateProject } from '../generate.mjs';
 import { changeModel } from '../changes.mjs';
 import { planChange, applyChange, inspectProject } from '../maintenance.mjs';
 import { localBundle, bootstrapPlan, applyBootstrap, buildBundle, validateIdentity, validateManifest, installedYamlDir, verifyBundle } from '../maintenance-bundle.mjs';
-import { checkForUpdates, startupCheck, updateNotice, prepareUpdate, activateUpdate, rollbackPlan, applyRollback, verifiedSource } from '../maintenance-updates.mjs';
+import { checkForUpdates, checkSummary, startupCheck, updateNotice, prepareUpdate, activateUpdate, rollbackPlan, applyRollback, verifiedSource } from '../maintenance-updates.mjs';
 import { readJson, readText, json, recoverTransaction, atomicWrite, transact, fingerprints } from '../maintenance-store.mjs';
 import { registerMaintenance } from '../maintenance-extension.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
@@ -22,8 +22,7 @@ const manifest = JSON.parse(readFileSync(join(repo, 'skills/agent-factory/mainte
 const bundle = localBundle();
 const model = {
   schema: 1, name: 'maintenance-test', description: 'A focused research system',
-  models: { tiers: { main: { model: 'fixture/large' }, cheap: { model: 'fixture/small' } } },
-  orchestrator: { name: 'lead', model: 'main', tools: ['read'], prompt: 'Coordinate research.\n' },
+  orchestrator: { name: 'lead', model: 'fixture/large', tools: ['read'], prompt: 'Coordinate research.\n' },
 };
 function project(t, { legacy = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'factory-maintenance-'));
@@ -70,6 +69,14 @@ function network({ sha = latestSha, broken = false } = {}) {
     return { ok: true, status: 200, text: async () => json(value) };
   };
   return { calls, fetcher };
+}
+function unpublished() {
+  // GitHub answers, but cannot compare against a commit it has never seen.
+  const base = network();
+  const fetcher = async url => url.includes('/compare/')
+    ? { ok: false, status: 404, text: async () => '{}' }
+    : base.fetcher(url);
+  return { fetcher };
 }
 function updateOptions(extra = {}) { return { fetcher: network().fetcher, sourceReader: async revision => { assert.equal(revision, latestSha); return source(extra); }, yamlDir: installedYamlDir() }; }
 
@@ -141,9 +148,8 @@ test('bootstrap recognizes the historical TUI login-comment launcher without acc
 test('structured changes preserve comments, add/update/remove all schema entities and reconcile capabilities', t => {
   const root = project(t);
   const operations = [
-    { op: 'add', target: 'tier', name: 'budget', value: { model: 'fixture/budget' } },
-    { op: 'add', target: 'agent', name: 'reviewer', value: { model: 'main', tools: ['read'], prompt: 'Review findings.' } },
-    { op: 'assign', name: 'reviewer', tier: 'budget' },
+    { op: 'add', target: 'agent', name: 'reviewer', value: { model: 'fixture/large', tools: ['read'], prompt: 'Review findings.' } },
+    { op: 'assign', name: 'reviewer', model: 'fixture/budget', thinking: 'low' },
     { op: 'add', target: 'skill', name: 'keywords', value: { description: 'Keyword research', body: 'Find keywords.' } },
     { op: 'add', target: 'mcp', name: 'search', value: { config: { url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer ${SEARCH_TOKEN}' } } } },
     { op: 'add', target: 'workflow', name: 'research', value: { skill: 'keywords', agents: ['reviewer'], entry: 'lead' } },
@@ -157,31 +163,31 @@ test('structured changes preserve comments, add/update/remove all schema entitie
   assert.deepEqual(snapshot(root), before);
   applyChange(root, plan, true);
   assert.match(readText(root, '.pi/system.yaml'), /^# Preserve this purpose comment/);
-  assert.match(readText(root, '.pi/agents/reviewer.md'), /model: fixture\/budget/);
-  assert.equal(readJson(root, '.pi/settings.json').subagents.agentOverrides.reviewer.model, 'fixture/budget', 'explicit assignment also overrides runtime routing');
+  assert.match(readText(root, '.pi/agents/reviewer.md'), /model: fixture\/budget\nthinking: low/);
+  assert.equal(readJson(root, '.pi/settings.json').subagents, undefined, 'agents carry their own models; no routing overrides');
   assert.deepEqual(readJson(root, '.pi/mcp.json').mcpServers.search.excludeTools, ['write']);
   assert.equal(inspectProject(root).consistency.ok, true);
   applyChange(root, planChange(root, [
     { op: 'update', target: 'skill', name: 'keywords', value: { body: 'Find and prioritize keywords.' } },
-    { op: 'update', target: 'tier', name: 'budget', value: { thinking: 'low' } },
+    { op: 'assign', name: 'reviewer', model: 'fixture/budget', thinking: null },
     { op: 'update', target: 'agent', name: 'reviewer', value: { description: 'Check research' } },
     { op: 'update', target: 'mcp', name: 'search', value: { config: { url: 'https://example.invalid/v2' } } },
     { op: 'update', target: 'workflow', name: 'research', value: { description: 'Simple research' } },
-    { op: 'set', target: 'orchestrator', value: { ...model.orchestrator, model: 'cheap', tools: ['read', 'grep'], prompt: 'New instructions.' } },
+    { op: 'set', target: 'orchestrator', value: { ...model.orchestrator, model: 'fixture/small', tools: ['read', 'grep'], prompt: 'New instructions.' } },
   ]), true);
   assert.match(readText(root, '.pi/APPEND_SYSTEM.md'), /New instructions/);
+  assert.doesNotMatch(readText(root, '.pi/agents/reviewer.md'), /thinking:/, 'a null thinking level removes it');
+  assert.equal(readJson(root, '.pi/settings.json').defaultModel, 'small');
   assert.throws(() => planChange(root, [{ op: 'remove', target: 'agent', name: 'reviewer' }]), /references/);
   assert.throws(() => planChange(root, [{ op: 'remove', target: 'skill', name: 'keywords' }]), /references/);
-  assert.throws(() => planChange(root, [{ op: 'remove', target: 'tier', name: 'budget' }]), /references/);
+  assert.throws(() => planChange(root, [{ op: 'assign', name: 'reviewer', model: 'budget' }]), /provider\/id/);
   assert.throws(() => planChange(root, [{ op: 'remove', target: 'mcp', name: 'search' }]), /references/);
   applyChange(root, planChange(root, [
     { op: 'remove', target: 'workflow', name: 'research' },
     { op: 'set', target: 'policies', value: {} },
     { op: 'remove', target: 'agent', name: 'reviewer' },
-    { op: 'remove', target: 'tier', name: 'budget' },
     { op: 'remove', target: 'skill', name: 'keywords' },
     { op: 'remove', target: 'mcp', name: 'search' },
-    { op: 'set', target: 'models', value: model.models },
   ]), true);
   assert.equal(readText(root, '.pi/agents/reviewer.md'), null);
   assert.equal(readText(root, '.pi/skills/keywords/SKILL.md'), null);
@@ -191,35 +197,42 @@ test('structured changes preserve comments, add/update/remove all schema entitie
 
 test('conflicts, stale previews, malformed references and infrastructure names cannot bypass validation', t => {
   const root = project(t);
-  const plan = planChange(root, [{ op: 'assign', name: 'lead', tier: 'cheap' }]);
+  const plan = planChange(root, [{ op: 'assign', name: 'lead', model: 'fixture/small' }]);
   writeFileSync(join(root, '.pi/system.yaml'), readText(root, '.pi/system.yaml') + '# later user edit\n');
   assert.throws(() => applyChange(root, plan, true), /changed since preview/);
   assert.throws(() => planChange(root, [{ op: 'add', target: 'skill', name: 'factory-update', value: { body: 'replace maintenance' } }]), /reserved/);
   assert.throws(() => changeModel(yaml.stringify(model), [{ op: 'add', target: 'agent', name: '../escape', value: {} }]), /unsafe/);
-  assert.throws(() => planChange(root, [{ op: 'assign', name: 'lead', tier: 'absent' }]), /references tier/);
-  const replacement = { ...model, agents: [{ name: 'r', model: 'cheap' }], models: { ...model.models, subagents: { r: 'cheap' } } };
+  assert.throws(() => planChange(root, [{ op: 'assign', name: 'lead', model: 'absent' }]), /provider\/id/);
+  assert.throws(() => planChange(root, [{ op: 'assign', name: 'lead', model: 'fixture/small', thinking: 'extreme' }]), /thinking must be one of/);
+  const replacement = { ...model, agents: [{ name: 'r', model: 'fixture/small' }] };
   applyChange(root, planChange(root, [{ op: 'replace', model: replacement }]), true);
-  assert.throws(() => planChange(root, [{ op: 'remove', target: 'agent', name: 'r' }]), /subagents.r/);
   writeFileSync(join(root, '.pi/agents/r.md'), 'My authored reviewer\n');
-  assert.throws(() => planChange(root, [{ op: 'set', target: 'models', value: model.models }, { op: 'remove', target: 'agent', name: 'r' }]), /Authored removal conflict/);
+  assert.throws(() => planChange(root, [{ op: 'remove', target: 'agent', name: 'r' }]), /Authored removal conflict/);
   const symlinkRoot = project(t, { legacy: true });
   symlinkSync(tmpdir(), join(symlinkRoot, '.factory/runtime'));
   assert.throws(() => applyBootstrap(symlinkRoot, bootstrapPlan(symlinkRoot, bundle), true), /symlink/);
 });
 
-test('schema migration is separately approved and drift-protected', t => {
+test('an unsupported schema is only replaced by an explicit, drift-protected replacement', t => {
   const root = project(t);
-  const legacy = { ...model, schema: 0, models: { ...model.models, subagentTiers: {} } };
+  const legacy = { ...model, schema: 0 };
   writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(legacy));
   const before = snapshot(root);
-  assert.throws(() => planChange(root, [{ op: 'assign', name: 'lead', tier: 'cheap' }]), /explicit migrate/);
-  const plan = planChange(root, [{ op: 'migrate' }]);
-  assert.match(plan.preview.modelDiff, /schema: 1/);
+  assert.throws(() => changeModel(yaml.stringify(legacy), [{ op: 'assign', name: 'lead', model: 'fixture/small' }]), /explicit replace/);
+  assert.throws(() => planChange(root, [{ op: 'assign', name: 'lead', model: 'fixture/small' }]), /schema must be 1/);
   assert.deepEqual(snapshot(root), before);
-  writeFileSync(join(root, '.pi/system.yaml'), readText(root, '.pi/system.yaml') + '# later edit\n');
-  assert.throws(() => applyChange(root, plan, true), /changed since preview/);
-  applyChange(root, planChange(root, [{ op: 'migrate' }]), true);
-  assert.equal(yaml.parse(readText(root, '.pi/system.yaml')).schema, 1);
+});
+
+test('vendored skills must already be in the project and cannot be orphaned', t => {
+  const root = project(t);
+  const local = { op: 'add', target: 'skill', name: 'house-style', value: { source: '../shared/house-style' } };
+  assert.throws(() => planChange(root, [local]), /Vendored skill not present in the project: house-style/);
+  mkdirSync(join(root, '.pi/skills/house-style'), { recursive: true });
+  writeFileSync(join(root, '.pi/skills/house-style/SKILL.md'), '---\nname: house-style\n---\nWrite plainly.\n');
+  applyChange(root, planChange(root, [local, { op: 'add', target: 'agent', name: 'writer', value: { model: 'fixture/small', skills: ['house-style'] } }]), true);
+  assert.match(readText(root, '.pi/agents/writer.md'), /skills: \[house-style\]/);
+  assert.equal(readText(root, '.pi/skills/house-style/SKILL.md').includes('Write plainly.'), true, 'vendored copy is never rewritten');
+  assert.throws(() => planChange(root, [{ op: 'update', target: 'agent', name: 'writer', value: { skills: [] } }, { op: 'remove', target: 'skill', name: 'house-style' }]), /Removed vendored skill still loads/);
 });
 
 test('unmarked instructions and unrelated derived drift never get silently reconciled', t => {
@@ -231,7 +244,7 @@ test('unmarked instructions and unrelated derived drift never get silently recon
   const tools = generateProject({ ...model, orchestrator: { ...model.orchestrator, tools: [] } }, {}, { piPackages: pkg.pi.packages }).files.find(f => f.path === '.pi/settings.json');
   assert.deepEqual(JSON.parse(tools.content).defaultTools, []);
   writeFileSync(join(root, 'run'), readText(root, 'run') + '# custom launcher\n');
-  assert.throws(() => planChange(root, [{ op: 'assign', name: 'lead', tier: 'cheap' }]), /generated configuration drift/);
+  assert.throws(() => planChange(root, [{ op: 'assign', name: 'lead', model: 'fixture/small' }]), /generated configuration drift/);
   const mock = adapter();
   registerMaintenance(mock.pi, mock.Type, root);
   // Reconciliation is a distinct direct-user action, never an incidental
@@ -260,7 +273,7 @@ test('credential redaction protects inspection and model-facing diffs; new liter
   const mock = adapter();
   registerMaintenance(mock.pi, mock.Type, root);
   await mock.commands['factory-update'].handler('use cheap model', mock.ctx);
-  const response = await mock.tools.factory_plan.execute('id', { action: 'propose', operations: json([{ op: 'assign', name: 'lead', tier: 'cheap' }]) }, undefined, undefined, mock.ctx);
+  const response = await mock.tools.factory_plan.execute('id', { action: 'propose', operations: json([{ op: 'assign', name: 'lead', model: 'fixture/small' }]) }, undefined, undefined, mock.ctx);
   assert.ok(!JSON.stringify(response).includes(literal));
   assert.ok(!JSON.stringify(response).includes('private-fragment'));
   assert.throws(() => planChange(root, [{ op: 'update', target: 'mcp', name: 'search', value: { config: { url: 'https://example.invalid', headers: { Authorization: 'Bearer new-literal-secret' } } } }]), /environment reference/);
@@ -293,6 +306,34 @@ test('startup checks cache successes for 24h, stay silent offline/current and re
   assert.equal(result.installed.source, 'mihaiiova/pi-config');
 });
 
+test('a persistent check failure is recorded, announced at most daily and cleared by success; offline stays silent', async t => {
+  const root = project(t);
+  const day = 24 * 60 * 60 * 1000;
+  const messages = [];
+  await startupCheck(root, m => messages.push(m), { force: true, fetcher: network({ broken: true }).fetcher, now: 1000 });
+  assert.deepEqual(messages, [], 'network failures are silent');
+  assert.equal(readText(root, '.factory/update-failure.json'), null, 'network failures are not recorded');
+  const limited = async () => ({ ok: false, status: 429, text: async () => '{}' });
+  await startupCheck(root, m => messages.push(m), { force: true, fetcher: limited, now: 1000 });
+  assert.deepEqual(messages, [], 'rate limits are transient');
+
+  await startupCheck(root, m => messages.push(m), { force: true, fetcher: unpublished().fetcher, now: 2000 });
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /^Factory update check is failing: Update source unavailable \(HTTP 404\)\nRun \/factory-update check for details\.$/);
+  await startupCheck(root, m => messages.push(m), { force: true, fetcher: unpublished().fetcher, now: 2000 + day - 1 });
+  assert.equal(messages.length, 1, 'not repeated within a day');
+  const failing = await checkForUpdates(root, { force: true, fetcher: unpublished().fetcher, now: 3000 });
+  assert.equal(failing.failure.firstFailedAt, 2000);
+  const summary = checkSummary(failing);
+  assert.match(summary, /Failing since: 1970-01-01T00:00:02\.000Z/);
+  assert.match(summary, /generated from an unpushed Factory commit/);
+  await startupCheck(root, m => messages.push(m), { force: true, fetcher: unpublished().fetcher, now: 2000 + day });
+  assert.equal(messages.length, 2, 'repeated after a day');
+
+  await checkForUpdates(root, { force: true, fetcher: network().fetcher, now: 4000 });
+  assert.equal(readText(root, '.factory/update-failure.json'), null, 'a successful check clears the failure');
+});
+
 test('startup event does not await network and model notifications are never sent', async t => {
   const root = project(t);
   const mock = adapter();
@@ -316,6 +357,9 @@ test('trusted source/revision/schema validation fails closed before activation',
   assert.throws(() => validateIdentity({ ...bundle.installation, channel: 'https://evil.invalid' }), /Untrusted/);
   assert.throws(() => validateIdentity({ ...bundle.installation, revision: 'development' }), /revision/);
   assert.throws(() => validateManifest({ ...manifest, files: ['../../evil.mjs'] }), /Unsafe/);
+  // Revisions published before per-agent models still list the tier generator.
+  assert.doesNotThrow(() => validateManifest({ ...manifest, files: ['extensions/pi-config/generate-settings.mjs', ...manifest.files] }));
+  assert.throws(() => validateManifest({ ...manifest, files: ['extensions/pi-config/index.ts', ...manifest.files] }), /Unsafe/);
   const invalid = await checkForUpdates(root, { force: true, fetcher: network({ sha: 'not-a-sha' }).fetcher });
   assert.equal(invalid.status, 'unavailable');
   const before = readText(root, '.factory/installation.json');
@@ -423,9 +467,9 @@ test('upgrade checks strip credentials and stable front doors do not deadlock on
   await activateUpdate(root, plan, true);
   assert.equal(readText(root, '.pi/skills/factory-update/SKILL.md'), skill);
   const updated = await import(pathToFileURL(join(root, '.factory', plan.bundle.installation.runtime, 'skills/agent-factory/maintenance.mjs')).href);
-  const proposal = updated.planChange(root, [{ op: 'assign', name: 'lead', tier: 'cheap' }]);
+  const proposal = updated.planChange(root, [{ op: 'assign', name: 'lead', model: 'fixture/small' }]);
   updated.applyChange(root, proposal, true);
-  assert.equal(yaml.parse(readText(root, '.pi/system.yaml')).orchestrator.model, 'cheap');
+  assert.equal(yaml.parse(readText(root, '.pi/system.yaml')).orchestrator.model, 'fixture/small');
 });
 
 test('model edits after staging or before rollback are never overwritten/reversed', async t => {
@@ -488,14 +532,14 @@ test('slash adapter preserves operational allowlist, read-only review and indepe
   assert.deepEqual(mock.pi.getActiveTools(), ['read']);
   assert.equal(mock.tools.factory_plan.exposure, 'hidden');
   await command('use a cheaper model');
-  await tool({ action: 'propose', operations: JSON.stringify([{ op: 'assign', name: 'lead', tier: 'cheap' }]) });
+  await tool({ action: 'propose', operations: JSON.stringify([{ op: 'assign', name: 'lead', model: 'fixture/small' }]) });
   mock.events.agent_end();
   const before = readText(root, '.pi/system.yaml');
   await command('apply');
   assert.equal(readText(root, '.pi/system.yaml'), before, 'dialog declined');
   mock.approve();
   await command('apply');
-  assert.equal(yaml.parse(readText(root, '.pi/system.yaml')).orchestrator.model, 'cheap');
+  assert.equal(yaml.parse(readText(root, '.pi/system.yaml')).orchestrator.model, 'fixture/small');
   assert.deepEqual(mock.pi.getActiveTools(), ['read']);
   assert.deepEqual(readJson(root, '.pi/settings.json').defaultTools, ['read']);
 });
@@ -588,14 +632,14 @@ test('CLI generate/bootstrap/change dry runs and noninteractive unapproved calls
   assert.deepEqual(snapshot(root), before);
   execFileSync(process.execPath, [factory, 'bootstrap-update', root, '--yes']);
   const ops = join(root, 'operations.json');
-  writeFileSync(ops, json([{ op: 'assign', name: 'lead', tier: 'cheap' }]));
+  writeFileSync(ops, json([{ op: 'assign', name: 'lead', model: 'fixture/small' }]));
   const installed = snapshot(root);
   execFileSync(process.execPath, [factory, 'change', root, '--operations', ops, '--dry-run']);
   assert.deepEqual(snapshot(root), installed);
   execFileSync(process.execPath, [factory, 'change', root, '--operations', ops], { input: '' });
   assert.deepEqual(snapshot(root), installed);
   execFileSync(process.execPath, [factory, 'change', root, '--operations', ops, '--yes']);
-  assert.equal(yaml.parse(readText(root, '.pi/system.yaml')).orchestrator.model, 'cheap');
+  assert.equal(yaml.parse(readText(root, '.pi/system.yaml')).orchestrator.model, 'fixture/small');
   const fresh = mkdtempSync(join(tmpdir(), 'factory-cli-fresh-'));
   t.after(() => rmSync(fresh, { recursive: true, force: true }));
   mkdirSync(join(fresh, '.pi'));

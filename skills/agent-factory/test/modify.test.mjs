@@ -7,23 +7,15 @@ const baseModel = {
   schema: 1,
   name: "seo-agent-system",
   description: "SEO",
-  models: {
-    tiers: {
-      high: { model: "a/high", thinking: "high" },
-      medium: { model: "b/medium", thinking: "medium" },
-      small: { model: "c/small", thinking: "low" },
-    },
-    parentTier: "high",
-    subagents: { worker: "medium", scout: "small", reviewer: "small", oracle: "high" },
-  },
   orchestrator: {
     name: "orchestrator",
-    model: "high",
+    model: "a/high",
+    thinking: "high",
     tools: ["read", "subagent"],
     prompt: "Coordinate.\n",
   },
   agents: [
-    { name: "seo-analyst", description: "Analyst", tools: ["read"], model: "small", prompt: "Analyze.\n" },
+    { name: "seo-analyst", description: "Analyst", tools: ["read"], model: "c/small", thinking: "low", prompt: "Analyze.\n" },
   ],
 };
 
@@ -43,7 +35,7 @@ test("add-agent: a new agents[] entry produces a create", () => {
     ...baseModel,
     agents: [
       ...baseModel.agents,
-      { name: "article-writer", tools: ["write"], model: "medium", prompt: "Draft.\n" },
+      { name: "article-writer", tools: ["write"], model: "b/medium", prompt: "Draft.\n" },
     ],
   };
 
@@ -54,15 +46,12 @@ test("add-agent: a new agents[] entry produces a create", () => {
   assert.equal(entry.diff, undefined, "create entries carry content, not a diff");
 });
 
-test("change-tier: agent tier and routing tier changes produce writes with diffs", () => {
+test("change-model: agent and orchestrator model changes produce writes with diffs", () => {
   const existing = baseline();
   const model = {
     ...baseModel,
-    agents: [{ ...baseModel.agents[0], model: "medium" }],
-    models: {
-      ...baseModel.models,
-      subagents: { ...baseModel.models.subagents, worker: "high" },
-    },
+    orchestrator: { ...baseModel.orchestrator, model: "d/other" },
+    agents: [{ ...baseModel.agents[0], model: "b/medium" }],
   };
 
   const { files } = modifyPlan(model, existing);
@@ -70,12 +59,12 @@ test("change-tier: agent tier and routing tier changes produce writes with diffs
   const agent = byPath(files, ".pi/agents/seo-analyst.md");
   assert.equal(agent.action, "write");
   assert.ok(agent.diff.includes("b/medium") && agent.diff.includes("c/small"),
-    "agent diff shows the tier model ref change");
+    "agent diff shows the model ref change");
 
   const settings = byPath(files, ".pi/settings.json");
   assert.equal(settings.action, "write");
-  assert.ok(settings.diff.includes("a/high") && settings.diff.includes("b/medium"),
-    "settings diff shows the routing override change");
+  assert.ok(settings.diff.includes('"defaultProvider": "a"') && settings.diff.includes('"defaultProvider": "d"'),
+    "settings diff shows the primary-session model change");
 });
 
 test("preserve-unrelated-edit: hand-authored file and unknown settings key survive", () => {

@@ -26,23 +26,19 @@ cat > "$work/.pi/system.yaml" <<'YAML'
 schema: 1
 name: iso-seo-demo
 description: "Isolation test system"
-models:
-  tiers:
-    high: { model: deepseek/deepseek-v4-pro, thinking: high }
-    small: { model: deepseek/deepseek-flash, thinking: high }
-  parentTier: high
-  subagents: { worker: high, scout: small, reviewer: small, oracle: high }
 orchestrator:
   name: orchestrator
   description: "Primary SEO coordinator"
   prompt: "Coordinate the SEO system. Delegate analysis to the analyst.\n"
-  model: high
+  model: provider-a/model-medium
+  thinking: high
   tools: [read, grep, find, ls, bash, edit, write, subagent]
 agents:
   - name: analyst
     description: "Read-only analyst"
     tools: [read, grep, find, ls]
-    model: small
+    model: provider-b/model-small
+    thinking: high
     prompt: "Analyze and report. You are read-only.\n"
 skills:
   - name: draft

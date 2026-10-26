@@ -1,5 +1,5 @@
 /** Configuration maintenance reuses the Factory's existing model/ownership seams. */
-import { changeModel, migratedModel } from './changes.mjs';
+import { changeModel, parsedModel } from './changes.mjs';
 import { loadYaml } from './yaml-loader.mjs';
 import { managedPaths, generateProject } from './generate.mjs';
 import { modifyPlan } from './modify.mjs';
@@ -7,6 +7,7 @@ import { effectiveCapabilities, checkCapabilities } from './capabilities.mjs';
 import { diffLines } from './diff.mjs';
 import { infrastructureFiles } from './maintenance-infra.mjs';
 import { redacted, redactForModel, assertNoNewSecrets } from './maintenance-secrets.mjs';
+import { vendoredSkills } from './skill-sources.mjs';
 import { readText, readJson, fingerprints, transact, json } from './maintenance-store.mjs';
 
 function pinsAt(root) {
@@ -14,13 +15,13 @@ function pinsAt(root) {
 }
 export function inspectProject(root) {
   const text = readText(root, '.pi/system.yaml');
-  const model = migratedModel(text);
+  const model = parsedModel(text);
   const settings = readJson(root, '.pi/settings.json');
   const mcpJson = readJson(root, '.pi/mcp.json');
   const caps = effectiveCapabilities(model, { piPackages: pinsAt(root) });
   return redactForModel(root, {
     systemYaml: loadYaml().stringify(redacted(loadYaml().parse(text))), systemYamlRedacted: true,
-    migratedModel: redacted(model), effectiveCapabilities: caps,
+    parsedModel: redacted(model), effectiveCapabilities: caps,
     consistency: checkCapabilities(model, { settings, mcpJson }, { piPackages: pinsAt(root) }),
     generated: Object.fromEntries(managedPaths(model).filter(p => p.startsWith('.pi/')).map(p => {
       const content = readText(root, p);
@@ -32,9 +33,18 @@ export function inspectProject(root) {
 export function planChange(root, operations) {
   const oldText = readText(root, '.pi/system.yaml');
   // Legacy schemas can only enter through an explicit, separately previewed replacement.
-  const oldModel = migratedModel(oldText);
+  const oldModel = parsedModel(oldText);
   const { model, text } = changeModel(oldText, operations);
   assertNoNewSecrets(loadYaml().parse(oldText), model);
+  // Vendored skills come from user-supplied directories that only the host CLI
+  // can read. The project copy must exist before a declaration may rely on it,
+  // and a removed declaration must not leave a still-discoverable copy behind.
+  const skillDir = (s) => `.pi/skills/${s.name}/SKILL.md`;
+  const missing = vendoredSkills(model).filter(s => readText(root, skillDir(s)) === null);
+  if (missing.length) throw new Error(`Vendored skill not present in the project: ${missing.map(s => `${s.name} (copy ${s.source} to .pi/skills/${s.name}/ or run factory generate)`).join(', ')}`);
+  const kept = new Set(vendoredSkills(model).map(s => s.name));
+  const orphaned = vendoredSkills(oldModel).filter(s => !kept.has(s.name) && readText(root, skillDir(s)) !== null);
+  if (orphaned.length) throw new Error(`Removed vendored skill still loads: delete ${orphaned.map(s => `.pi/skills/${s.name}/`).join(', ')} explicitly first`);
   const opts = { piPackages: pinsAt(root) };
   const paths = [...new Set([...managedPaths(oldModel), ...managedPaths(model)])];
   const existing = Object.fromEntries(paths.map(p => [p, readText(root, p)]).filter(([,v]) => v !== null));

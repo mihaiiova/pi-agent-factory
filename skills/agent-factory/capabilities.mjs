@@ -13,6 +13,8 @@
  */
 import { hiddenMcpTools, enforcedAgentTools } from "./policy.mjs";
 import { runtimePackages } from "./deps.mjs";
+import { declaredPackages, skillSourceKind } from "./skill-sources.mjs";
+import { splitModelRef } from "./models.mjs";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -29,7 +31,7 @@ function arraysEqual(a, b) {
 }
 
 /**
- * @param {object} model the migrated, validated `system.yaml` document.
+ * @param {object} model the validated `system.yaml` document.
  * @param {object} [opts] `{ piPackages?: string[] }` for pinned runtime packages.
  * @returns {object} the intended capability surface.
  */
@@ -38,20 +40,24 @@ export function effectiveCapabilities(model, opts = {}) {
   const integrations = isPlainObject(model.integrations) ? model.integrations : {};
   const mcpList = Array.isArray(integrations.mcp) ? integrations.mcp : [];
 
-  const { packages } = runtimePackages(opts?.piPackages, model?.packages);
+  const declared = declaredPackages(model);
+  const { packages } = runtimePackages(opts?.piPackages, declared);
 
   return {
     schema: model?.schema,
     name: model?.name,
+    orchestratorModel: orchestrator.model,
     orchestratorTools: sortUnique(orchestrator.tools),
     agents: (Array.isArray(model.agents) ? model.agents : []).map((agent) => ({
       name: agent.name,
       tools: sortUnique(enforcedAgentTools(agent.name, model.policies, agent.tools)),
       model: agent.model,
+      ...(typeof agent.thinking === "string" ? { thinking: agent.thinking } : {}),
+      skills: sortUnique(agent.skills),
     })),
     skills: (Array.isArray(model.skills) ? model.skills : []).map((skill) => ({
       name: skill.name,
-      external: skill.external === true,
+      source: skillSourceKind(skill.source) ?? "authored",
     })),
     mcpServers: mcpList.map((entry) => ({
       name: entry.name,
@@ -61,7 +67,7 @@ export function effectiveCapabilities(model, opts = {}) {
     // Declared package specs (npm:/git:) may register extension-provided
     // tools; their concrete tool surface is enforced by Pi at runtime and is
     // not assertable here (see notes).
-    extensions: Array.isArray(model?.packages) ? [...model.packages].sort() : [],
+    extensions: [...declared].sort(),
     maintenance: {
       command: '/factory-update',
       proposalTool: 'factory_plan (hidden outside a direct maintenance request)',
@@ -89,6 +95,14 @@ export function checkCapabilities(model, generated, opts = {}) {
   const caps = effectiveCapabilities(model, opts);
   const settings = isPlainObject(generated?.settings) ? generated.settings : {};
   const mcp = isPlainObject(generated?.mcpJson) ? generated.mcpJson : {};
+
+  const { provider, id } = splitModelRef(caps.orchestratorModel);
+  if (settings.defaultProvider !== provider || settings.defaultModel !== id) {
+    errors.push(
+      `settings default model mismatch: expected ${caps.orchestratorModel} got ` +
+        `${settings.defaultProvider}/${settings.defaultModel}`,
+    );
+  }
 
   const actualTools = sortUnique(settings.defaultTools);
   if (!arraysEqual(caps.orchestratorTools, actualTools)) {

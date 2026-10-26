@@ -1,23 +1,127 @@
-# pi-config
+# pi-config — Agent Factory
 
-Shared pi configuration — extensions, skills, prompts, and themes synced across machines via git. Package dependencies are tracked as a list and installed globally via `pi install`.
+This repository is becoming the **Agent Factory**: a conversational builder that
+defines a standalone, project-local Pi agent system from zero — its orchestrator,
+specialist subagents, skills, MCP integrations, workflows and policies — and
+maintains it afterwards. The personal Pi setup that still lives here (spec
+lifecycle, domain skills, sync/state extensions) is moving to a separate
+repository; see [Personal Pi setup](#personal-pi-setup-moving-out).
 
-## Structure
+## Agent Factory
+
+Start it from any Pi session with `/agent-factory <outcome>` (or
+`/skill:agent-factory`). The builder interviews you, runs `factory discover`,
+designs a `.pi/system.yaml`, previews the generated files and applies them only
+after you confirm. The deterministic CLI behind it:
+
+```sh
+node skills/agent-factory/factory.mjs discover [dir]          # models, your skills, MCP, CLIs
+node skills/agent-factory/factory.mjs validate <dir>
+node skills/agent-factory/factory.mjs generate <dir> --dry-run  # then without --dry-run
+node skills/agent-factory/factory.mjs modify <dir> --dry-run
+```
+
+### Models: chosen per agent
+
+Nothing is hardcoded. Every agent — the orchestrator and each subagent — names
+its own model from the machine's Pi line-up (`pi --list-models`, also reported by
+`factory discover`), with an optional thinking level. Agents may share a model or
+each use a different one, and any model can be changed later.
+
+### Skills: only the ones you ask for or provide
+
+The factory ships no skills and recommends none unprompted. A skill is authored
+inline, comes from a pinned package, or is vendored from a directory you point
+at, and each agent lists the skills it receives:
+
+```yaml
+schema: 1
+name: research-desk
+orchestrator:
+  name: lead
+  model: openai-codex/gpt-6-sol
+  thinking: medium
+  tools: [read, grep, subagent]
+agents:
+  - name: researcher
+    model: deepseek/deepseek-flash
+    thinking: high
+    tools: [read, grep]
+    skills: [notes, house-style]
+skills:
+  - name: notes
+    source: ../my-skills/notes            # vendored into .pi/skills/notes/ once
+  - name: house-style
+    source: npm:@acme/house-style@1.2.0   # pinned package, added to runtime packages
+```
+
+See [`schema.md`](skills/agent-factory/schema.md) for every field, validation
+rule and the file-ownership contract, and [docs/agent-factory.md](docs/agent-factory.md)
+for the architecture.
+
+### Running and maintaining a generated system
+
+A generated project starts with `./run`, which isolates it from your global Pi
+configuration (own config dir, own credentials: `/login` once per project).
+Inside it, `/factory-update <request>` previews declarative changes —
+including switching an agent's model — and `/factory-update apply` confirms
+them.
+
+On every start, `./run` checks in the background whether a newer Factory
+revision exists, by comparing the git commit the project was generated from
+with the `development` branch on GitHub. A notice appears only when an update
+is available, or — at most once a day — when the check keeps failing for a
+reason other than being offline (for example, the project was generated from a
+commit that was never pushed). Updates install only via `/factory-update update`.
+
+Generate real systems from pushed commits on `development`; a project stamped
+with an unpushed or unmerged commit cannot be compared. Bootstrap older
+generated systems without recreating them:
+
+```sh
+node skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --dry-run
+node skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --yes
+```
+
+See [Factory maintenance](docs/factory-update.md) for update checks, security
+boundaries, installation metadata, recovery and rollback.
+
+### Tests
+
+```sh
+bash skills/agent-factory/test/test.sh
+```
+
+## Personal Pi setup (moving out)
+
+The rest of this repository is the author's personal Pi setup. It will move to
+its own repository; a new development-workflow integration will then be built
+from scratch with the Agent Factory rather than converted. Until then it keeps
+working as before.
 
 ```
 pi-config/
-├── extensions/       # Custom TypeScript extensions
-│   ├── pi-sync/      #   /pi-sync — git push/pull + reconcile packages
-│   ├── pi-config/    #   /pi-config — model tiers, subagent routing, spec setup
-│   ├── project-state/#   /session-status, /session-history, /session-cost — local resume context + session history
-│   └── skills-select/ #  /skills-select — per-project skill allowlist
-├── skills/           # Agent skills (SKILL.md directories)
-├── prompts/          # Prompt templates (.md)
-├── themes/           # Theme files (.json)
-└── package.json      # Pi manifest + package list (pi.packages)
+├── extensions/        # Custom TypeScript extensions
+│   ├── agent-factory/ #   /agent-factory — convenience alias for the builder skill
+│   ├── explore/       #   /explore — persistent exploration mode
+│   ├── pi-config/     #   /pi-config — model tiers for this personal setup
+│   ├── pi-sync/       #   /pi-sync — git push/pull + reconcile packages
+│   ├── project-state/ #   /session-status, /session-history, /session-cost
+│   ├── save-md/       #   /save-md — save the last response as markdown
+│   ├── skills-select/ #   /skills-select — per-project skill allowlist
+│   └── startup-check/ #   pi-config drift detection at session start
+├── scripts/spec/      # Deterministic helpers shared by the spec-* skills
+├── skills/            # Agent skills (SKILL.md directories), incl. agent-factory
+├── tests/             # Tests for the extensions and spec scripts
+└── package.json       # Pi manifest + pinned package list (pi.packages)
 ```
 
-## Spec lifecycle
+The `spec-*` skills call shared helpers in `scripts/spec/` (GitHub plan
+application, check runner, settings validation, trivial-spec routing). Because
+they live at this repository's root, those skills cannot be vendored into a
+generated system on their own; that coupling is one reason the setup moves out.
+
+### Spec lifecycle
 
 For a new project or uncertain feature, start with `/explore <idea>` and iterate through normal conversation. No GitHub repository, issue, spec, project setup, or TDD is required. The agent makes reversible assumptions and builds the smallest useful version you can try. `/explore` (or `/explore on`) enables the mode without starting work; `/explore status` inspects it; `/explore off` leaves it. Ask naturally to leave exploration or formalize the prototype; the agent can use `explore_mode` to switch.
 
@@ -71,7 +175,7 @@ Example (epic):
 
 `/spec-start` cannot start an epic directly. Spec branches are based on and merged into the **development** branch (`spec.baseBranch`, default `development`); `/spec-release` merges development into the **production** branch (`spec.releaseBranch`, default `main`) and cuts the release. `/spec-init` generates the `.pi/settings.json` holding these (plus `checks`, versioning, and release preferences). See [docs/spec-lifecycle.md](docs/spec-lifecycle.md) for status labels, parent/child and blocker relationships, branch naming, and the full configuration schema.
 
-## How packages work
+### How packages work
 
 Packages are tracked as exact `npm:<name>@<version>` specs in `package.json` under `pi.packages` and installed globally on each machine via `pi install`. They live in `~/.pi/agent/npm/`, **not** in pi-config's `node_modules/`. This avoids duplicate-loading conflicts and makes a pi-config commit reproduce the same package versions on every machine. Package upgrades are deliberate edits to the pinned versions.
 
@@ -80,7 +184,7 @@ Packages are tracked as exact `npm:<name>@<version>` specs in `package.json` und
 - Packages installed but not in `pi.packages` → asks which to keep/remove
 - Then runs `pi update --extensions`
 
-## Setup on a new machine
+### Setup on a new machine
 
 ```bash
 git clone <remote-url> /path/to/pi-config
@@ -89,7 +193,7 @@ pi install /path/to/pi-config
 
 Then run `/pi-sync` to install all listed packages. Then `/reload`.
 
-## Day-to-day: syncing
+### Day-to-day: syncing
 
 Run **`/pi-sync`** from any pi session. It handles:
 
@@ -104,7 +208,7 @@ If merge conflicts: resolve manually in your pi-config repo, then re-run `/pi-sy
 
 After syncing, `/reload` to pick up new or changed extensions.
 
-## Adding a new npm package
+### Adding a new npm package
 
 ```bash
 pi install npm:<package-name>@<version>
@@ -123,7 +227,7 @@ Then add that exact version to `pi.packages` in `package.json`:
 
 Commit, push. On the other machine, `/pi-sync` will pick it up.
 
-## Adding a new custom extension or skill
+### Adding a new custom extension or skill
 
 Place it in the appropriate directory:
 
@@ -133,22 +237,7 @@ Place it in the appropriate directory:
 Commit, push, `/pi-sync` on the other machine, `/reload`.
 
 
-## Agent Factory maintenance
-
-`/agent-factory` builds isolated standalone Pi systems. Generated projects include
-`/factory-update` for conversational, previewed and explicitly approved model
-changes, read-only reviews, cached update notices, trusted maintenance upgrades
-and offline rollback. Bootstrap existing generated systems without recreating them:
-
-```sh
-node skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --dry-run
-node skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --yes
-```
-
-See [Factory maintenance](docs/factory-update.md) for usage, security boundaries,
-installation metadata, recovery and automated verification.
-
-## Cost accounting
+### Cost accounting
 
 `/session-cost`, `/spec-cost`, and `/spec-close` use one shared observation ledger. Reports count the active conversation branch, deduplicate fork ancestry, and assign subagent costs through explicit ownership links. Unavailable prices remain unknown; partial coverage is shown with the known subtotal. Resuming a native session appends an immutable snapshot revision rather than freezing its first recorded cost or adding cumulative snapshots together.
 

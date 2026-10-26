@@ -13,7 +13,7 @@ run_validate() {
 }
 
 # ── Valid fixtures exit 0 ────────────────────────────────────────
-for name in valid-seo coding-agent v0-legacy; do
+for name in valid-seo coding-agent; do
   if run_validate "$fixtures/$name"; then
     pass "factory validate accepts $name (exit 0)"
   else
@@ -30,6 +30,17 @@ for name in invalid-unknown-key invalid-bad-reference invalid-malformed-workflow
     pass "factory validate rejects $name (exit 1)"
   fi
 done
+
+# ── A document without schema: 1 is rejected, never migrated ────
+legacy="$(mktemp -d)"
+mkdir -p "$legacy/.pi"
+grep -v '^schema:' "$fixtures/valid-seo/.pi/system.yaml" > "$legacy/.pi/system.yaml"
+if node "$factory" validate "$legacy" >/dev/null 2>&1; then
+  rm -rf "$legacy"
+  fail "factory validate should reject a document without schema: 1"
+fi
+rm -rf "$legacy"
+pass "factory validate rejects a document without schema: 1 (exit 1)"
 
 # ── Missing directory exits 1 ────────────────────────────────────
 if run_validate "$fixtures/does-not-exist"; then

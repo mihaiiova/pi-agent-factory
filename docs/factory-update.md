@@ -83,15 +83,9 @@ launcher or colliding maintenance entrypoint is a conflict, never overwritten.
 The recognized old launcher gains `--no-context-files` to suppress ancestor
 instructions. The preview lists all infrastructure changes.
 
-Legacy schema migration is explicit and separate:
-
-```json
-[{"op":"migrate"}]
-```
-
-Save that array as `migration.json`, then run `factory.mjs change <dir>
---operations migration.json --dry-run`, review it, and repeat with `--yes` before
-bootstrap. Unsupported future schemas fail closed. `factory import` remains the
+Only `schema: 1` with per-agent models is supported; there is no migration from
+the earlier tier-based layout. Such projects are redefined, not converted.
+Unsupported schemas fail closed. `factory import` remains the
 separate entry point for non-Factory Pi projects; its conservative import scaffolding does not leave a
 maintenance loader without an installation. Follow import with a previewed
 `generate` or `bootstrap-update` to install maintenance.
@@ -100,30 +94,34 @@ maintenance loader without an installation. Follow import with a previewed
 
 `changes.mjs` edits YAML document nodes where possible and validates the final
 batch with the existing schema validator. Unchanged nodes retain comments and
-formatting. Full-model replacement/migration can reformat YAML.
+formatting. Full-model replacement can reformat YAML.
 
 ```json
 [
-  {"op":"add","target":"tier","name":"budget","value":{"model":"provider/exact-model-id"}},
-  {"op":"add","target":"agent","name":"reviewer","value":{"model":"budget","tools":["read"],"prompt":"Review the findings."}},
-  {"op":"assign","name":"researcher","tier":"budget"}
+  {"op":"add","target":"agent","name":"reviewer","value":{"model":"provider/exact-model-id","tools":["read"],"prompt":"Review the findings."}},
+  {"op":"assign","name":"researcher","model":"provider/other-model-id","thinking":"low"}
 ]
 ```
 
-- `add/update/remove`: `mcp`, `agent`, `skill`, `workflow`, `tier`.
-- `assign`: orchestrator or specialist name → declared tier.
-- `set`: replace `orchestrator`, `models`, `integrations`, `policies`, `packages`.
+- `add/update/remove`: `mcp`, `agent`, `skill`, `workflow`.
+- `assign`: orchestrator or specialist name → its own `provider/id` model, with
+  an optional `thinking` level (`null` removes it). Pick from the Pi line-up the
+  inspection reports.
+- `set`: replace `orchestrator`, `integrations`, `policies`, `packages`.
 - `replace`: a complete validated `model` for uncommon changes.
-- `migrate`: explicitly invoke the existing Factory schema migration.
 
-Repair dependent workflow/policy/routing references in the same batch; dangling
+A vendored skill (`source` path) must already be copied into
+`.pi/skills/<name>/` before its declaration is accepted, and its directory must
+be deleted explicitly before the declaration is removed.
+
+Repair dependent workflow/policy/skill references in the same batch; dangling
 references fail validation. Removed agent/skill files are deleted only when they
 exactly match intact generated scaffolds. Edited/unmarked authored files cause a
 conflict instead. Changed unmarked instructions cannot silently shadow a new
 model declaration. Literal credentials in newly changed secret-shaped fields
-are rejected; use `${ENV}` references. Removing an external skill declaration
-does not filter/uninstall its providing package: consider that package's other
-capabilities before separately removing it.
+are rejected; use `${ENV}` references. Removing a packaged skill declaration
+removes its package unless `packages` or another skill still declares it;
+consider that package's other capabilities before removing it.
 
 CLI equivalents (noninteractive application requires explicit `--yes`):
 
@@ -147,10 +145,11 @@ authoritative. The older `factory modify` reconciliation command is preserved.
 .factory/installation.json               active bundle identity/pointer
 .factory/previous-installation.json      previous working identity/pointer
 .factory/capabilities.json               derived operational + maintenance surface
-.factory/runtime/<revision>-<digest>/    minimal engine, model-settings adapter,
+.factory/runtime/<revision>-<digest>/    minimal engine,
                                          workflow/schema docs, pinned yaml + license
 .factory/pi-home/                        isolated Pi config/auth/package installation
 .factory/update-cache.json               successful discovery cache (~24h)
+.factory/update-failure.json             persistent check failure (cleared on success)
 .factory/transaction.json                recoverable pre-transaction journal
 ```
 
@@ -191,8 +190,21 @@ use the deterministic bootstrap procedure.
 Every ordinary `./run` session starts a fire-and-forget check in Pi's
 `session_start` handler. Valid successful cache entries avoid networking for
 24 hours. Requests have a four-second startup deadline, and shutdown aborts
-in-flight work. Offline/rate-limit/errors are silent. Current installations are
-silent. A newer compatible channel head produces only a terminal UI notice:
+in-flight work. Network failures, timeouts, rate limits and 5xx responses are
+silent and not recorded. A persistent failure — the source answers but the check
+cannot use the answer (for example HTTP 404 because the project was generated
+from an unpushed Factory commit) — is recorded in `.factory/update-failure.json`
+and announced at most once a day:
+
+```text
+Factory update check is failing: <error>
+Run /factory-update check for details.
+```
+
+`/factory-update check` then reports the error, when it started failing and, for
+a 404, the unpushed-commit hint. The next successful check clears the record.
+Current installations are silent. A newer compatible channel head produces only
+a terminal UI notice:
 
 ```text
 Factory update available: <actual-version> (<revision-prefix>)
