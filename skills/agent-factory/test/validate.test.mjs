@@ -2,32 +2,22 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { validateSystem } from "../validate.mjs";
 
-const TIERS = {
-  high: { model: "openai-codex/gpt-5.6-terra", thinking: "medium" },
-  medium: { model: "deepseek/deepseek-v4-pro", thinking: "high" },
-  small: { model: "deepseek/deepseek-v4-flash", thinking: "low" },
-};
-
 function validDoc(overrides = {}) {
   return {
     schema: 1,
     name: "seo-agent-system",
     description: "SEO analysis + drafting",
-    models: {
-      tiers: TIERS,
-      parentTier: "high",
-      subagents: { worker: "medium", scout: "small", reviewer: "small", oracle: "high" },
-    },
     orchestrator: {
       name: "orchestrator",
       description: "Primary agent",
       prompt: "Coordinate the system.",
-      model: "high",
+      model: "provider-a/model-large",
+      thinking: "medium",
       tools: ["read", "grep", "bash", "subagent"],
     },
     agents: [
-      { name: "seo-analyst", description: "Analyzes SEO", tools: ["read"], model: "small", prompt: "Analyze." },
-      { name: "article-writer", tools: ["write"], model: "medium" },
+      { name: "seo-analyst", description: "Analyzes SEO", tools: ["read"], model: "provider-b/model-small", skills: ["analyze-and-draft"], prompt: "Analyze." },
+      { name: "article-writer", tools: ["write"], model: "provider-a/model-medium", thinking: "high" },
     ],
     skills: [
       { name: "analyze-and-draft", description: "Workflow", body: "# Analyze\n..." },
@@ -72,10 +62,10 @@ test("validateSystem rejects a non-object document", () => {
 
 test("validateSystem rejects unknown top-level and nested keys", () => {
   const { errors } = validateSystem(
-    validDoc({ bogus: true, models: { tiers: TIERS, parentTier: "high", subagents: {}, extra: 1 } }),
+    validDoc({ bogus: true, orchestrator: { name: "orchestrator", model: "provider-a/model-large", extra: 1 } }),
   );
   assert.ok(errors.some((e) => e.includes('unknown key "bogus"')));
-  assert.ok(errors.some((e) => e.includes('document.models has unknown key "extra"')));
+  assert.ok(errors.some((e) => e.includes('document.orchestrator has unknown key "extra"')));
 });
 
 test("validateSystem rejects a missing/invalid schema", () => {
@@ -90,9 +80,55 @@ test("validateSystem rejects a non-kebab-case name", () => {
   assert.ok(errors.some((e) => e.includes("kebab-case")));
 });
 
-test("validateSystem rejects a bad tier reference (orchestrator.model)", () => {
-  const { errors } = validateSystem(validDoc({ orchestrator: { name: "orchestrator", model: "missing" } }));
-  assert.ok(errors.some((e) => e.includes('orchestrator.model references tier "missing"')));
+test("validateSystem rejects the retired models/tiers block", () => {
+  const { errors } = validateSystem(validDoc({ models: { tiers: {} } }));
+  assert.ok(errors.some((e) => e.includes('document has unknown key "models"')));
+});
+
+test("validateSystem requires every agent to name a provider/id model", () => {
+  const missing = validateSystem(validDoc({ orchestrator: { name: "orchestrator" } }));
+  assert.ok(missing.errors.some((e) => e.includes("document.orchestrator.model is required")));
+
+  const doc = validDoc();
+  doc.agents[0].model = "high";
+  const { errors } = validateSystem(doc);
+  assert.ok(errors.some((e) => e.includes('document.agents[0].model must be a "provider/id" model reference (got "high")')));
+});
+
+test("validateSystem accepts any provider/id model with no catalog lookup", () => {
+  const doc = validDoc();
+  doc.agents[0].model = "openrouter/anthropic/some-model";
+  assert.deepEqual(validateSystem(doc), { ok: true, errors: [] });
+});
+
+test("validateSystem rejects an unknown thinking level", () => {
+  const doc = validDoc();
+  doc.agents[1].thinking = "extreme";
+  const { errors } = validateSystem(doc);
+  assert.ok(errors.some((e) => e.includes("document.agents[1].thinking must be one of off, minimal, low, medium, high, xhigh, max")));
+});
+
+test("validateSystem rejects an agent skill that is not declared", () => {
+  const doc = validDoc();
+  doc.agents[0].skills = ["analyze-and-draft", "ghost-skill"];
+  const { errors } = validateSystem(doc);
+  assert.ok(errors.some((e) => e.includes('document.agents[0].skills[1] references "ghost-skill"')));
+});
+
+test("validateSystem accepts package and path skill sources and rejects others", () => {
+  for (const source of ["npm:@acme/skills@1.2.3", "git:github.com/acme/skills@v1", "./skills/x", "../shared/x", "/abs/x", "~/skills/x"]) {
+    const doc = validDoc();
+    doc.skills.push({ name: "extra", source });
+    assert.deepEqual(validateSystem(doc), { ok: true, errors: [] }, source);
+  }
+  for (const source of ["npm:unpinned", "skills/x", "https://example.com/x"]) {
+    const doc = validDoc();
+    doc.skills.push({ name: "extra", source });
+    assert.ok(validateSystem(doc).errors.some((e) => e.includes("document.skills[1].source must be")), source);
+  }
+  const both = validDoc();
+  both.skills.push({ name: "extra", source: "./x", body: "inline" });
+  assert.ok(validateSystem(both).errors.some((e) => e.includes('either "body" or "source", not both')));
 });
 
 test("validateSystem rejects a workflow referencing an undeclared skill", () => {
@@ -125,7 +161,7 @@ test("validateSystem rejects an incompatible policy (undeclared mcp)", () => {
 
 test("validateSystem rejects duplicate agent names", () => {
   const doc = validDoc();
-  doc.agents.push({ name: "seo-analyst", model: "small" });
+  doc.agents.push({ name: "seo-analyst", model: "provider-b/model-small" });
   const { errors } = validateSystem(doc);
   assert.ok(errors.some((e) => e.includes('duplicates name "seo-analyst"')));
 });

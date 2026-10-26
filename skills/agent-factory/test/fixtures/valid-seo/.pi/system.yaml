@@ -3,27 +3,21 @@ schema: 1
 name: seo-agent-system
 description: "SEO analysis + article drafting with OpenSEO"
 
-models:
-  tiers:
-    high: { model: openai-codex/gpt-5.6-terra, thinking: medium }
-    medium: { model: deepseek/deepseek-v4-pro, thinking: high }
-    small: { model: deepseek/deepseek-v4-flash, thinking: low }
-  parentTier: high
-  subagents: { worker: medium, scout: small, reviewer: small, oracle: high }
-
 orchestrator:
   name: orchestrator
   description: "Primary interactive agent that coordinates the system"
   prompt: |
     You coordinate the SEO system. Delegate analysis to the analyst, …
-  model: high
+  model: provider-a/model-large
+  thinking: medium
   tools: [read, grep, find, ls, bash, edit, write, subagent]
 
 agents:
   - name: seo-analyst
     description: "Analyzes SEO data and recommends opportunities"
     tools: [read, grep, find, ls]
-    model: small
+    model: provider-b/model-small
+    thinking: low
     prompt: |
       You analyze SEO data via the OpenSEO MCP tools and recommend opportunities.
 

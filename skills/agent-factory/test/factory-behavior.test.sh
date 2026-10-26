@@ -20,25 +20,20 @@ cat > "$work/.pi/system.yaml" <<'YAML'
 schema: 1
 name: seo-agent-system
 description: "SEO analysis + article drafting"
-models:
-  tiers:
-    high: { model: openai-codex/gpt-5.6-terra, thinking: medium }
-    medium: { model: deepseek/deepseek-v4-pro, thinking: high }
-    small: { model: deepseek/deepseek-v4-flash, thinking: low }
-  parentTier: high
-  subagents: { worker: medium, scout: small, reviewer: small, oracle: high }
 orchestrator:
   name: orchestrator
   description: "Primary SEO agent"
   prompt: |
     You coordinate the SEO system.
-  model: high
+  model: provider-a/model-large
+  thinking: medium
   tools: [read, grep, find, ls, bash, edit, write, subagent]
 agents:
   - name: seo-analyst
     description: "Analyzes SEO data"
     tools: [read, grep]
-    model: small
+    model: provider-b/model-small
+    thinking: low
     prompt: |
       Analyze SEO data.
 YAML
@@ -56,14 +51,14 @@ node "$factory" validate "$work" >/dev/null 2>&1 || fail "generated project did 
 pass "builder flow: discover → design → preview → apply → validate"
 
 # ── gated headless smoke (pi/model-gated) ────────────────────────
-if command -v pi >/dev/null 2>&1; then
-  if out="$(cd "$work" && timeout 60 pi -p "describe yourself" 2>&1)"; then
+if [[ "${RUN_FACTORY_LIVE_TESTS:-0}" == 1 ]] && command -v pi >/dev/null 2>&1; then
+  if out="$(cd "$work" && timeout 60 ./run --approve -p "describe yourself" 2>&1)"; then
     pass "behavioral: pi -p ran on the generated project"
   else
     echo "ok - behavioral: pi -p SKIPPED (offline/model-gated)"
   fi
 else
-  echo "ok - behavioral: pi -p SKIPPED (pi not on PATH)"
+  echo "ok - behavioral: pi -p SKIPPED (requires RUN_FACTORY_LIVE_TESTS=1, pi and provider access)"
 fi
 
 echo

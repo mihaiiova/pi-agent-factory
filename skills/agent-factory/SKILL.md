@@ -10,23 +10,35 @@ agent system, and later modifies that system conversationally. It is a
 **conversational builder over the deterministic `factory` CLI** — the CLI is the
 single source of truth for generation; this skill drives it.
 
-Invoke with `/skill:agent-factory`, or describe an agent-system outcome ("I want an
+Invoke with `/agent-factory` (convenience alias), `/skill:agent-factory`, or describe an agent-system outcome ("I want an
 SEO system", "set up a coding agent with a reviewer", …) and this skill routes here.
 
 ## Lifecycle
 
-1. **Understand** — a graded interview (`spec.decisionThreshold` + `grill-me` /
-   `grill-with-docs`). Ask only genuinely-required questions; never re-ask a fact
-   the next step already answers. **Done when** the unresolved decisions fall below
-   the threshold and the outcome is unambiguous enough to design against.
-2. **Discover** — run `factory discover`. Resolve discoverable facts (installed
-   skills, MCP servers, subagents, CLIs) rather than asking.
-3. **Design** — propose a system using the seven primitives (`orchestrator`,
-   `models`, `agents`, `skills`, `integrations`, `workflows`, `policies`). Recommend
-   at least one skill/MCP server — installed or not-installed — with install
-   instructions when it is not already present. The not-installed candidates come
-   from `factory discover`'s `knownIntegrations` list minus what discovery already
-   found installed.
+1. **Understand** — interview for the outcome: what the system must achieve, which
+   distinct roles it needs, and what each role may touch. Ask only genuinely-required
+   questions, one decision at a time; never re-ask a fact the next step already
+   answers. **Done when** the outcome is unambiguous enough to design against.
+2. **Discover** — run `factory discover`. It reports the machine's full Pi model
+   line-up (`models`, from `pi --list-models`), the user's own installed skills,
+   MCP servers and subagents. It knows no CLIs of its own: when the user names
+   command-line tools the system will use, add `--cli <name>` for each to check
+   they are installed. Resolve discoverable facts rather than asking.
+3. **Design** — define the system from zero using the seven primitives
+   (`orchestrator`, `agents`, `skills`, `integrations`, `workflows`, `policies`,
+   `packages`).
+   - **Models:** the factory ships no default models. For the orchestrator and
+     for each subagent, ask which model to use, offering the entire discovered
+     line-up, and record it as `model: provider/id` (plus an optional
+     `thinking:` level) on that agent. Agents may share a model or each use a
+     different one. Any model can be changed later (step 7).
+   - **Skills:** the factory ships no skills and never recommends one unprompted.
+     Use only skills the user asks for or provides: an inline `body` they
+     describe, a pinned package (`source: npm:<name>@<version>` or
+     `git:<repo>@<ref>`), or a directory they point at (`source: ./path`,
+     `../path`, `/abs/path` or `~/path`), which is vendored into
+     `.pi/skills/<name>/`. Attach skills to the agents that need them with
+     `agents[].skills`.
 4. **Generate** — write `system.yaml`, then **preview first**: run
    `factory generate <dir> --dry-run` and show the planned diff. Only apply after
    the user confirms. Generation also writes `.factory/capabilities.json` — the
@@ -42,8 +54,23 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    canonical entry point and runs the system under its own isolated Pi config
    directory (`PI_CODING_AGENT_DIR=.factory/pi-home`), so the host's global
    skills/MCP/extensions/credentials are not inherited.
-7. **Modify** — later sessions reopen the project, read `system.yaml`, preview with
-   `factory modify <dir> --dry-run`, and apply only confirmed changes.
+7. **Maintain** — every generated system bundles `/factory-update`, its thin
+   skill/command and minimal standalone deterministic engine. Within `./run`, use
+   `/factory-update <request>` to inspect/discover/preview a structured model
+   change, `/factory-update apply` to confirm it, or `/factory-update review` for
+   read-only recommendations. Switch any agent's model with an `assign`
+   operation (`{"op":"assign","name":"<agent>","model":"provider/id"}`). The
+   operational loadout is not broadened. Changes
+   go through `system.yaml`, never direct settings/MCP edits. CLI equivalents:
+   `factory change <dir> --operations <json-file> --dry-run`, then `--yes` after
+   approval. Existing `factory modify <dir> --dry-run` reconciliation is preserved.
+8. **Upgrade tooling** — `/factory-update check|update|rollback` use pinned trusted
+   Factory metadata, cached nonblocking startup discovery, staged exact revisions,
+   explicit confirmation and retained offline rollback. No automatic activation,
+   functional model change or dependency on the global Agent Factory install. Restart after applying.
+   Bootstrap older projects with `factory bootstrap-update <dir> --dry-run`, then
+   `--yes`; conflicts/migrations must be resolved explicitly. See
+   `../../docs/factory-update.md` for architecture, recovery and limitations.
 
 ## Policy and ownership contract
 
@@ -61,5 +88,7 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
 
 ## Out of scope
 
-Import/recreate of existing projects, scheduled triggers, and generated extension
-code.
+Recreating existing projects, scheduled triggers, and arbitrary generated
+extension code. The small bundled maintenance loader is infrastructure, not an
+operational extension-generation framework. `factory import` is preserved for
+non-Factory projects; existing Factory projects use `bootstrap-update`.

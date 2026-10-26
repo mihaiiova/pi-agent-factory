@@ -24,6 +24,9 @@ export function diffLines(oldText, newText) {
   const b = newText.split("\n");
   const n = a.length;
   const m = b.length;
+  // Large generated configs must not allocate an unbounded LCS matrix.
+  // A whole-file replacement remains an exact, deterministic preview.
+  if (n * m > 1000000) return [...a.map(line => `- ${line}`), ...b.map(line => `+ ${line}`)].join('\n');
   const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {

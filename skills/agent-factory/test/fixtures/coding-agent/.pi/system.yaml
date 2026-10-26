@@ -6,14 +6,6 @@ schema: 1
 name: coding-agent-system
 description: "Pi coding agent: spec lifecycle, subagents, model routing, GitHub ops"
 
-models:
-  tiers:
-    high: { model: openai-codex/gpt-5.6-terra, thinking: medium }
-    medium: { model: deepseek/deepseek-v4-pro, thinking: high }
-    small: { model: deepseek/deepseek-v4-flash, thinking: high }
-  parentTier: high
-  subagents: { worker: medium, scout: small, reviewer: small, oracle: high }
-
 orchestrator:
   name: orchestrator
   description: "Primary coding agent that plans and coordinates specialist subagents"
@@ -23,33 +15,38 @@ orchestrator:
     integrate with /spec-close. Delegate discovery to the scout, implementation
     to the worker, and review to the reviewer. Never merge or push without
     approval; keep secrets out of committed files.
-  model: high
+  model: provider-a/model-large
+  thinking: medium
   tools: [read, grep, find, ls, bash, edit, write, subagent]
 
 agents:
   - name: scout
     description: "Read-only discovery: explores the codebase and reports findings"
     tools: [read, grep, find, ls]
-    model: small
+    model: provider-b/model-small
+    thinking: high
     prompt: |
       You investigate the codebase and report precise, source-referenced findings.
       You have no write access.
   - name: worker
     description: "Single-writer implementation subagent (red-green-refactor loop)"
     tools: [read, grep, find, ls, bash, edit, write]
-    model: medium
+    model: provider-a/model-medium
+    thinking: high
     prompt: |
       You implement the assigned slice test-first, committing coherent checkpoints.
   - name: reviewer
     description: "Read-only review: verifies implementation against the spec"
     tools: [read, grep, find, ls, bash]
-    model: small
+    model: provider-b/model-small
+    thinking: high
     prompt: |
       You review changes against the spec and acceptance criteria without editing.
   - name: oracle
     description: "High-tier reasoning subagent for hard design decisions"
     tools: [read, grep, find, ls]
-    model: high
+    model: provider-a/model-large
+    thinking: medium
     prompt: |
       You reason about difficult design and architecture questions and recommend a path.
 

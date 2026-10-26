@@ -26,23 +26,19 @@ cat > "$work/.pi/system.yaml" <<'YAML'
 schema: 1
 name: iso-seo-demo
 description: "Isolation test system"
-models:
-  tiers:
-    high: { model: deepseek/deepseek-v4-pro, thinking: high }
-    small: { model: deepseek/deepseek-flash, thinking: high }
-  parentTier: high
-  subagents: { worker: high, scout: small, reviewer: small, oracle: high }
 orchestrator:
   name: orchestrator
   description: "Primary SEO coordinator"
   prompt: "Coordinate the SEO system. Delegate analysis to the analyst.\n"
-  model: high
+  model: provider-a/model-medium
+  thinking: high
   tools: [read, grep, find, ls, bash, edit, write, subagent]
 agents:
   - name: analyst
     description: "Read-only analyst"
     tools: [read, grep, find, ls]
-    model: small
+    model: provider-b/model-small
+    thinking: high
     prompt: "Analyze and report. You are read-only.\n"
 skills:
   - name: draft
@@ -68,8 +64,8 @@ node "$factory" generate "$work" >/dev/null 2>&1
 pass "A: deterministic generation produces the declared project tree"
 
 # A2: undeclared host capabilities are excluded from generated config.
-node -e 'const s=require(process.argv[1]); if((s.packages||[]).some(p=>/pi-config|pi-web-access|yaml/.test(p))) process.exit(1)' "$work/.pi/settings.json" \
-  || fail "A: runtime packages still carry pi-config/pi-web-access/yaml"
+node -e 'const s=require(process.argv[1]); if((s.packages||[]).some(p=>/pi-config|pi-agent-factory|pi-web-access|yaml/.test(p))) process.exit(1)' "$work/.pi/settings.json" \
+  || fail "A: runtime packages still carry the factory/pi-web-access/yaml"
 node -e 'const m=require(process.argv[1]); const n=Object.keys(m.mcpServers||{}); if(n.some(x=>x==="owlie"||x==="cloudflare")) process.exit(1)' "$work/.pi/mcp.json" \
   || fail "A: global MCP servers leaked into .pi/mcp.json"
 node -e 'const s=require(process.argv[1]); const t=s.defaultTools||[]; if(t.includes("web_search")||t.includes("fetch_content")) process.exit(1)' "$work/.pi/settings.json" \
@@ -117,7 +113,7 @@ fi
 
 # ── C. Real Pi integration (pi-gated; SKIP-with-reason, never pass) ──
 if command -v pi >/dev/null 2>&1; then
-  if out="$(cd "$work" && PI_CODING_AGENT_DIR="$work/.factory/pi-home" timeout 60 pi mcp list 2>&1)"; then
+  if out="$(cd "$work" && PI_OFFLINE=1 PI_CODING_AGENT_DIR="$work/.factory/pi-home" timeout 60 pi mcp list 2>&1)"; then
     if grep -qi 'owlie\|cloudflare' <<<"$out"; then
       fail "C: real pi under isolation still reports host MCP servers"
     fi

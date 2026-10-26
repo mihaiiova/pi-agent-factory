@@ -34,8 +34,8 @@ pass "factory generate creates the single-agent tree"
 # ── settings.json carries orchestrator model + defaultTools ─────
 node -e '
 const s = require(process.argv[1]);
-if (s.defaultProvider !== "openai-codex") process.exit(1);
-if (s.defaultModel !== "gpt-5.6-terra") process.exit(1);
+if (s.defaultProvider !== "provider-a") process.exit(1);
+if (s.defaultModel !== "model-large") process.exit(1);
 if (!Array.isArray(s.defaultTools) || !s.defaultTools.includes("subagent")) process.exit(1);
 ' "$work/.pi/settings.json" || fail "settings.json missing orchestrator model/defaultTools"
 pass "settings.json carries orchestrator model + defaultTools"
@@ -83,7 +83,7 @@ done
 [[ -f "$ma/.pi/skills/refresh-product-knowledge/SKILL.md" ]] || fail "skill missing"
 grep -q '^name: seo-analyst$' "$ma/.pi/agents/seo-analyst.md" || fail "agent frontmatter name wrong"
 grep -q 'tools: \[read, grep, find, ls\]' "$ma/.pi/agents/seo-analyst.md" || fail "agent tools allowlist wrong"
-grep -q 'model: deepseek/deepseek-v4-flash' "$ma/.pi/agents/seo-analyst.md" || fail "agent model tier not mapped"
+grep -q '^model: provider-b/model-small$' "$ma/.pi/agents/seo-analyst.md" || fail "agent's own model not emitted"
 grep -q 'Approval boundary: publish' "$ma/.pi/skills/analyze-and-draft/SKILL.md" || fail "workflow approval boundary missing"
 tail -n1 "$ma/.pi/agents/seo-analyst.md" | grep -q 'agent-factory:generated v1 sha256=' || fail "agent missing trailing marker"
 for f in $(cd "$fixtures/generate/multi-agent/golden" && find . -type f | sort); do
@@ -111,13 +111,13 @@ rm -rf "$vs"
 pass "factory generate materializes MCP config and enforced/advisory policy"
 
 # ── e2e smoke (pi-gated) ─────────────────────────────────────────
-if command -v pi >/dev/null 2>&1; then
+if [[ "${RUN_FACTORY_LIVE_TESTS:-0}" == 1 ]] && command -v pi >/dev/null 2>&1; then
   smoke="$(mktemp -d)"
   cp "$fixtures/generate/minimal/.pi/system.yaml" "$smoke/system.yaml" 2>/dev/null || true
   mkdir -p "$smoke/.pi"
   cp "$fixtures/generate/minimal/.pi/system.yaml" "$smoke/.pi/system.yaml"
   node "$factory" generate "$smoke" >/dev/null
-  if out="$(cd "$smoke" && timeout 60 pi -p "describe yourself" 2>&1)"; then
+  if out="$(cd "$smoke" && timeout 60 ./run --approve -p "describe yourself" 2>&1)"; then
     if grep -qi "seo\|orchestrator\|coordinator" <<<"$out"; then
       pass "e2e smoke: pi -p reports the orchestrator identity"
     else
@@ -131,17 +131,17 @@ if command -v pi >/dev/null 2>&1; then
   fi
   rm -rf "$smoke"
 else
-  echo "ok - e2e smoke SKIPPED (pi not on PATH)"
+  echo "ok - e2e smoke SKIPPED (requires RUN_FACTORY_LIVE_TESTS=1, pi and provider access)"
 fi
 
 # ── multi-agent workflow headless smoke (pi-gated) ─────────────
 # Network/model-gated: a 3-agent fixture runs `pi -p "run <workflow>"` and
 # should produce an artifact under data/. Skips gracefully when unavailable.
-if command -v pi >/dev/null 2>&1; then
+if [[ "${RUN_FACTORY_LIVE_TESTS:-0}" == 1 ]] && command -v pi >/dev/null 2>&1; then
   mw="$(mktemp -d)"
   cp -r "$fixtures/generate/multi-agent/.pi" "$mw/.pi"
   node "$factory" generate "$mw" >/dev/null
-  if out="$(cd "$mw" && timeout 90 pi -p "run the analyze-and-draft workflow" 2>&1)"; then
+  if out="$(cd "$mw" && timeout 90 ./run --approve -p "run the analyze-and-draft workflow" 2>&1)"; then
     if find "$mw/data" -type f -not -name '.gitkeep' | grep -q .; then
       pass "multi-agent headless smoke: workflow produced an artifact under data/"
     else
@@ -152,14 +152,14 @@ if command -v pi >/dev/null 2>&1; then
   fi
   rm -rf "$mw"
 else
-  echo "ok - multi-agent headless smoke SKIPPED (pi not on PATH)"
+  echo "ok - multi-agent headless smoke SKIPPED (requires RUN_FACTORY_LIVE_TESTS=1, pi and provider access)"
 fi
 
 # ── MCP integration (pi-gated) ──────────────────────────────────
 # Generate a project pointing at a local stub MCP server; the generated
 # .pi/mcp.json must be valid JSON, and when a live `pi mcp list` is available
 # the server should appear. Otherwise the live check skips.
-if command -v pi >/dev/null 2>&1; then
+if [[ "${RUN_FACTORY_LIVE_TESTS:-0}" == 1 ]] && command -v pi >/dev/null 2>&1; then
   mci="$(mktemp -d)"
   mkdir -p "$mci/.pi"
   cat > "$mci/.pi/system.yaml" <<'YAML'
@@ -177,7 +177,7 @@ YAML
   node "$factory" generate "$mci" >/dev/null
   node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf-8"))' \
     "$mci/.pi/mcp.json" >/dev/null || fail "generated .pi/mcp.json is not valid JSON"
-  if out="$(cd "$mci" && timeout 30 pi mcp list 2>&1)"; then
+  if out="$(cd "$mci" && PI_CODING_AGENT_DIR="$mci/.factory/pi-home" timeout 30 pi mcp list 2>&1)"; then
     if grep -qi "openseo" <<<"$out"; then
       pass "MCP integration: pi mcp list reports the generated openseo server"
     else
@@ -188,8 +188,74 @@ YAML
   fi
   rm -rf "$mci"
 else
-  echo "ok - MCP integration SKIPPED (pi not on PATH)"
+  echo "ok - MCP integration SKIPPED (requires RUN_FACTORY_LIVE_TESTS=1, pi and a live MCP server)"
 fi
+
+# ── user-supplied skills are vendored once, never overwritten ───
+vd="$(mktemp -d)"
+mkdir -p "$vd/project/.pi" "$vd/shared/house-style/scripts"
+cat > "$vd/shared/house-style/SKILL.md" <<'MD'
+---
+name: house-style
+description: Write in the house style
+---
+Write plainly.
+MD
+printf '#!/bin/sh\necho ok\n' > "$vd/shared/house-style/scripts/check.sh"
+chmod +x "$vd/shared/house-style/scripts/check.sh"
+cat > "$vd/project/.pi/system.yaml" <<'YAML'
+schema: 1
+name: vendor-demo
+orchestrator:
+  name: lead
+  model: provider-a/model-large
+  tools: [read, subagent]
+agents:
+  - name: writer
+    model: provider-b/model-small
+    thinking: low
+    skills: [house-style]
+    tools: [read, write]
+skills:
+  - name: house-style
+    source: ../shared/house-style
+YAML
+plan="$(node "$factory" generate "$vd/project" --dry-run 2>&1)"
+grep -q 'vendor    .pi/skills/house-style/ (2 files from ../shared/house-style)' <<<"$plan" || fail "dry run does not preview the vendored skill"
+[[ ! -e "$vd/project/.pi/skills/house-style" ]] || fail "dry run vendored the skill"
+node "$factory" generate "$vd/project" >/dev/null 2>&1
+cmp -s "$vd/shared/house-style/SKILL.md" "$vd/project/.pi/skills/house-style/SKILL.md" || fail "vendored SKILL.md differs from its source"
+[[ -x "$vd/project/.pi/skills/house-style/scripts/check.sh" ]] || fail "vendored script lost its executable bit"
+grep -q '^skills: \[house-style\]$' "$vd/project/.pi/agents/writer.md" || fail "agent skills not emitted"
+printf 'Local edit.\n' >> "$vd/project/.pi/skills/house-style/SKILL.md"
+node "$factory" generate "$vd/project" >/dev/null 2>&1
+grep -q 'Local edit.' "$vd/project/.pi/skills/house-style/SKILL.md" || fail "regeneration overwrote the vendored copy"
+pass "factory generate vendors user-supplied skills once and never overwrites the copy"
+
+# ── a vendored source must be a real skill with a matching name ─
+sed -i 's/^name: house-style$/name: other-name/' "$vd/shared/house-style/SKILL.md"
+rm -rf "$vd/project/.pi/skills/house-style"
+if out="$(node "$factory" generate "$vd/project" 2>&1)"; then fail "generate accepted a mismatched skill name"; fi
+grep -q 'declares name "other-name"' <<<"$out" || fail "mismatched skill name not explained"
+[[ ! -e "$vd/project/.pi/skills/house-style" ]] || fail "a rejected skill was vendored"
+pass "factory generate rejects a vendored skill whose SKILL.md name differs"
+
+# ── models absent from the local Pi line-up are warned, not fatal ─
+mkdir -p "$vd/bin"
+cat > "$vd/bin/pi" <<'SH'
+#!/bin/sh
+[ "$1" = "--list-models" ] || exit 1
+printf 'provider    model        context\nprovider-a  model-large  1M\n'
+SH
+chmod +x "$vd/bin/pi"
+sed -i 's/^name: other-name$/name: house-style/' "$vd/shared/house-style/SKILL.md"
+out="$(PATH="$vd/bin:$PATH" node "$factory" generate "$vd/project" 2>&1)" || fail "an unavailable model must not fail generation"
+grep -q 'warning - writer uses model "provider-b/model-small", which is not in this machine' <<<"$out" || fail "unavailable model not warned"
+if grep -q 'lead uses model' <<<"$out"; then fail "an available model was warned"; fi
+out="$(PATH="$vd/bin:$PATH" node "$factory" validate "$vd/project" 2>&1)" || fail "validate failed on an unavailable model"
+grep -q 'writer uses model' <<<"$out" || fail "validate does not warn about unavailable models"
+rm -rf "$vd"
+pass "factory generate/validate warn about models missing from the Pi line-up"
 
 echo
 echo "All factory-generate tests passed."

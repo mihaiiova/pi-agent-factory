@@ -1,4 +1,4 @@
-<!-- agent-factory:generated v1 sha256=b15f41986fd56449f7b514eb4c747b8eb4b67529301ad702c5b9edfe1e88e2d8 -->
+<!-- agent-factory:generated v1 sha256=638ad17933610ca811fc65101a08967a721f874d510cb1ae4ef4d1c42ea90e92 -->
 # seo-agent-system
 
 SEO analysis + article drafting with specialist subagents
@@ -14,9 +14,16 @@ extensions, and credentials are not inherited.
 ./run -p "..."   # headless one-shot
 ```
 
-Authenticate once in the isolated context (`./run --login`), or export
+Authenticate inside `./run` with `/login`, or export
 `PI_API_KEY` / a provider key. See the policy section below for which
 capabilities are enforced vs advisory.
+
+## Maintain
+
+Use `/factory-update <request>` to propose a declarative change, then
+`/factory-update apply` to preview and approve it. `/factory-update review`
+is read-only. Tooling lifecycle: `/factory-update check`, `update`, `rollback`.
+Startup checks never install updates. Restart `./run` after applying changes.
 
 ## Policy
 

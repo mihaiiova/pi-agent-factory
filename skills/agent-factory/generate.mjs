@@ -15,13 +15,17 @@
  *     header marker; a user edit is never silently overwritten.
  */
 import { createHash } from "node:crypto";
-import { generateSettings } from "../../extensions/pi-config/generate-settings.mjs";
+import { splitModelRef } from "./models.mjs";
+import { authoredSkills } from "./skill-sources.mjs";
 import { workflowSkill } from "./workflow-skill.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
+import { infrastructureFiles } from "./maintenance-infra.mjs";
 
 const MARKER = "agent-factory:generated v1";
+/** Primary-session model keys the factory owns inside `.pi/settings.json`. */
+const MODEL_KEYS = ["defaultProvider", "defaultModel", "defaultThinkingLevel"];
 const MARKER_HTML_RE = /^<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->$/;
 const MARKER_PLAIN_RE = /^# agent-factory:generated v1 sha256=([0-9a-f]{64})$/;
 const MARKER_HTML_TRAILING_RE = /\n<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->[ \t]*\n?$/;
@@ -48,6 +52,7 @@ export const GENERATED_PATHS = [
   ".env.example",
   "data/knowledge/.gitkeep",
   "run",
+  ...Object.keys(infrastructureFiles()),
 ];
 
 function isPlainObject(value) {
@@ -142,15 +147,7 @@ function sentinelFile(path, existing) {
 }
 
 function buildSettings(model, existingText, packages) {
-  const models = isPlainObject(model.models) ? model.models : {};
   const orchestrator = isPlainObject(model.orchestrator) ? model.orchestrator : {};
-
-  // The orchestrator's declared tier is authoritative for the primary session;
-  // fall back to the models block's parentTier when it is absent.
-  const parentTier =
-    typeof orchestrator.model === "string" && orchestrator.model
-      ? orchestrator.model
-      : models.parentTier;
 
   let existing = {};
   if (typeof existingText === "string") {
@@ -162,12 +159,27 @@ function buildSettings(model, existingText, packages) {
   }
   if (!isPlainObject(existing)) existing = {};
 
-  const out = generateSettings(
-    { tiers: models.tiers, parentTier, subagentTiers: models.subagents },
-    existing,
-  );
+  // The orchestrator's own model drives the primary session. Subagent models
+  // live in each agent's frontmatter, so no routing overrides are emitted.
+  const { provider, id } = splitModelRef(orchestrator.model);
+  const desired = {
+    defaultProvider: provider,
+    defaultModel: id,
+    defaultThinkingLevel: isNonEmptyString(orchestrator.thinking) ? orchestrator.thinking : undefined,
+  };
+  const out = { ...existing };
+  for (const key of MODEL_KEYS) {
+    if (desired[key] !== undefined) out[key] = desired[key];
+    else delete out[key];
+  }
+  if (isPlainObject(out.subagents) && "agentOverrides" in out.subagents) {
+    const rest = { ...out.subagents };
+    delete rest.agentOverrides;
+    if (Object.keys(rest).length > 0) out.subagents = rest;
+    else delete out.subagents;
+  }
 
-  const tools = Array.isArray(orchestrator.tools) && orchestrator.tools.length > 0
+  const tools = Array.isArray(orchestrator.tools)
     ? orchestrator.tools
     : undefined;
   if (tools !== undefined) out.defaultTools = tools;
@@ -243,10 +255,17 @@ function readmeBody(model) {
     "./run -p \"...\"   # headless one-shot",
     "```",
     "",
-    "Authenticate once in the isolated context (`./run --login`), or export",
+    "Authenticate inside `./run` with `/login`, or export",
     "`PI_API_KEY` / a provider key. See the policy section below for which",
     "capabilities are enforced vs advisory.",
     "",
+    '## Maintain',
+    '',
+    'Use `/factory-update <request>` to propose a declarative change, then',
+    '`/factory-update apply` to preview and approve it. `/factory-update review`',
+    'is read-only. Tooling lifecycle: `/factory-update check`, `update`, `rollback`.',
+    'Startup checks never install updates. Restart `./run` after applying changes.',
+    '',
     policySection(model),
   ].join("\n");
 }
@@ -262,16 +281,18 @@ function envBody(model) {
     .join("\n") + "\n";
 }
 
-function agentBody(agent, tiers, tools) {
-  const tier = isPlainObject(tiers[agent.model]) ? tiers[agent.model] : {};
+function agentBody(agent, tools) {
   const lines = ["---"];
   lines.push(`name: ${agent.name}`);
   if (isNonEmptyString(agent.description)) lines.push(`description: ${yamlString(agent.description)}`);
   if (Array.isArray(tools)) {
     lines.push(`tools: [${tools.join(", ")}]`);
   }
-  if (isNonEmptyString(tier.model)) lines.push(`model: ${tier.model}`);
-  if (isNonEmptyString(tier.thinking)) lines.push(`thinking: ${tier.thinking}`);
+  if (isNonEmptyString(agent.model)) lines.push(`model: ${agent.model}`);
+  if (isNonEmptyString(agent.thinking)) lines.push(`thinking: ${agent.thinking}`);
+  if (Array.isArray(agent.skills) && agent.skills.length > 0) {
+    lines.push(`skills: [${agent.skills.join(", ")}]`);
+  }
   if (agent.inheritProjectContext === true) lines.push("inheritProjectContext: true");
   if (agent.inheritSkills === true) lines.push("inheritSkills: true");
   const prompt = isNonEmptyString(agent.prompt) ? agent.prompt : "";
@@ -307,13 +328,9 @@ function agentEntries(model) {
 }
 
 function skillEntries(model) {
-  const skills = Array.isArray(model.skills) ? model.skills : [];
-  // `external: true` skills are provided by a pinned package dependency, not
-  // generated into the project — so they produce no local SKILL.md and are not
-  // managed paths (they cannot shadow the package-provided implementation).
-  return skills.filter(
-    (skill) => isPlainObject(skill) && isNonEmptyString(skill.name) && skill.external !== true,
-  );
+  // Sourced skills come from a pinned package or a vendored user directory, so
+  // they produce no generated SKILL.md and are not managed paths.
+  return authoredSkills(model).filter((skill) => isNonEmptyString(skill.name));
 }
 
 function agentPath(agent) {
@@ -325,13 +342,10 @@ function skillPath(skill) {
 }
 
 function agentFiles(model, existing) {
-  const tiers = isPlainObject(model.models) && isPlainObject(model.models.tiers)
-    ? model.models.tiers
-    : {};
   return agentEntries(model).map((agent) => {
     const path = agentPath(agent);
     const tools = enforcedAgentTools(agent.name, model.policies, agent.tools);
-    return authoredFile(path, "trailing-html", agentBody(agent, tiers, tools), existing[path]);
+    return authoredFile(path, "trailing-html", agentBody(agent, tools), existing[path]);
   });
 }
 
@@ -359,7 +373,7 @@ export function managedPaths(model) {
  * Compute the planned file writes for a validated model against the current
  * project files on disk.
  *
- * @param {object} model the migrated, validated `system.yaml` document.
+ * @param {object} model the validated `system.yaml` document.
  * @param {Record<string, string>} [existingFiles] project-relative path → text.
  * @param {{ piPackages?: string[] }} [opts] extra deterministic inputs (pinned
  *   dependency list for `.pi/settings.json` `packages`).
@@ -382,6 +396,12 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),
     sentinelFile("data/knowledge/.gitkeep", existing["data/knowledge/.gitkeep"]),
     { ...derivedFile("run", plan.launcherScript, existing["run"]), executable: true },
+    // Infrastructure is deliberately outside model.skills and its removal logic.
+    ...Object.entries(infrastructureFiles()).map(([path, content]) => {
+      const current = existing[path];
+      if (current !== undefined && current !== content) return { path, content: current, desired: content, action: 'conflict' };
+      return derivedFile(path, content, current);
+    }),
     ...agentFiles(model, existing),
     ...skillFiles(model, existing),
   ];

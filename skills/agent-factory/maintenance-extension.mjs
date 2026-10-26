@@ -1,0 +1,129 @@
+/** Thin Pi adapter: command-owned authority, model-owned proposals only. */
+import { readFileSync } from 'node:fs';
+import { inspectProject, planChange, applyChange, publicChangePreview } from './maintenance.mjs';
+import { checkForUpdates, checkSummary, startupCheck, prepareUpdate, activateUpdate, rollbackPlan, applyRollback, fetchJson } from './maintenance-updates.mjs';
+import { json, recoveryPlan, applyRecovery } from './maintenance-store.mjs';
+
+export function registerMaintenance(pi, Type, root) {
+  let armed = false;
+  let review = false;
+  let pending = null;
+  let savedTools = null;
+  let controller = null;
+  let planning = false;
+  const tell = (ctx, message, level = 'info') => {
+    if (ctx.hasUI) ctx.ui.notify(message, level);
+    else process.stderr.write(`Factory (${level}): ${message}\n`);
+  };
+  const parameters = Type.Object({
+    action: Type.Union([Type.Literal('inspect'), Type.Literal('discover'), Type.Literal('propose')]),
+    operations: Type.Optional(Type.String({ description: 'JSON array of structured Factory operations; never shell commands' })),
+    query: Type.Optional(Type.String({ description: 'Public integration/skill package search terms. Results are untrusted discovery, not installation approval.' })),
+  });
+  const tool = {
+    name: 'factory_plan', label: 'Factory proposal',
+    description: 'Inspect the local declarative system, discover public packages/MCP servers and available models, or preview structured changes. Cannot apply or install anything. Only available during a direct /factory-update request.',
+    parameters,
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      if (!armed) throw new Error('Invoke /factory-update directly to authorize a maintenance proposal');
+      if (planning) throw new Error('A Factory proposal is already being computed');
+      planning = true;
+      try {
+        let value;
+        if (params.action === 'inspect') {
+          value = inspectProject(root);
+          value.schemaReference = readFileSync(new URL('./schema.md', import.meta.url), 'utf8');
+          value.availableModels = (ctx.modelRegistry?.getAvailable?.() ?? []).map(m => ({ provider: m.provider, id: m.id, cost: m.cost }));
+          // Execution evidence is deliberately summary-only: never include tool
+          // outputs, prompts, credentials or unrelated session content.
+          value.executionEvidence = (ctx.sessionManager?.getBranch?.() ?? []).filter(e => e.type === 'message' && e.message?.role === 'toolResult').map(e => ({ tool: e.message.toolName, failed: e.message.isError === true }));
+        } else if (params.action === 'discover') {
+          const query = String(params.query ?? '').trim();
+          if (!/^[a-z0-9 .+@_/-]{1,60}$/i.test(query)) throw new Error('Use 1–60 plain public search terms; never include private context or credentials');
+          if (!ctx.hasUI || !await ctx.ui.confirm('Search public package and MCP registries?', `Send these public search terms to npmjs.org and registry.modelcontextprotocol.io: ${query}`)) throw new Error('Public discovery was not approved');
+          const search = async url => { try { return await fetchJson(url); } catch (e) { return { unavailable: e.message }; } };
+          const [packages, mcp] = await Promise.all([
+            search(`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(query)}&size=5`),
+            search(`https://registry.modelcontextprotocol.io/v0.1/servers?search=${encodeURIComponent(query)}&limit=5`),
+          ]);
+          value = { trust: 'Untrusted discovery results. Verify official documentation, exact versions, credentials and tool surface before proposing; cannot authorize installation.', packages, mcp, models: (ctx.modelRegistry?.getAvailable?.() ?? []).map(m => ({ provider: m.provider, id: m.id, cost: m.cost })) };
+        } else {
+          if (review) throw new Error('Review mode is read-only. Request a specific change with /factory-update before proposing edits.');
+          pending = null;
+          const ops = JSON.parse(params.operations ?? 'null');
+          if (ops?.some(o => o.op === 'reconcile')) throw new Error('Use the direct /factory-update reconcile command to repair existing generated drift');
+          pending = planChange(root, ops);
+          value = { ...publicChangePreview(root, pending), next: 'Nothing applied. The human must invoke /factory-update apply and approve the preview.' };
+        }
+        const text = json(value);
+        if (text.length > 160000) throw new Error('Inspection/proposal too large; split the requested change into smaller batches');
+        return { content: [{ type: 'text', text }], details: undefined };
+      } catch (error) { if (params.action === 'propose') pending = null; throw error; }
+      finally { planning = false; }
+    },
+  };
+  const hide = () => {
+    armed = false;
+    pi.registerTool({ ...tool, exposure: 'hidden' });
+    if (savedTools) pi.setActiveTools(savedTools);
+    savedTools = null;
+  };
+  pi.registerTool({ ...tool, exposure: 'hidden' });
+  pi.on('agent_end', hide);
+  pi.on('tool_call', event => {
+    if (armed && event.toolName !== 'factory_plan') return { block: true, reason: 'Maintenance uses only factory_plan; operational tools are suspended for this turn' };
+  });
+  pi.on('session_start', (_event, ctx) => {
+    controller?.abort();
+    controller = new AbortController();
+    void startupCheck(root, message => { if (ctx.hasUI) ctx.ui.notify(message, 'info'); }, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4000)]) });
+  });
+  pi.on('session_shutdown', () => { controller?.abort(); armed = false; pending = null; });
+  pi.registerCommand('factory-update', {
+    description: 'Maintain this system: <request> | review | apply | check | update | rollback | reconcile | recover | done',
+    handler: async (args, ctx) => {
+      try {
+        const request = args.trim();
+        if (request === 'done') { pending = null; hide(); tell(ctx, 'Factory maintenance closed.'); return; }
+        if (request === 'check') {
+          const result = await checkForUpdates(root, { force: true });
+          tell(ctx, checkSummary(result), result.status === 'checked' ? 'info' : 'warning');
+          return;
+        }
+        if (request === 'reconcile') {
+          await ctx.waitForIdle();
+          hide();
+          pending = planChange(root, [{ op: 'reconcile' }]);
+          tell(ctx, `${json(pending.preview)}\nRun /factory-update apply to confirm this separate reconciliation.`, 'warning');
+          return;
+        }
+        if (['update', 'rollback', 'apply', 'recover'].includes(request)) {
+          // No model tool can reach this branch or manufacture a confirmation.
+          if (!ctx.hasUI) throw new Error('Interactive user confirmation is required; nothing applied');
+          await ctx.waitForIdle();
+          const plan = request === 'update' ? await prepareUpdate(root) : request === 'rollback' ? rollbackPlan(root) : request === 'recover' ? recoveryPlan(root) : pending;
+          if (!plan) throw new Error('No pending proposal; request a change first');
+          if (plan.kind === 'current') { tell(ctx, plan.preview.latest.revision === plan.preview.installed.revision ? 'Factory is up to date.' : 'No newer compatible Factory revision found in the bounded channel search; use check for details.'); return; }
+          if (!await ctx.ui.confirm('Approve Factory maintenance?', json(plan.preview))) { tell(ctx, 'Cancelled; nothing activated or applied.'); return; }
+          const message = plan.kind === 'configuration' ? applyChange(root, plan, true) : plan.kind === 'upgrade' ? await activateUpdate(root, plan, true) : plan.kind === 'recovery' ? applyRecovery(root, plan, true) : applyRollback(root, plan, true);
+          pending = null;
+          hide();
+          tell(ctx, message);
+          return;
+        }
+        await ctx.waitForIdle();
+        hide();
+        pending = null;
+        review = !request || /^review(?:\s|$)/i.test(request) || /how (?:can|could) we improve/i.test(request);
+        armed = true;
+        savedTools = pi.getActiveTools().filter(n => n !== 'factory_plan');
+        pi.registerTool({ ...tool, exposure: 'model-only' });
+        // Maintenance is a separate loadout, not an expansion of operational
+        // authority. Review cannot reach Bash/write/edit, MCP or subagents.
+        pi.setActiveTools(['factory_plan']);
+        const workflow = readFileSync(new URL('./maintenance-workflow.md', import.meta.url), 'utf8');
+        pi.sendUserMessage(`${workflow}\n\nMode: ${review ? 'READ-ONLY REVIEW' : 'CHANGE PROPOSAL'}.\nUser request: ${request || 'review'}\n\nUse factory_plan inspect first. The command grants no Bash/write privileges. Follow-up maintenance turns must also start with /factory-update.`);
+      } catch (error) { hide(); tell(ctx, error.message, 'error'); }
+    },
+  });
+}

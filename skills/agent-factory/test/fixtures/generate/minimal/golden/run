@@ -24,5 +24,5 @@ export PI_CODING_AGENT_DIR="$ROOT/.factory/pi-home"
 mkdir -p "$PI_CODING_AGENT_DIR"
 
 # Credentials are NOT inherited from the host. Log in once for this isolated
-# context (`pi --login`), or export PI_API_KEY / a provider-specific key.
-exec pi "$@"
+# context (`./run`, then `/login`), or export PI_API_KEY / a provider-specific key.
+exec pi --no-context-files "$@"

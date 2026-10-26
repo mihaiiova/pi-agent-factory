@@ -2,7 +2,15 @@
 
 > Status: **implemented**. The `factory` CLI (`validate | generate | discover |
 > modify | import`), the `agent-factory` builder skill, and the hermetic
-> `./run` launcher ship under `skills/agent-factory/`. This document is the
+> `./run` launcher ship under `skills/agent-factory/`. Generated systems now also
+> bundle `/factory-update` for declarative changes, reviews and maintenance-only
+> upgrades/rollback; see [the maintenance architecture](factory-update.md), which
+> supersedes this MVP plan's exclusions concerning maintenance extension code and
+> external-Factory dependence. The launcher now disables ancestor context-file
+> discovery with `--no-context-files`. Model tiers (`models.tiers`, §A.5) and
+> the built-in skill recommendations are superseded: every agent now names its
+> own `provider/id` model and skills come only from the user — see
+> `skills/agent-factory/schema.md`. This document is the
 > architecture reference; sections that describe *planned* behavior are
 > historical and kept for provenance where still relevant.
 >
@@ -501,8 +509,8 @@ configurations with actionable errors. No hand-rolled YAML subset.
 3. **Subagents** — project `.pi/agents/*.md` files (the factory CLI scans the
    project tree; the conversational builder additionally uses the live
    `subagent({action:"list"})` to see builtin + user agents).
-4. **CLIs on PATH** — a curated allowlist of integration CLIs (`gh`, `wrangler`,
-   `railway`, `stripe`, `npx`, …) probed with `command -v`.
+4. **CLIs on PATH** — only the CLIs the user names (`discover --cli <name>`),
+   probed with `command -v`. The factory has no built-in CLI list.
 5. **Known integrations** — the set of pi-config integration skills
    (`use-railway`, `cloudflare`, `stripe-best-practices`, `turnstile-spin`,
    `owlie`, …), matched against (2)/(4) and the user's description.

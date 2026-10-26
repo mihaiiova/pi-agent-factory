@@ -20,16 +20,24 @@ test("SKILL.md drives the lifecycle through discover/generate/modify/validate", 
   assert.ok(skill.includes("factory validate"), "references factory validate");
 });
 
-test("SKILL.md reuses the graded interview and previews before applying", () => {
-  assert.ok(skill.includes("decisionThreshold"), "references the interview threshold");
-  assert.ok(skill.includes("grill-me") && skill.includes("grill-with-docs"), "references grill-me/grill-with-docs");
+test("SKILL.md interviews without depending on host skills and previews before applying", () => {
+  assert.ok(!/grill-me|grill-with-docs|decisionThreshold/.test(skill), "the interview is self-contained");
   assert.ok(skill.includes("--dry-run"), "references the preview-before-apply dry-run");
 });
 
-test("SKILL.md recommends not-installed capabilities with install instructions", () => {
-  assert.ok(skill.includes("knownIntegrations"), "names the discovery source for not-installed candidates");
-  assert.ok(/not-installed/.test(skill), "recommends not-installed items");
-  assert.ok(/install\s+instructions/.test(skill), "promises install instructions");
+test("SKILL.md asks for each agent's model from the full Pi line-up", () => {
+  assert.ok(skill.includes("pi --list-models"), "names the model catalog source");
+  assert.ok(/ships no default models/.test(skill), "hardcodes no models");
+  assert.ok(skill.includes("model: provider/id"), "records the choice on the agent");
+  assert.ok(/"op":"assign"/.test(skill), "documents changing a model later");
+});
+
+test("SKILL.md uses only skills the user asks for or provides", () => {
+  assert.ok(/ships no skills and never recommends one unprompted/.test(skill));
+  assert.ok(!skill.includes("knownIntegrations"), "no built-in recommendation list");
+  for (const form of ["npm:<name>@<version>", "./path", "agents[].skills"]) {
+    assert.ok(skill.includes(form), `documents ${form}`);
+  }
 });
 
 test("SKILL.md states the enforced-vs-advisory split and the ownership contract", () => {

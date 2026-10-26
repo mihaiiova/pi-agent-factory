@@ -7,14 +7,14 @@ const PI_PACKAGES = ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1", "np
 const MODEL = {
   schema: 1,
   name: "seo-system",
-  models: { tiers: { small: { model: "m/s" } }, parentTier: "small" },
-  orchestrator: { name: "orchestrator", model: "small", tools: ["read", "grep", "bash", "subagent"] },
+  orchestrator: { name: "orchestrator", model: "m/large", tools: ["read", "grep", "bash", "subagent"] },
   agents: [
-    { name: "analyst", tools: ["read", "grep"], model: "small", prompt: "Analyze." },
+    { name: "analyst", tools: ["read", "grep"], model: "m/small", thinking: "low", skills: ["draft"], prompt: "Analyze." },
   ],
   skills: [
     { name: "draft", description: "draft" },
-    { name: "spec-start", description: "ext", external: true },
+    { name: "packaged", description: "pkg", source: "npm:@acme/skills@2.0.0" },
+    { name: "local", source: "./vendor/local" },
   ],
   integrations: {
     mcp: [{ name: "openseo", config: { url: "http://localhost:3002/mcp" } }],
@@ -26,24 +26,33 @@ const MODEL = {
 test("effectiveCapabilities derives the full intended surface", () => {
   const caps = effectiveCapabilities(MODEL, { piPackages: PI_PACKAGES });
   assert.deepEqual(caps.orchestratorTools, ["bash", "grep", "read", "subagent"]);
-  assert.deepEqual(caps.agents, [{ name: "analyst", tools: ["grep", "read"], model: "small" }]);
+  assert.equal(caps.orchestratorModel, "m/large");
+  assert.deepEqual(caps.agents, [{ name: "analyst", tools: ["grep", "read"], model: "m/small", thinking: "low", skills: ["draft"] }]);
   assert.deepEqual(caps.skills, [
-    { name: "draft", external: false },
-    { name: "spec-start", external: true },
+    { name: "draft", source: "authored" },
+    { name: "packaged", source: "package" },
+    { name: "local", source: "path" },
   ]);
   assert.deepEqual(caps.mcpServers, [{ name: "openseo", excludeTools: ["publish_*"] }]);
   assert.deepEqual(caps.packages, [
     "npm:pi-subagents@0.65.0",
     "npm:pi-mcp-adapter@2.32.1",
     "npm:extra@1.0.0",
+    "npm:@acme/skills@2.0.0",
   ]);
   assert.ok(caps.notes.length >= 2, "states subagent + extension-tool enforcement notes");
+});
+
+test('capability preview uses effective policy overrides, not the wider agent declaration', () => {
+  const caps = effectiveCapabilities({ ...MODEL, policies: { enforced: [{ agent: 'analyst', tools: [] }] } }, { piPackages: PI_PACKAGES });
+  assert.deepEqual(caps.agents[0].tools, []);
+  assert.equal(caps.maintenance.operationalToolExpansion, false);
 });
 
 test("checkCapabilities passes for consistent generated config", () => {
   const caps = effectiveCapabilities(MODEL, { piPackages: PI_PACKAGES });
   const generated = {
-    settings: { defaultTools: MODEL.orchestrator.tools, packages: caps.packages },
+    settings: { defaultProvider: "m", defaultModel: "large", defaultTools: MODEL.orchestrator.tools, packages: caps.packages },
     mcpJson: { mcpServers: { openseo: { url: "http://localhost:3002/mcp", excludeTools: ["publish_*"] } } },
   };
   const { ok, errors } = checkCapabilities(MODEL, generated, { piPackages: PI_PACKAGES });
@@ -53,7 +62,7 @@ test("checkCapabilities passes for consistent generated config", () => {
 test("checkCapabilities flags a hand-added mcp server", () => {
   const caps = effectiveCapabilities(MODEL, { piPackages: PI_PACKAGES });
   const generated = {
-    settings: { defaultTools: MODEL.orchestrator.tools, packages: caps.packages },
+    settings: { defaultProvider: "m", defaultModel: "large", defaultTools: MODEL.orchestrator.tools, packages: caps.packages },
     mcpJson: { mcpServers: { openseo: {}, ghost: {} } },
   };
   const { ok, errors } = checkCapabilities(MODEL, generated, { piPackages: PI_PACKAGES });
@@ -64,10 +73,21 @@ test("checkCapabilities flags a hand-added mcp server", () => {
 test("checkCapabilities flags a wrong defaultTools", () => {
   const caps = effectiveCapabilities(MODEL, { piPackages: PI_PACKAGES });
   const generated = {
-    settings: { defaultTools: ["read"], packages: caps.packages },
+    settings: { defaultProvider: "m", defaultModel: "large", defaultTools: ["read"], packages: caps.packages },
     mcpJson: { mcpServers: {} },
   };
   const { ok, errors } = checkCapabilities(MODEL, generated, { piPackages: PI_PACKAGES });
   assert.equal(ok, false);
   assert.ok(errors.some((e) => e.includes("defaultTools mismatch")), "tool mismatch flagged");
+});
+
+test("checkCapabilities flags a primary-session model that drifted from system.yaml", () => {
+  const caps = effectiveCapabilities(MODEL, { piPackages: PI_PACKAGES });
+  const generated = {
+    settings: { defaultProvider: "m", defaultModel: "other", defaultTools: MODEL.orchestrator.tools, packages: caps.packages },
+    mcpJson: { mcpServers: { openseo: { excludeTools: ["publish_*"] } } },
+  };
+  const { ok, errors } = checkCapabilities(MODEL, generated, { piPackages: PI_PACKAGES });
+  assert.equal(ok, false);
+  assert.ok(errors.some((e) => e.includes("default model mismatch: expected m/large got m/other")));
 });

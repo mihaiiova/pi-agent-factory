@@ -8,17 +8,21 @@
  * See `schema.md` for the field-by-field schema and validation rules.
  */
 
+import { THINKING_LEVELS, isModelRef } from "./models.mjs";
+import { PACKAGE_SOURCE_RE, skillSourceKind } from "./skill-sources.mjs";
+
 const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const TOP_LEVEL_KEYS = [
-  "schema", "name", "description", "models", "orchestrator",
+  "schema", "name", "description", "orchestrator",
   "agents", "skills", "integrations", "workflows", "policies", "packages",
 ];
-const MODELS_KEYS = ["tiers", "parentTier", "subagents"];
-const TIER_KEYS = ["model", "thinking"];
-const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "tools"];
-const AGENT_KEYS = ["name", "description", "tools", "model", "prompt", "inheritProjectContext", "inheritSkills"];
-const SKILL_KEYS = ["name", "description", "body", "external"];
+const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "thinking", "tools"];
+const AGENT_KEYS = [
+  "name", "description", "tools", "model", "thinking", "skills", "prompt",
+  "inheritProjectContext", "inheritSkills",
+];
+const SKILL_KEYS = ["name", "description", "body", "source"];
 const INTEGRATIONS_KEYS = ["mcp", "env"];
 const MCP_KEYS = ["name", "config"];
 const ENV_KEYS = ["name", "secret"];
@@ -73,7 +77,19 @@ function checkKebabCase(value, path, errors) {
   }
 }
 
-const PACKAGE_SPEC_RE = /^(npm:(@[^/\s]+\/)?[^@\s]+@[^@\s]+|git:[^\s]+@[^\s]+)$/;
+function checkModelRef(value, path, errors) {
+  if (!isNonEmptyString(value)) {
+    errors.push(`${path} is required: a "provider/id" model from the Pi line-up (pi --list-models)`);
+  } else if (!isModelRef(value)) {
+    errors.push(`${path} must be a "provider/id" model reference (got "${value}")`);
+  }
+}
+
+function checkThinking(value, path, errors) {
+  if (value !== undefined && !THINKING_LEVELS.includes(value)) {
+    errors.push(`${path} must be one of ${THINKING_LEVELS.join(", ")} (got ${JSON.stringify(value)})`);
+  }
+}
 
 function checkPackageSpecs(value, path, errors) {
   if (value === undefined) return;
@@ -82,7 +98,7 @@ function checkPackageSpecs(value, path, errors) {
     return;
   }
   value.forEach((spec, i) => {
-    if (!isNonEmptyString(spec) || !PACKAGE_SPEC_RE.test(spec)) {
+    if (!isNonEmptyString(spec) || !PACKAGE_SOURCE_RE.test(spec)) {
       errors.push(
         `${path}[${i}] must be a pinned package spec: "npm:name@version" (scoped names allowed) or "git:...@ref"`,
       );
@@ -155,62 +171,6 @@ export function validateSystem(doc) {
 
   checkPackageSpecs(doc.packages, "document.packages", errors);
 
-  // ── models ──────────────────────────────────────────────────
-  const tierNames = new Set();
-  if (doc.models !== undefined) {
-    if (!isPlainObject(doc.models)) {
-      errors.push("document.models must be an object");
-    } else {
-      checkUnknownKeys(doc.models, MODELS_KEYS, "document.models", errors);
-
-      if (doc.models.tiers === undefined) {
-        errors.push("document.models.tiers is required (a map of tier → {model})");
-      } else if (!isPlainObject(doc.models.tiers)) {
-        errors.push("document.models.tiers must be an object");
-      } else {
-        for (const [tierName, tier] of Object.entries(doc.models.tiers)) {
-          tierNames.add(tierName);
-          if (!isPlainObject(tier)) {
-            errors.push(`document.models.tiers.${tierName} must be an object`);
-            continue;
-          }
-          checkUnknownKeys(
-            tier, TIER_KEYS, `document.models.tiers.${tierName}`, errors,
-          );
-          checkNonEmptyString(
-            tier.model, `document.models.tiers.${tierName}.model`, errors,
-          );
-          if (tier.thinking !== undefined && typeof tier.thinking !== "string") {
-            errors.push(
-              `document.models.tiers.${tierName}.thinking must be a string`,
-            );
-          }
-        }
-      }
-
-      if (
-        doc.models.parentTier !== undefined &&
-        !isNonEmptyString(doc.models.parentTier)
-      ) {
-        errors.push("document.models.parentTier must be a non-empty string");
-      }
-
-      if (doc.models.subagents !== undefined) {
-        if (!isPlainObject(doc.models.subagents)) {
-          errors.push("document.models.subagents must be an object");
-        } else {
-          for (const [agent, tierName] of Object.entries(doc.models.subagents)) {
-            if (!isNonEmptyString(tierName)) {
-              errors.push(
-                `document.models.subagents.${agent} must be a non-empty tier name`,
-              );
-            }
-          }
-        }
-      }
-    }
-  }
-
   // ── orchestrator ────────────────────────────────────────────
   let orchestratorName = null;
   if (doc.orchestrator !== undefined) {
@@ -221,7 +181,8 @@ export function validateSystem(doc) {
 
       checkNonEmptyString(doc.orchestrator.name, "document.orchestrator.name", errors);
       if (isNonEmptyString(doc.orchestrator.name)) orchestratorName = doc.orchestrator.name;
-      checkNonEmptyString(doc.orchestrator.model, "document.orchestrator.model", errors);
+      checkModelRef(doc.orchestrator.model, "document.orchestrator.model", errors);
+      checkThinking(doc.orchestrator.thinking, "document.orchestrator.thinking", errors);
 
       if (
         doc.orchestrator.description !== undefined &&
@@ -246,7 +207,11 @@ export function validateSystem(doc) {
       checkUnknownKeys(agent, AGENT_KEYS, `document.agents[${i}]`, errors);
       checkNonEmptyString(agent.name, `document.agents[${i}].name`, errors);
       checkKebabCase(agent.name, `document.agents[${i}].name`, errors);
-      checkNonEmptyString(agent.model, `document.agents[${i}].model`, errors);
+      checkModelRef(agent.model, `document.agents[${i}].model`, errors);
+      checkThinking(agent.thinking, `document.agents[${i}].thinking`, errors);
+      if (agent.skills !== undefined) {
+        checkStringArray(agent.skills, `document.agents[${i}].skills`, errors);
+      }
       for (const key of ["inheritProjectContext", "inheritSkills"]) {
         if (agent[key] !== undefined && typeof agent[key] !== "boolean") {
           errors.push(`document.agents[${i}].${key} must be a boolean`);
@@ -272,14 +237,23 @@ export function validateSystem(doc) {
       checkUnknownKeys(skill, SKILL_KEYS, `document.skills[${i}]`, errors);
       checkNonEmptyString(skill.name, `document.skills[${i}].name`, errors);
       checkKebabCase(skill.name, `document.skills[${i}].name`, errors);
+      if (skill.name === 'factory-update') errors.push(`document.skills[${i}].name factory-update is reserved maintenance infrastructure`);
       if (skill.description !== undefined && !isNonEmptyString(skill.description)) {
         errors.push(`document.skills[${i}].description must be a non-empty string`);
       }
       if (skill.body !== undefined && !isNonEmptyString(skill.body)) {
         errors.push(`document.skills[${i}].body must be a non-empty string`);
       }
-      if (skill.external !== undefined && typeof skill.external !== "boolean") {
-        errors.push(`document.skills[${i}].external must be a boolean`);
+      if (skill.source !== undefined) {
+        if (skillSourceKind(skill.source) === null) {
+          errors.push(
+            `document.skills[${i}].source must be a pinned package ("npm:name@version" or ` +
+              `"git:repo@ref") or a directory path (./, ../, /, ~/) containing SKILL.md`,
+          );
+        }
+        if (skill.body !== undefined) {
+          errors.push(`document.skills[${i}] must declare either "body" or "source", not both`);
+        }
       }
     });
   }
@@ -448,35 +422,18 @@ export function validateSystem(doc) {
   }
 
   // ── References ──────────────────────────────────────────────
-  const declaredTiers = [...tierNames].sort().join(", ");
-  const tierErr = (ref, path) =>
-    `${path} references tier "${ref}" which is not declared` +
-    (declaredTiers ? ` (declared: ${declaredTiers})` : " (no tiers declared)");
-
-  if (isPlainObject(doc.models)) {
-    if (isNonEmptyString(doc.models.parentTier) && !tierNames.has(doc.models.parentTier)) {
-      errors.push(tierErr(doc.models.parentTier, "document.models.parentTier"));
-    }
-    if (isPlainObject(doc.models.subagents)) {
-      for (const [agent, tierName] of Object.entries(doc.models.subagents)) {
-        if (isNonEmptyString(tierName) && !tierNames.has(tierName)) {
-          errors.push(tierErr(tierName, `document.models.subagents.${agent}`));
-        }
-      }
-    }
-  }
-
-  if (isPlainObject(doc.orchestrator) && isNonEmptyString(doc.orchestrator.model)) {
-    if (!tierNames.has(doc.orchestrator.model)) {
-      errors.push(tierErr(doc.orchestrator.model, "document.orchestrator.model"));
-    }
-  }
-
   if (doc.agents !== undefined && Array.isArray(doc.agents)) {
     doc.agents.forEach((agent, i) => {
-      if (isPlainObject(agent) && isNonEmptyString(agent.model) && !tierNames.has(agent.model)) {
-        errors.push(tierErr(agent.model, `document.agents[${i}].model`));
-      }
+      if (!isPlainObject(agent) || !isStringArray(agent.skills)) return;
+      agent.skills.forEach((name, j) => {
+        if (!skillNames.has(name)) {
+          const available = [...skillNames].sort().join(", ");
+          errors.push(
+            `document.agents[${i}].skills[${j}] references "${name}" which is not a ` +
+              (available ? `declared skill (declared: ${available})` : "declared skill (no skills declared)"),
+          );
+        }
+      });
     });
   }
 

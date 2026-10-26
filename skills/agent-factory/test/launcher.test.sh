@@ -42,7 +42,7 @@ export PATH="$bin:$PATH"
 (cd "$work" && "$proj/run" alpha "two words")
 grep -Fq "cwd=$proj" "$LAUNCHER_LOG" || fail "launcher did not cd into the project root"
 grep -Fq "agent_dir=$proj/.factory/pi-home" "$LAUNCHER_LOG" || fail "launcher did not set the isolated agent dir"
-grep -Fq 'args=alpha two words' "$LAUNCHER_LOG" || fail "launcher did not forward arguments"
+grep -Fq 'args=--no-context-files alpha two words' "$LAUNCHER_LOG" || fail "launcher did not isolate context and forward arguments"
 pass "launcher: cwd/env/args correct from an arbitrary working directory"
 
 # ── Exit code passthrough ───────────────────────────────────────

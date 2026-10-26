@@ -1,8 +1,0 @@
-ok - startup-check only notifies, never prompts
-ok - package.json has a top-level semver version
-ok - diffPackages computes missing/extras, normalizes sources, filters non-npm, sorts
-ok - fingerprintFiles is stable and order-independent
-ok - computeReloadSignal flags changed/added/removed, ignores null baseline
-ok - computeVerdict maps sync/reload/both/none exactly
-
-All startup-check tests passed.

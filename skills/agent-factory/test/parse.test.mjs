@@ -19,11 +19,11 @@ test("parseSystem returns the document for valid YAML", () => {
 
 test("parseSystem preserves nested structures and arrays", () => {
   const doc = parseSystem(
-    "schema: 1\nname: demo\nmodels:\n  tiers:\n    high: { model: openai/gpt-5, thinking: high }\n  subagents: { worker: high }\nagents:\n  - name: worker\n    tools: [read, write]\n",
+    "schema: 1\nname: demo\nagents:\n  - name: worker\n    model: openai/gpt-5\n    thinking: high\n    tools: [read, write]\n",
     realParse,
   );
-  assert.equal(doc.models.tiers.high.model, "openai/gpt-5");
-  assert.equal(doc.models.subagents.worker, "high");
+  assert.equal(doc.agents[0].model, "openai/gpt-5");
+  assert.equal(doc.agents[0].thinking, "high");
   assert.deepEqual(doc.agents[0].tools, ["read", "write"]);
 });
 
