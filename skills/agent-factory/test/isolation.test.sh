@@ -117,7 +117,7 @@ fi
 
 # ── C. Real Pi integration (pi-gated; SKIP-with-reason, never pass) ──
 if command -v pi >/dev/null 2>&1; then
-  if out="$(cd "$work" && PI_CODING_AGENT_DIR="$work/.factory/pi-home" timeout 60 pi mcp list 2>&1)"; then
+  if out="$(cd "$work" && PI_OFFLINE=1 PI_CODING_AGENT_DIR="$work/.factory/pi-home" timeout 60 pi mcp list 2>&1)"; then
     if grep -qi 'owlie\|cloudflare' <<<"$out"; then
       fail "C: real pi under isolation still reports host MCP servers"
     fi

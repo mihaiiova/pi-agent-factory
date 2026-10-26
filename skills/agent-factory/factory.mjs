@@ -8,12 +8,16 @@
  *   discover [dir]             print a read-only capability inventory as JSON
  *   modify <dir> [--dry-run] [--yes]  diff project vs model, apply confirmed changes
  *   import <dir>               reconstruct system.yaml from an existing project
+ *   change <dir> --operations <file> [--dry-run] [--yes] declarative change batch
+ *   bootstrap-update <dir> [--dry-run] [--yes] add standalone maintenance
+ *   recover <dir> [--dry-run] [--yes] repair an interrupted transaction
  *
  * Exit codes:
  *   0  valid / generated / discovered / modified / imported (reported conflicts do not fail)
  *   1  invalid, missing, or unparseable system.yaml; or an unknown command
  *
- * Later specs add nothing further; import completes the MVP command surface.
+ * Generated sessions use the narrow bundled maintenance adapter, not this
+ * development CLI or the user's globally installed pi-config.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, chmodSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -30,6 +34,9 @@ import { indent, diffLines } from "./diff.mjs";
 import { parseMcpFile, probeClis, scanSkills } from "./discover.mjs";
 import { loadYaml } from "./yaml-loader.mjs";
 import { importSystem } from "./import.mjs";
+import { localBundle, bootstrapPlan, applyBootstrap } from './maintenance-bundle.mjs';
+import { planChange, applyChange } from './maintenance.mjs';
+import { recoveryPlan, applyRecovery } from './maintenance-store.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CURATED_CLIS = ["gh", "wrangler", "railway", "stripe", "npx", "git", "node"];
@@ -49,6 +56,12 @@ Commands:
   discover [dir]             print a read-only capability inventory as JSON
   modify <dir> [--dry-run] [--yes]
                              diff project vs model and apply confirmed changes
+  recover <dir> [--dry-run] [--yes]
+                             recover an interrupted maintenance transaction
+  bootstrap-update <dir> [--dry-run] [--yes]
+                             install standalone maintenance in an older project
+  change <dir> --operations <json-file> [--dry-run] [--yes]
+                             validate/preview a structured system.yaml change
   import <dir>               reconstruct <dir>/.pi/system.yaml from an existing
                              pi-config project (settings + pi-config + detected)
 
@@ -200,7 +213,7 @@ function detectSkills(dir) {
   for (const path of listFiles(join(dir, ".pi", "skills"), (name) => name === "SKILL.md")) {
     try { skillFiles[path] = readFileSync(path, "utf-8"); } catch { /* unreadable */ }
   }
-  return scanSkills(skillFiles);
+  return scanSkills(skillFiles).filter(skill => skill.name !== 'factory-update');
 }
 
 function writeGenerated(targetPath, file) {
@@ -310,9 +323,12 @@ function runGenerate(dir, dryRun) {
   printWarnings(warnings);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
   const conflicts = files.filter((f) => f.action === "conflict");
+  const bundle = existsSync(join(resolve(dir), '.factory/installation.json')) ? null : localBundle();
+  if (bundle && conflicts.some(f => f.path.includes('factory-update/'))) { fail('Maintenance infrastructure conflict; nothing written'); return; }
 
   if (dryRun) {
     printPlan(systemPath, dir, files, existing, "Planned changes (dry run — nothing written)");
+    if (bundle) console.log(`  bundle standalone Factory maintenance (${bundle.installation.version}, ${bundle.installation.revision})`);
     process.exitCode = 0;
     return;
   }
@@ -336,6 +352,7 @@ function runGenerate(dir, dryRun) {
   const check = checkCapabilities(normalized, { settings: settingsJson, mcpJson }, { piPackages: readPiPackages() });
   for (const e of check.errors) console.error(`warning - ${e}`);
 
+  if (bundle) applyBootstrap(resolve(dir), bootstrapPlan(resolve(dir), bundle), true);
   for (const c of conflicts) {
     console.error(`conflict - ${c.path}: user edit vs model change; not applied. Proposed:\n${c.desired}`);
   }
@@ -396,12 +413,15 @@ function runImport(dir) {
   const existing = readExisting(target, system);
   const { files } = generateProject(system, existing, { piPackages: readPiPackages() });
   for (const f of files) {
-    if (f.action !== "create") continue;
+    // Import is intentionally conservative. Do not leave a discoverable loader
+    // without its installation: generate/bootstrap is a separate previewed step.
+    if (f.action !== "create" || f.path.includes('factory-update/')) continue;
     writeGenerated(join(target, f.path), f);
     console.log(`scaffolded ${f.path}`);
   }
   mkdirSync(join(target, ".pi", "agents"), { recursive: true });
 
+  console.log('Import preserved existing configuration. Preview factory generate, then apply it to include standalone maintenance (or use bootstrap-update after reconciling conflicts).');
   for (const flag of report.flagged) {
     console.error(`flagged - ${flag.key}: ${flag.reason}`);
   }
@@ -453,7 +473,7 @@ async function runModify(dir, dryRun, yes) {
   } else {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     for (const f of changes) {
-      const answer = await rl.question(`Apply ${f.path}? [y/N] `);
+      const answer = await new Promise(resolve => rl.question(`Apply ${f.path}? [y/N] `, resolve));
       if (/^y(es)?$/i.test(answer.trim())) apply(f);
       else console.log(`skipped ${f.path}`);
     }
@@ -513,6 +533,28 @@ async function main(argv) {
     return;
   }
 
+  if (command === 'bootstrap-update' || command === 'change' || command === 'recover') {
+    if (!dir) { fail('missing <dir> argument'); return; }
+    const root = resolve(dir);
+    const index = rest.indexOf('--operations');
+    if (command === 'change' && (index < 0 || !rest[index + 1])) { fail('change requires --operations <json-file>'); return; }
+    const plan = command === 'bootstrap-update' ? bootstrapPlan(root) : command === 'recover' ? recoveryPlan(root) : planChange(root, JSON.parse(readFileSync(rest[index + 1], 'utf8')));
+    console.log(JSON.stringify(plan.preview, null, 2));
+    if (dryRun) { console.log('Dry run — nothing written.'); return; }
+    let approved = rest.includes('--yes');
+    if (!approved && process.stdin.isTTY) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      approved = await new Promise(resolve => rl.question('Apply this maintenance proposal? [y/N] ', answer => resolve(/^y(es)?$/i.test(answer.trim()))));
+      rl.close();
+    }
+    if (!approved) { console.log('Not approved — nothing written.'); return; }
+    if (command === 'bootstrap-update') applyBootstrap(root, plan, true);
+    else if (command === 'recover') applyRecovery(root, plan, true);
+    else applyChange(root, plan, true);
+    console.log('Applied. Restart ./run.');
+    return;
+  }
+
   if (command === "import") {
     if (!dir) {
       fail("missing <dir> argument");
@@ -527,4 +569,4 @@ async function main(argv) {
   process.stderr.write(USAGE);
 }
 
-main(process.argv.slice(2));
+main(process.argv.slice(2)).catch(error => fail(error.message));

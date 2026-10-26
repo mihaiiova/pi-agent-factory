@@ -133,6 +133,21 @@ Place it in the appropriate directory:
 Commit, push, `/pi-sync` on the other machine, `/reload`.
 
 
+## Agent Factory maintenance
+
+`/agent-factory` builds isolated standalone Pi systems. Generated projects include
+`/factory-update` for conversational, previewed and explicitly approved model
+changes, read-only reviews, cached update notices, trusted maintenance upgrades
+and offline rollback. Bootstrap existing generated systems without recreating them:
+
+```sh
+node skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --dry-run
+node skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --yes
+```
+
+See [Factory maintenance](docs/factory-update.md) for usage, security boundaries,
+installation metadata, recovery and automated verification.
+
 ## Cost accounting
 
 `/session-cost`, `/spec-cost`, and `/spec-close` use one shared observation ledger. Reports count the active conversation branch, deduplicate fork ancestry, and assign subagent costs through explicit ownership links. Unavailable prices remain unknown; partial coverage is shown with the known subtotal. Resuming a native session appends an immutable snapshot revision rather than freezing its first recorded cost or adding cumulative snapshots together.

@@ -111,13 +111,13 @@ rm -rf "$vs"
 pass "factory generate materializes MCP config and enforced/advisory policy"
 
 # ── e2e smoke (pi-gated) ─────────────────────────────────────────
-if command -v pi >/dev/null 2>&1; then
+if [[ "${RUN_FACTORY_LIVE_TESTS:-0}" == 1 ]] && command -v pi >/dev/null 2>&1; then
   smoke="$(mktemp -d)"
   cp "$fixtures/generate/minimal/.pi/system.yaml" "$smoke/system.yaml" 2>/dev/null || true
   mkdir -p "$smoke/.pi"
   cp "$fixtures/generate/minimal/.pi/system.yaml" "$smoke/.pi/system.yaml"
   node "$factory" generate "$smoke" >/dev/null
-  if out="$(cd "$smoke" && timeout 60 pi -p "describe yourself" 2>&1)"; then
+  if out="$(cd "$smoke" && timeout 60 ./run --approve -p "describe yourself" 2>&1)"; then
     if grep -qi "seo\|orchestrator\|coordinator" <<<"$out"; then
       pass "e2e smoke: pi -p reports the orchestrator identity"
     else
@@ -131,17 +131,17 @@ if command -v pi >/dev/null 2>&1; then
   fi
   rm -rf "$smoke"
 else
-  echo "ok - e2e smoke SKIPPED (pi not on PATH)"
+  echo "ok - e2e smoke SKIPPED (requires RUN_FACTORY_LIVE_TESTS=1, pi and provider access)"
 fi
 
 # ── multi-agent workflow headless smoke (pi-gated) ─────────────
 # Network/model-gated: a 3-agent fixture runs `pi -p "run <workflow>"` and
 # should produce an artifact under data/. Skips gracefully when unavailable.
-if command -v pi >/dev/null 2>&1; then
+if [[ "${RUN_FACTORY_LIVE_TESTS:-0}" == 1 ]] && command -v pi >/dev/null 2>&1; then
   mw="$(mktemp -d)"
   cp -r "$fixtures/generate/multi-agent/.pi" "$mw/.pi"
   node "$factory" generate "$mw" >/dev/null
-  if out="$(cd "$mw" && timeout 90 pi -p "run the analyze-and-draft workflow" 2>&1)"; then
+  if out="$(cd "$mw" && timeout 90 ./run --approve -p "run the analyze-and-draft workflow" 2>&1)"; then
     if find "$mw/data" -type f -not -name '.gitkeep' | grep -q .; then
       pass "multi-agent headless smoke: workflow produced an artifact under data/"
     else
@@ -152,14 +152,14 @@ if command -v pi >/dev/null 2>&1; then
   fi
   rm -rf "$mw"
 else
-  echo "ok - multi-agent headless smoke SKIPPED (pi not on PATH)"
+  echo "ok - multi-agent headless smoke SKIPPED (requires RUN_FACTORY_LIVE_TESTS=1, pi and provider access)"
 fi
 
 # ── MCP integration (pi-gated) ──────────────────────────────────
 # Generate a project pointing at a local stub MCP server; the generated
 # .pi/mcp.json must be valid JSON, and when a live `pi mcp list` is available
 # the server should appear. Otherwise the live check skips.
-if command -v pi >/dev/null 2>&1; then
+if [[ "${RUN_FACTORY_LIVE_TESTS:-0}" == 1 ]] && command -v pi >/dev/null 2>&1; then
   mci="$(mktemp -d)"
   mkdir -p "$mci/.pi"
   cat > "$mci/.pi/system.yaml" <<'YAML'
@@ -177,7 +177,7 @@ YAML
   node "$factory" generate "$mci" >/dev/null
   node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf-8"))' \
     "$mci/.pi/mcp.json" >/dev/null || fail "generated .pi/mcp.json is not valid JSON"
-  if out="$(cd "$mci" && timeout 30 pi mcp list 2>&1)"; then
+  if out="$(cd "$mci" && PI_CODING_AGENT_DIR="$mci/.factory/pi-home" timeout 30 pi mcp list 2>&1)"; then
     if grep -qi "openseo" <<<"$out"; then
       pass "MCP integration: pi mcp list reports the generated openseo server"
     else
@@ -188,7 +188,7 @@ YAML
   fi
   rm -rf "$mci"
 else
-  echo "ok - MCP integration SKIPPED (pi not on PATH)"
+  echo "ok - MCP integration SKIPPED (requires RUN_FACTORY_LIVE_TESTS=1, pi and a live MCP server)"
 fi
 
 echo

@@ -20,6 +20,7 @@ import { workflowSkill } from "./workflow-skill.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
+import { infrastructureFiles } from "./maintenance-infra.mjs";
 
 const MARKER = "agent-factory:generated v1";
 const MARKER_HTML_RE = /^<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->$/;
@@ -48,6 +49,7 @@ export const GENERATED_PATHS = [
   ".env.example",
   "data/knowledge/.gitkeep",
   "run",
+  ...Object.keys(infrastructureFiles()),
 ];
 
 function isPlainObject(value) {
@@ -167,7 +169,7 @@ function buildSettings(model, existingText, packages) {
     existing,
   );
 
-  const tools = Array.isArray(orchestrator.tools) && orchestrator.tools.length > 0
+  const tools = Array.isArray(orchestrator.tools)
     ? orchestrator.tools
     : undefined;
   if (tools !== undefined) out.defaultTools = tools;
@@ -243,10 +245,17 @@ function readmeBody(model) {
     "./run -p \"...\"   # headless one-shot",
     "```",
     "",
-    "Authenticate once in the isolated context (`./run --login`), or export",
+    "Authenticate inside `./run` with `/login`, or export",
     "`PI_API_KEY` / a provider key. See the policy section below for which",
     "capabilities are enforced vs advisory.",
     "",
+    '## Maintain',
+    '',
+    'Use `/factory-update <request>` to propose a declarative change, then',
+    '`/factory-update apply` to preview and approve it. `/factory-update review`',
+    'is read-only. Tooling lifecycle: `/factory-update check`, `update`, `rollback`.',
+    'Startup checks never install updates. Restart `./run` after applying changes.',
+    '',
     policySection(model),
   ].join("\n");
 }
@@ -382,6 +391,12 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),
     sentinelFile("data/knowledge/.gitkeep", existing["data/knowledge/.gitkeep"]),
     { ...derivedFile("run", plan.launcherScript, existing["run"]), executable: true },
+    // Infrastructure is deliberately outside model.skills and its removal logic.
+    ...Object.entries(infrastructureFiles()).map(([path, content]) => {
+      const current = existing[path];
+      if (current !== undefined && current !== content) return { path, content: current, desired: content, action: 'conflict' };
+      return derivedFile(path, content, current);
+    }),
     ...agentFiles(model, existing),
     ...skillFiles(model, existing),
   ];

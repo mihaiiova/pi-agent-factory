@@ -42,8 +42,10 @@ export function launcherScript() {
     'mkdir -p "$PI_CODING_AGENT_DIR"',
     "",
     "# Credentials are NOT inherited from the host. Log in once for this isolated",
-    "# context (`pi --login`), or export PI_API_KEY / a provider-specific key.",
-    'exec pi "$@"',
+    "# context (`./run`, then `/login`), or export PI_API_KEY / a provider-specific key.",
+    // Pi's agent-dir does not suppress ancestor instruction discovery.
+    // APPEND_SYSTEM.md still supplies the project's operational instructions.
+    'exec pi --no-context-files "$@"',
     "",
   ].join("\n");
 }
@@ -63,8 +65,8 @@ export function buildRuntimePlan(model, opts = {}) {
     packages,
     launcherScript: launcherScript(),
     warnings: [
-      "credentials are not inherited from the host; run `pi --login` once in the isolated context or export PI_API_KEY / a provider key",
-      "AGENTS.md/CLAUDE.md context files in parent directories are not suppressed by agent-dir isolation; keep generated projects out of a host tree that carries them",
+      "credentials are not inherited from the host; start ./run and use /login, or export PI_API_KEY / a provider key",
+      "the launcher disables AGENTS.md/CLAUDE.md discovery with --no-context-files; declare project instructions in system.yaml / APPEND_SYSTEM.md. Inherited subagent project context is an explicit opt-in.",
     ],
     errors,
   };

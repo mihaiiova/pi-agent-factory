@@ -11,7 +11,7 @@
  * at runtime and are not assertable without a running process — the manifest
  * states this instead of claiming they are absent.
  */
-import { hiddenMcpTools } from "./policy.mjs";
+import { hiddenMcpTools, enforcedAgentTools } from "./policy.mjs";
 import { runtimePackages } from "./deps.mjs";
 
 function isPlainObject(value) {
@@ -46,7 +46,7 @@ export function effectiveCapabilities(model, opts = {}) {
     orchestratorTools: sortUnique(orchestrator.tools),
     agents: (Array.isArray(model.agents) ? model.agents : []).map((agent) => ({
       name: agent.name,
-      tools: sortUnique(agent.tools),
+      tools: sortUnique(enforcedAgentTools(agent.name, model.policies, agent.tools)),
       model: agent.model,
     })),
     skills: (Array.isArray(model.skills) ? model.skills : []).map((skill) => ({
@@ -62,6 +62,13 @@ export function effectiveCapabilities(model, opts = {}) {
     // tools; their concrete tool surface is enforced by Pi at runtime and is
     // not assertable here (see notes).
     extensions: Array.isArray(model?.packages) ? [...model.packages].sort() : [],
+    maintenance: {
+      command: '/factory-update',
+      proposalTool: 'factory_plan (hidden outside a direct maintenance request)',
+      applicationAuthority: 'direct user command plus interactive confirmation',
+      operationalToolExpansion: false,
+      dependencies: 'separate versioned maintenance bundle; see .factory/installation.json',
+    },
     notes: [
       "subagent tools are enforced by pi-subagents allowlists (a child lacks unlisted tools)",
       "orchestrator defaultTools bounds built-in tools; extension- and MCP-provided tools are enforced by Pi at runtime and are not assertable without a running process",

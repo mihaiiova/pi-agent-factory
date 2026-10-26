@@ -10,7 +10,7 @@ agent system, and later modifies that system conversationally. It is a
 **conversational builder over the deterministic `factory` CLI** — the CLI is the
 single source of truth for generation; this skill drives it.
 
-Invoke with `/skill:agent-factory`, or describe an agent-system outcome ("I want an
+Invoke with `/agent-factory` (convenience alias), `/skill:agent-factory`, or describe an agent-system outcome ("I want an
 SEO system", "set up a coding agent with a reviewer", …) and this skill routes here.
 
 ## Lifecycle
@@ -42,8 +42,21 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    canonical entry point and runs the system under its own isolated Pi config
    directory (`PI_CODING_AGENT_DIR=.factory/pi-home`), so the host's global
    skills/MCP/extensions/credentials are not inherited.
-7. **Modify** — later sessions reopen the project, read `system.yaml`, preview with
-   `factory modify <dir> --dry-run`, and apply only confirmed changes.
+7. **Maintain** — every generated system bundles `/factory-update`, its thin
+   skill/command and minimal standalone deterministic engine. Within `./run`, use
+   `/factory-update <request>` to inspect/discover/preview a structured model
+   change, `/factory-update apply` to confirm it, or `/factory-update review` for
+   read-only recommendations. The operational loadout is not broadened. Changes
+   go through `system.yaml`, never direct settings/MCP edits. CLI equivalents:
+   `factory change <dir> --operations <json-file> --dry-run`, then `--yes` after
+   approval. Existing `factory modify <dir> --dry-run` reconciliation is preserved.
+8. **Upgrade tooling** — `/factory-update check|update|rollback` use pinned trusted
+   Factory metadata, cached nonblocking startup discovery, staged exact revisions,
+   explicit confirmation and retained offline rollback. No automatic activation,
+   functional model change or global pi-config dependency. Restart after applying.
+   Bootstrap older projects with `factory bootstrap-update <dir> --dry-run`, then
+   `--yes`; conflicts/migrations must be resolved explicitly. See
+   `../../docs/factory-update.md` for architecture, recovery and limitations.
 
 ## Policy and ownership contract
 
@@ -61,5 +74,7 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
 
 ## Out of scope
 
-Import/recreate of existing projects, scheduled triggers, and generated extension
-code.
+Recreating existing projects, scheduled triggers, and arbitrary generated
+extension code. The small bundled maintenance loader is infrastructure, not an
+operational extension-generation framework. `factory import` is preserved for
+non-Factory projects; existing Factory projects use `bootstrap-update`.

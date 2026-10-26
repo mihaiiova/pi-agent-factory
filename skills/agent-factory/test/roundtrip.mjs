@@ -74,7 +74,7 @@ test("round-trip: import → generate preserves subagent routing, skills, workfl
   assert.equal(agentPaths.length, 4, "four specialist agents materialize");
 
   const localSkills = files.filter((f) => f.path.includes("/SKILL.md"));
-  assert.equal(localSkills.length, 0, "spec-lifecycle skills are package-provided (external), not duplicated locally");
+  assert.deepEqual(localSkills.map(f => f.path), ['.pi/skills/factory-update/SKILL.md'], "only maintenance infrastructure is local; external lifecycle skills are not duplicated");
   const declaredSkills = system.skills.map((s) => s.name);
   for (const wf of ["spec-new", "spec-start", "spec-review", "spec-close"]) {
     assert.ok(declaredSkills.includes(wf), `spec-lifecycle skill ${wf} is declared`);
@@ -119,5 +119,5 @@ test("coding-agent template generates the expected native files with pinned pack
   assert.deepEqual(settings.packages, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"]);
   assert.ok(files.some((f) => f.path === ".pi/APPEND_SYSTEM.md"));
   assert.ok(files.filter((f) => f.path.startsWith(".pi/agents/")).length === 4);
-  assert.ok(!files.some((f) => f.path.includes("/SKILL.md")), "package-provided skills are not duplicated locally");
+  assert.deepEqual(files.filter(f => f.path.includes('/SKILL.md')).map(f => f.path), ['.pi/skills/factory-update/SKILL.md'], 'only maintenance infrastructure is local');
 });

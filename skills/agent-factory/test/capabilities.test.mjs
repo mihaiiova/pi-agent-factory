@@ -40,6 +40,12 @@ test("effectiveCapabilities derives the full intended surface", () => {
   assert.ok(caps.notes.length >= 2, "states subagent + extension-tool enforcement notes");
 });
 
+test('capability preview uses effective policy overrides, not the wider agent declaration', () => {
+  const caps = effectiveCapabilities({ ...MODEL, policies: { enforced: [{ agent: 'analyst', tools: [] }] } }, { piPackages: PI_PACKAGES });
+  assert.deepEqual(caps.agents[0].tools, []);
+  assert.equal(caps.maintenance.operationalToolExpansion, false);
+});
+
 test("checkCapabilities passes for consistent generated config", () => {
   const caps = effectiveCapabilities(MODEL, { piPackages: PI_PACKAGES });
   const generated = {

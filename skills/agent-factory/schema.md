@@ -140,6 +140,14 @@ path/key and the expected value. Rejected conditions:
 - duplicate `name` within `agents[]`, `skills[]`, `integrations.mcp[]`, or
   `workflows[]`.
 
+The skill name `factory-update` is reserved for bundled maintenance infrastructure
+and cannot be declared in `skills[]`. Operational model edits use the structured
+operations in [Factory maintenance](../../docs/factory-update.md); that layer
+reuses this validator and rejects dangling references. Maintenance installation
+identity, versions and update sources belong in `.factory/installation.json`,
+never in this operational model. An explicit empty orchestrator `tools: []`
+remains an empty allowlist; omitted tools use Pi defaults.
+
 ## 3. Migration path
 
 `migrate(doc)` returns a new document (never mutating the input) at the current
@@ -184,6 +192,14 @@ Full text of `docs/agent-factory.md` §C.6 (generalizing
    planned diff and write nothing; the builder always previews before applying.
 6. **Idempotence:** `generate`/`modify` are pure functions of (model, disk) —
    same inputs produce the same result and never duplicate content.
+
+Maintenance front doors (`.pi/extensions/factory-update/index.ts` and
+`.pi/skills/factory-update/SKILL.md`) are reserved infrastructure outside authored
+operational skill ownership. Versioned engines and exact YAML dependency pins are
+bundled beneath `.factory/runtime/`; they do not import global pi-config. Upgrades
+switch installation metadata, not operational declarations/content. Maintenance
+change proposals delete removed agent/skill scaffolds only when intact, reject
+authored conflicts, and require separately confirmed drift reconciliation.
 
 `system.yaml` is parsed with the **`yaml`** package (v2.8.3), pinned in
 `pi.packages` and resolved from the Pi package install dir by

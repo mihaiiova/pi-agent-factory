@@ -56,14 +56,14 @@ node "$factory" validate "$work" >/dev/null 2>&1 || fail "generated project did 
 pass "builder flow: discover → design → preview → apply → validate"
 
 # ── gated headless smoke (pi/model-gated) ────────────────────────
-if command -v pi >/dev/null 2>&1; then
-  if out="$(cd "$work" && timeout 60 pi -p "describe yourself" 2>&1)"; then
+if [[ "${RUN_FACTORY_LIVE_TESTS:-0}" == 1 ]] && command -v pi >/dev/null 2>&1; then
+  if out="$(cd "$work" && timeout 60 ./run --approve -p "describe yourself" 2>&1)"; then
     pass "behavioral: pi -p ran on the generated project"
   else
     echo "ok - behavioral: pi -p SKIPPED (offline/model-gated)"
   fi
 else
-  echo "ok - behavioral: pi -p SKIPPED (pi not on PATH)"
+  echo "ok - behavioral: pi -p SKIPPED (requires RUN_FACTORY_LIVE_TESTS=1, pi and provider access)"
 fi
 
 echo
