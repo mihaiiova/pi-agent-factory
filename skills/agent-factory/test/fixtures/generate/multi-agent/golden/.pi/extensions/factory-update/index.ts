@@ -6,7 +6,7 @@ import { Type } from 'typebox';
 export default async function(pi) {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
   const installation = JSON.parse(readFileSync(join(root, '.factory/installation.json'), 'utf8'));
-  if (installation.source !== 'mihaiiova/pi-config' || !/^runtime\/[a-f0-9-]+$/.test(installation.runtime)) throw new Error('Invalid Factory installation');
+  if (installation.source !== 'mihaiiova/pi-agent-factory' || !/^runtime\/[a-f0-9-]+$/.test(installation.runtime)) throw new Error('Invalid Factory installation');
   const base = join(root, '.factory', installation.runtime);
   const hash = text => createHash('sha256').update(text).digest('hex');
   const hashes = JSON.parse(readFileSync(join(base, 'bundle.json'), 'utf8'));

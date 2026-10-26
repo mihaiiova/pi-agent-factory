@@ -1,4 +1,4 @@
-# pi-config — Agent Factory
+# pi-agent-factory
 
 This repository is becoming the **Agent Factory**: a conversational builder that
 defines a standalone, project-local Pi agent system from zero — its orchestrator,
@@ -96,8 +96,8 @@ bash skills/agent-factory/test/test.sh
 ## Install
 
 ```sh
-git clone https://github.com/mihaiiova/pi-config.git /path/to/pi-config
-pi install /path/to/pi-config
+git clone https://github.com/mihaiiova/pi-agent-factory.git /path/to/pi-agent-factory
+pi install /path/to/pi-agent-factory
 ```
 
 `/agent-factory` is then available in any Pi session. The factory pins only what
@@ -117,7 +117,8 @@ To move a machine over, install it next to this repository, then pull this one:
 ```sh
 git clone https://github.com/mihaiiova/pi-personal.git /path/to/pi-personal
 pi install /path/to/pi-personal
-cd /path/to/pi-config && git pull
+ln -sfn /path/to/pi-personal/AGENTS.md ~/.pi/agent/AGENTS.md   # global instructions moved too
+cd /path/to/pi-agent-factory && git remote set-url origin https://github.com/mihaiiova/pi-agent-factory.git && git pull
 ```
 
 Then `/reload`. `/pi-sync` now syncs `pi-personal`; update this repository with

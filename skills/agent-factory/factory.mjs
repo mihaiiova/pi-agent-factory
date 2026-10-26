@@ -17,7 +17,7 @@
  *   1  invalid, missing, or unparseable system.yaml; or an unknown command
  *
  * Generated sessions use the narrow bundled maintenance adapter, not this
- * development CLI or the user's globally installed pi-config.
+ * development CLI or the user's globally installed Agent Factory.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, chmodSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";

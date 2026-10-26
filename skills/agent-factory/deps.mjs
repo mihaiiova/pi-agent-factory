@@ -6,7 +6,7 @@
  * A generated system is self-contained by declaration, not by wholesale
  * package inheritance. The runtime keeps only the two Pi runtime primitives it
  * needs — `pi-subagents` (subagent support) and `pi-mcp-adapter` (MCP support)
- * — plus whatever the model explicitly declares. pi-config's own dev-only
+ * — plus whatever the model explicitly declares. The factory's own dev-only
  * packages (web access, the YAML parser, question helpers) and any git pin are
  * never emitted; local-path and secret-shaped entries are rejected.
  */
@@ -55,7 +55,7 @@ function declaredSpecError(spec) {
 }
 
 /**
- * @param {string[]} [piPackages] pi-config's own `pi.packages` (`npm:<name>@<version>`).
+ * @param {string[]} [piPackages] the factory's own `pi.packages` (`npm:<name>@<version>`).
  * @param {string[]} [declared] the model's declared `packages` (npm:/git: specs).
  * @returns {{ packages: string[], errors: string[] }} primitives first, then declared;
  *   `errors` is non-empty when a required primitive is missing/unpinned or a
@@ -74,7 +74,7 @@ export function runtimePackages(piPackages, declared = []) {
   for (const name of RUNTIME_PRIMITIVES) {
     const entry = byName.get(name);
     if (!entry) {
-      errors.push(`required runtime dependency "${name}" is not present in pi-config's pi.packages`);
+      errors.push(`required runtime dependency "${name}" is not present in the factory's pi.packages`);
       continue;
     }
     const parsed = parseNpmSpec(entry);

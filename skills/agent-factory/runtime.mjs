@@ -53,7 +53,7 @@ export function launcherScript() {
 
 /**
  * @param {object} model the validated `system.yaml` document.
- * @param {object} [opts] `{ piPackages?: string[] }` — pi-config's `pi.packages`.
+ * @param {object} [opts] `{ piPackages?: string[] }` — the factory's `pi.packages`.
  * @returns {{ agentDir: string, packages: string[], launcherScript: string, warnings: string[], errors: string[] }}
  */
 export function buildRuntimePlan(model, opts = {}) {

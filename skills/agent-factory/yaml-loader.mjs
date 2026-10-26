@@ -1,9 +1,9 @@
 /**
  * yaml-loader — resolve the pinned `yaml` package from Pi's package install dir.
  *
- * pi-config is a Pi *package*, not an application: its npm dependencies live in
+ * The Agent Factory is a Pi *package*, not an application: its npm dependencies live in
  * the Pi package install dir (`~/.pi/agent/npm/node_modules`), not in the
- * pi-config clone. `loadYaml` resolves `yaml` from there via `createRequire`
+ * Agent Factory clone. `loadYaml` resolves `yaml` from there via `createRequire`
  * (the same `~/.pi/agent/` convention `extensions/pi-sync` already uses for
  * `~/.pi/agent/settings.json`), with an actionable error when it is absent.
  */
@@ -30,7 +30,7 @@ export function loadYaml() {
     try { return local(bundled); }
     catch { throw new Error('Bundled yaml dependency is missing; restore maintenance installation'); }
   }
-  try { return local("yaml"); } catch { /* main pi-config installation */ }
+  try { return local("yaml"); } catch { /* main Agent Factory installation */ }
   const require = createRequire(resolve(PI_NPM_DIR, "package.json"));
   try {
     return require("yaml");
