@@ -124,7 +124,13 @@ export function bootstrapPlan(root, bundle = localBundle()) {
   const desiredLauncher = launcherScript();
   const oldLauncher = desiredLauncher.replace('exec pi --no-context-files', 'exec pi');
   const historicalComment = text => text.replace('# context (`./run`, then `/login`)', '# context (`pi --login`)');
-  const knownLaunchers = [desiredLauncher, oldLauncher, historicalComment(desiredLauncher), historicalComment(oldLauncher)];
+  const historicalTuiComment = text => text.replace(
+    '# context (`./run`, then `/login`), or export PI_API_KEY / a provider-specific key.',
+    '# context (`/login` inside the TUI), or export DEEPSEEK_API_KEY / pass --api-key.',
+  );
+  // Exact historical templates only: comment-only variants are recognized,
+  // but customized environment exports, flags and commands remain conflicts.
+  const knownLaunchers = [desiredLauncher, oldLauncher, historicalComment(desiredLauncher), historicalComment(oldLauncher), historicalTuiComment(desiredLauncher), historicalTuiComment(oldLauncher)];
   if (launcher !== null && !knownLaunchers.includes(launcher)) throw new Error('Authored launcher conflict: inspect run before bootstrapping');
   writes.run = desiredLauncher;
   const model = loadYaml().parse(text);

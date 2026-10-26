@@ -117,6 +117,27 @@ test('legacy bootstrap is previewable, approval-gated, additive and conflict-saf
   assert.throws(() => bootstrapPlan(other, bundle), /conflict/);
 });
 
+test('bootstrap recognizes the historical TUI login-comment launcher without accepting executable edits', t => {
+  const legacy = readFileSync(join(here, 'fixtures/legacy-tui-launcher.sh'), 'utf8');
+  for (const text of [legacy, legacy.replace('exec pi "$@"', 'exec pi --no-context-files "$@"')]) {
+    const root = project(t, { legacy: true });
+    writeFileSync(join(root, 'run'), text);
+    const before = snapshot(root);
+    const plan = bootstrapPlan(root, bundle);
+    assert.deepEqual(snapshot(root), before, 'preview never rewrites the historical launcher');
+    assert.match(plan.writes.run, /exec pi --no-context-files/);
+    applyBootstrap(root, plan, true);
+    assert.equal(readJson(root, '.factory/installation.json').source, 'mihaiiova/pi-config');
+  }
+  for (const edited of [legacy.replace('exec pi "$@"', 'exec pi --tools bash "$@"'), legacy.replace('exec pi "$@"', 'export PRIVATE_FLAG=custom\nexec pi "$@"')]) {
+    const root = project(t, { legacy: true });
+    writeFileSync(join(root, 'run'), edited);
+    const before = snapshot(root);
+    assert.throws(() => bootstrapPlan(root, bundle), /Authored launcher conflict/);
+    assert.deepEqual(snapshot(root), before, 'custom executable changes remain protected');
+  }
+});
+
 test('structured changes preserve comments, add/update/remove all schema entities and reconcile capabilities', t => {
   const root = project(t);
   const operations = [
