@@ -9,6 +9,7 @@
  * the launcher content into the generated `run` file.
  */
 import { runtimePackages } from "./deps.mjs";
+import { declaredPackages } from "./skill-sources.mjs";
 
 /** Project-relative isolated Pi config directory. */
 export const AGENT_DIR = ".factory/pi-home";
@@ -51,13 +52,13 @@ export function launcherScript() {
 }
 
 /**
- * @param {object} model the migrated, validated `system.yaml` document.
+ * @param {object} model the validated `system.yaml` document.
  * @param {object} [opts] `{ piPackages?: string[] }` — pi-config's `pi.packages`.
  * @returns {{ agentDir: string, packages: string[], launcherScript: string, warnings: string[], errors: string[] }}
  */
 export function buildRuntimePlan(model, opts = {}) {
   const piPackages = opts?.piPackages;
-  const declared = model?.packages;
+  const declared = declaredPackages(model);
   const { packages, errors } = runtimePackages(piPackages, declared);
 
   return {

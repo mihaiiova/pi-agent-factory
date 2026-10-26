@@ -3,7 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 factory="$root/skills/agent-factory/factory.mjs"
-templates="$root/skills/agent-factory/templates"
+fixtures="$root/skills/agent-factory/test/fixtures"
 
 pass() { echo "ok - $1"; }
 fail() { echo "not ok - $1" >&2; exit 1; }
@@ -15,38 +15,47 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/.pi"
 cat > "$work/.pi/settings.json" <<'JSON'
 {
-  "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.6-terra",
+  "defaultProvider": "provider-a",
+  "defaultModel": "model-large",
   "defaultThinkingLevel": "medium",
   "defaultTools": ["read", "grep", "find", "ls", "bash", "edit", "write", "subagent"],
-  "subagents": {
-    "agentOverrides": {
-      "oracle": { "model": "openai-codex/gpt-5.6-terra" },
-      "reviewer": { "model": "deepseek/deepseek-v4-flash" },
-      "scout": { "model": "deepseek/deepseek-v4-flash" },
-      "worker": { "model": "deepseek/deepseek-v4-pro" }
-    }
-  },
   "spec": { "baseBranch": "development" }
 }
 JSON
-cat > "$work/.pi/pi-config.json" <<'JSON'
-{
-  "tiers": {
-    "high": { "model": "openai-codex/gpt-5.6-terra", "thinking": "medium" },
-    "medium": { "model": "deepseek/deepseek-v4-pro", "thinking": "high" },
-    "small": { "model": "deepseek/deepseek-v4-flash", "thinking": "high" }
-  },
-  "parentTier": "high",
-  "subagentTiers": { "worker": "medium", "scout": "small", "reviewer": "small", "oracle": "high" }
-}
-JSON
-touch "$work/.pi/settings.json" # ensure mtime exists; content written above
+mkdir -p "$work/.pi/agents" "$work/.pi/skills/house-style"
+cat > "$work/.pi/agents/scout.md" <<'MD'
+---
+name: scout
+description: Read-only discovery
+tools: read, grep
+model: provider-b/model-small
+thinking: low
+skills: house-style
+---
+Investigate.
+MD
+cat > "$work/.pi/skills/house-style/SKILL.md" <<'MD'
+---
+name: house-style
+description: Write plainly
+---
+Write plainly.
+MD
 
 node "$factory" import "$work" >"$work/import.log" 2>"$work/import.err" || fail "import should exit 0"
 [[ -f "$work/.pi/system.yaml" ]] || fail "import did not write .pi/system.yaml"
 grep -q "spec" "$work/import.err" || fail "import report did not flag the spec block"
 node "$factory" validate "$work" >/dev/null || fail "imported system.yaml does not validate"
+node --input-type=module -e "
+  import { loadYaml } from '$root/skills/agent-factory/yaml-loader.mjs';
+  import { readFileSync } from 'node:fs';
+  const doc = loadYaml().parse(readFileSync(process.argv[1], 'utf-8'));
+  const scout = doc.agents.find((a) => a.name === 'scout');
+  if (doc.orchestrator.model !== 'provider-a/model-large') process.exit(1);
+  if (scout.model !== 'provider-b/model-small' || scout.thinking !== 'low' || scout.skills[0] !== 'house-style') process.exit(1);
+  if (doc.skills[0].source !== './.pi/skills/house-style') process.exit(1);
+  if ('workflows' in doc || 'models' in doc) process.exit(1);
+" "$work/.pi/system.yaml" || fail "import did not carry over per-agent models and skills"
 pass "factory import reconstructs a valid system.yaml and reports flags"
 
 # ── import never overwrites an existing system.yaml ────────────
@@ -57,7 +66,7 @@ pass "factory import refuses to overwrite an existing system.yaml"
 
 # ── clean-environment (deterministic): pinned packages ─────────
 gen="$(mktemp -d)"
-cp -r "$templates/coding-agent/.pi" "$gen/.pi"
+cp -r "$fixtures/coding-agent/.pi" "$gen/.pi"
 node "$factory" generate "$gen" >/dev/null
 node -e '
 const s = require(process.argv[1]);
@@ -77,7 +86,7 @@ pass "clean-env: generated settings.json declares only the runtime primitives"
 # packages assertion above.
 if command -v pi >/dev/null 2>&1 && [[ -n "${RUN_CLEAN_ENV_TEST:-}" ]]; then
   iso="$(mktemp -d)"
-  cp -r "$templates/coding-agent/.pi" "$iso/.pi"
+  cp -r "$fixtures/coding-agent/.pi" "$iso/.pi"
   node "$factory" generate "$iso" >/dev/null
   if out="$(cd "$iso" && timeout 90 pi -p "describe yourself" 2>&1)"; then
     pass "clean-env: generated coding-agent runs headlessly in an isolated dir"

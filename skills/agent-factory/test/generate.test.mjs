@@ -40,18 +40,13 @@ test("fresh generate creates the full single-agent tree", () => {
   }
 
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.equal(settings.defaultProvider, "openai-codex");
-  assert.equal(settings.defaultModel, "gpt-5.6-terra");
+  assert.equal(settings.defaultProvider, "provider-a");
+  assert.equal(settings.defaultModel, "model-large");
   assert.equal(settings.defaultThinkingLevel, "medium");
   assert.deepEqual(settings.defaultTools, [
     "read", "grep", "find", "ls", "bash", "edit", "write", "subagent",
   ]);
-  assert.deepEqual(settings.subagents.agentOverrides, {
-    oracle: { model: "openai-codex/gpt-5.6-terra" },
-    reviewer: { model: "deepseek/deepseek-v4-flash" },
-    scout: { model: "deepseek/deepseek-v4-flash" },
-    worker: { model: "deepseek/deepseek-v4-pro" },
-  });
+  assert.equal(settings.subagents, undefined, "no routing overrides: agents carry their own models");
 
   const mcp = JSON.parse(byPath(files, ".pi/mcp.json").content);
   assert.deepEqual(mcp, { mcpServers: {} });
@@ -69,28 +64,65 @@ test("re-running generate is a no-op (idempotent)", () => {
 
 test("unrelated keys in .pi/settings.json survive regeneration", () => {
   const existing = {
-    ".pi/settings.json": JSON.stringify({ theme: "dark", defaultModel: "old/model" }),
+    ".pi/settings.json": JSON.stringify({
+      theme: "dark",
+      defaultModel: "old/model",
+      subagents: { agentOverrides: { worker: { model: "old/model" } }, maxDepth: 2 },
+    }),
   };
 
   const { files } = generateProject(model, existing);
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
 
   assert.equal(settings.theme, "dark", "unrelated key preserved");
-  assert.equal(settings.defaultModel, "gpt-5.6-terra", "model-owned key overwritten");
+  assert.equal(settings.defaultModel, "model-large", "model-owned key overwritten");
+  assert.deepEqual(settings.subagents, { maxDepth: 2 }, "stale routing overrides dropped, other subagent settings kept");
 });
 
-test("orchestrator.model tier is authoritative for the primary session", () => {
+test("orchestrator.model and thinking drive the primary session", () => {
   const changed = {
     ...model,
-    orchestrator: { ...model.orchestrator, model: "small" },
+    orchestrator: { ...model.orchestrator, model: "openrouter/anthropic/some-model", thinking: "low" },
   };
 
   const { files } = generateProject(changed, {});
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
 
-  assert.equal(settings.defaultProvider, "deepseek");
-  assert.equal(settings.defaultModel, "deepseek-v4-flash");
+  assert.equal(settings.defaultProvider, "openrouter");
+  assert.equal(settings.defaultModel, "anthropic/some-model");
   assert.equal(settings.defaultThinkingLevel, "low");
+
+  const { thinking, ...noThinking } = changed.orchestrator;
+  const plain = JSON.parse(byPath(generateProject({ ...model, orchestrator: noThinking }, {}).files, ".pi/settings.json").content);
+  assert.equal(plain.defaultThinkingLevel, undefined, "thinking omitted when undeclared");
+});
+
+test("each agent's own model, thinking and skills land in its frontmatter", () => {
+  const withAgent = {
+    ...model,
+    agents: [{ name: "helper", model: "provider-b/model-small", thinking: "high", skills: ["notes"], tools: ["read"] }],
+    skills: [{ name: "notes", body: "# Notes" }],
+  };
+  const agent = byPath(generateProject(withAgent, {}).files, ".pi/agents/helper.md").content;
+  assert.match(agent, /^model: provider-b\/model-small$/m);
+  assert.match(agent, /^thinking: high$/m);
+  assert.match(agent, /^skills: \[notes\]$/m);
+});
+
+test("sourced skills generate no SKILL.md and packaged sources join runtime packages", () => {
+  const sourced = {
+    ...model,
+    skills: [
+      { name: "packaged", source: "npm:@acme/skills@1.0.0" },
+      { name: "local", source: "./vendor/local" },
+    ],
+  };
+  const { files } = generateProject(sourced, {}, {
+    piPackages: ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"],
+  });
+  assert.ok(!files.some((f) => f.path.startsWith(".pi/skills/packaged") || f.path.startsWith(".pi/skills/local")));
+  const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
+  assert.deepEqual(settings.packages, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1", "npm:@acme/skills@1.0.0"]);
 });
 
 test("unrelated keys in .pi/mcp.json survive regeneration", () => {

@@ -20,25 +20,20 @@ cat > "$work/.pi/system.yaml" <<'YAML'
 schema: 1
 name: seo-agent-system
 description: "SEO analysis + article drafting"
-models:
-  tiers:
-    high: { model: openai-codex/gpt-5.6-terra, thinking: medium }
-    medium: { model: deepseek/deepseek-v4-pro, thinking: high }
-    small: { model: deepseek/deepseek-v4-flash, thinking: low }
-  parentTier: high
-  subagents: { worker: medium, scout: small, reviewer: small, oracle: high }
 orchestrator:
   name: orchestrator
   description: "Primary SEO agent"
   prompt: |
     You coordinate the SEO system.
-  model: high
+  model: provider-a/model-large
+  thinking: medium
   tools: [read, grep, find, ls, bash, edit, write, subagent]
 agents:
   - name: seo-analyst
     description: "Analyzes SEO data"
     tools: [read, grep]
-    model: small
+    model: provider-b/model-small
+    thinking: low
     prompt: |
       Analyze SEO data.
 YAML

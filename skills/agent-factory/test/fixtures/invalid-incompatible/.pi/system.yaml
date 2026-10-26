@@ -1,18 +1,14 @@
 schema: 1
 name: incompatible-system
-models:
-  tiers:
-    high: { model: openai-codex/gpt-5.6-terra, thinking: medium }
-    small: { model: deepseek/deepseek-v4-flash, thinking: high }
-  parentTier: high
-  subagents: { scout: small }
 orchestrator:
   name: orchestrator
-  model: high
+  model: provider-a/model-large
+  thinking: medium
   tools: [read, bash]
 agents:
   - name: seo-analyst
-    model: small
+    model: provider-b/model-small
+    thinking: high
     tools: [read]
 integrations:
   mcp:

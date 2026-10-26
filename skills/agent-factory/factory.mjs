@@ -3,7 +3,7 @@
  * factory — the deterministic Agent Factory CLI (Node ESM).
  *
  * Commands:
- *   validate <dir>             parse + migrate + validate <dir>/.pi/system.yaml
+ *   validate <dir>             parse + validate <dir>/.pi/system.yaml
  *   generate <dir> [--dry-run] materialize a Pi project from system.yaml
  *   discover [dir]             print a read-only capability inventory as JSON
  *   modify <dir> [--dry-run] [--yes]  diff project vs model, apply confirmed changes
@@ -19,13 +19,13 @@
  * Generated sessions use the narrow bundled maintenance adapter, not this
  * development CLI or the user's globally installed pi-config.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, chmodSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, chmodSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import { join, resolve, dirname, basename } from "node:path";
+import { join, resolve, dirname, basename, relative } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parseSystem } from "./parse.mjs";
-import { migrate } from "./migrate.mjs";
 import { validateSystem } from "./validate.mjs";
 import { generateProject, managedPaths } from "./generate.mjs";
 import { modifyPlan } from "./modify.mjs";
@@ -34,19 +34,14 @@ import { indent, diffLines } from "./diff.mjs";
 import { parseMcpFile, probeClis, scanSkills } from "./discover.mjs";
 import { loadYaml } from "./yaml-loader.mjs";
 import { importSystem } from "./import.mjs";
+import { parseModelList, unavailableModelWarnings } from "./models.mjs";
+import { vendoredSkills } from "./skill-sources.mjs";
 import { localBundle, bootstrapPlan, applyBootstrap } from './maintenance-bundle.mjs';
 import { planChange, applyChange } from './maintenance.mjs';
 import { recoveryPlan, applyRecovery } from './maintenance-store.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CURATED_CLIS = ["gh", "wrangler", "railway", "stripe", "npx", "git", "node"];
-const KNOWN_INTEGRATION_SKILLS = [
-  "use-railway",
-  "cloudflare",
-  "stripe-best-practices",
-  "turnstile-spin",
-  "owlie",
-];
 
 const USAGE = `Usage: factory <command> [options]
 
@@ -63,7 +58,7 @@ Commands:
   change <dir> --operations <json-file> [--dry-run] [--yes]
                              validate/preview a structured system.yaml change
   import <dir>               reconstruct <dir>/.pi/system.yaml from an existing
-                             pi-config project (settings + pi-config + detected)
+                             Pi project (settings + detected agents/skills/MCP)
 
 Exit codes:
   0  valid / generated / discovered / modified / imported
@@ -92,7 +87,7 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-/** Read, parse, migrate, and validate the model at `<dir>/.pi/system.yaml`. */
+/** Read, parse, and validate the model at `<dir>/.pi/system.yaml`. */
 function loadModel(dir) {
   const systemPath = join(resolve(dir), ".pi", "system.yaml");
 
@@ -110,10 +105,93 @@ function loadModel(dir) {
     return { systemPath, error: `failed to parse ${systemPath}: ${err.message}` };
   }
 
-  const needsMigration = isObject(doc) && (doc.schema === 0 || doc.schema === undefined);
-  const normalized = needsMigration ? migrate(doc) : doc;
-  const { ok, errors } = validateSystem(normalized);
-  return { systemPath, normalized, ok, errors };
+  const { ok, errors } = validateSystem(doc);
+  return { systemPath, normalized: doc, ok, errors };
+}
+
+/** The machine's Pi model line-up (`provider/id`), or [] when unavailable. */
+function modelCatalog() {
+  try {
+    const out = execFileSync("pi", ["--list-models"], {
+      encoding: "utf-8", timeout: 30000, stdio: ["ignore", "pipe", "ignore"],
+    });
+    return parseModelList(out);
+  } catch {
+    return [];
+  }
+}
+
+function warnUnavailableModels(model) {
+  printWarnings(unavailableModelWarnings(model, modelCatalog()));
+}
+
+function expandHome(path) {
+  return path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
+}
+
+/** Read a skill directory as binary-safe files; symlinks are refused. */
+function readSkillDir(root, prefix = "") {
+  const files = {};
+  for (const entry of readdirSync(join(root, prefix), { withFileTypes: true })) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isSymbolicLink()) throw new Error(`symlink ${rel} is not allowed`);
+    if (entry.isDirectory()) Object.assign(files, readSkillDir(root, rel));
+    else if (entry.isFile()) {
+      const path = join(root, rel);
+      files[rel] = { content: readFileSync(path), executable: (statSync(path).mode & 0o111) !== 0 };
+    }
+  }
+  return files;
+}
+
+/**
+ * Plan copies of user-supplied skill directories into `.pi/skills/<name>/`.
+ * A copy is made once: an existing project copy is never overwritten.
+ */
+function vendorPlan(dir, model) {
+  const root = resolve(dir);
+  const copies = [];
+  const errors = [];
+  for (const skill of vendoredSkills(model)) {
+    const dest = `.pi/skills/${skill.name}`;
+    if (existsSync(join(root, dest))) continue;
+    const from = resolve(root, expandHome(skill.source));
+    const skillFile = join(from, "SKILL.md");
+    if (!existsSync(skillFile)) {
+      errors.push(`skill "${skill.name}" source ${skill.source} has no SKILL.md (resolved ${from})`);
+      continue;
+    }
+    const declaredName = scanSkills({ [skillFile]: readFileSync(skillFile, "utf-8") })[0]?.name;
+    if (declaredName !== skill.name) {
+      errors.push(`skill "${skill.name}" source ${skill.source} declares name "${declaredName}"; the names must match`);
+      continue;
+    }
+    try {
+      copies.push({ name: skill.name, source: skill.source, dest, files: readSkillDir(from) });
+    } catch (err) {
+      errors.push(`skill "${skill.name}" source ${skill.source}: ${err.message}`);
+    }
+  }
+  return { copies, errors };
+}
+
+function printVendorPlan(copies) {
+  for (const copy of copies) {
+    const count = Object.keys(copy.files).length;
+    console.log(`  ${pad("vendor")} ${copy.dest}/ (${count} file${count === 1 ? "" : "s"} from ${copy.source})`);
+  }
+}
+
+function applyVendorPlan(dir, copies) {
+  for (const copy of copies) {
+    for (const [rel, file] of Object.entries(copy.files)) {
+      const target = join(resolve(dir), copy.dest, rel);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, file.content);
+      if (file.executable) chmodSync(target, 0o755);
+    }
+    console.log(`vendored ${copy.dest}/ from ${copy.source}`);
+  }
 }
 
 function readExisting(dir, model) {
@@ -132,13 +210,14 @@ function readExisting(dir, model) {
 }
 
 function runValidate(dir) {
-  const { systemPath, error, ok, errors } = loadModel(dir);
+  const { systemPath, error, normalized, ok, errors } = loadModel(dir);
   if (error) {
     fail(error);
     return;
   }
   if (ok) {
     console.log(`ok - ${systemPath} is a valid system.yaml (schema v1)`);
+    warnUnavailableModels(normalized);
     process.exitCode = 0;
   } else {
     for (const e of errors) console.error(`error - ${e}`);
@@ -202,6 +281,10 @@ function detectAgents(dir) {
       description: typeof fm.description === "string" ? fm.description : "",
       tools: Array.isArray(fm.tools) ? fm.tools : [],
       model: typeof fm.model === "string" ? fm.model : "",
+      thinking: typeof fm.thinking === "string" ? fm.thinking : "",
+      skills: Array.isArray(fm.skills)
+        ? fm.skills
+        : typeof fm.skills === "string" ? fm.skills.split(",").map((s) => s.trim()).filter(Boolean) : [],
       prompt: typeof fm.systemPrompt === "string" ? fm.systemPrompt : body,
     });
   }
@@ -213,7 +296,9 @@ function detectSkills(dir) {
   for (const path of listFiles(join(dir, ".pi", "skills"), (name) => name === "SKILL.md")) {
     try { skillFiles[path] = readFileSync(path, "utf-8"); } catch { /* unreadable */ }
   }
-  return scanSkills(skillFiles).filter(skill => skill.name !== 'factory-update');
+  return scanSkills(skillFiles)
+    .filter(skill => skill.name !== 'factory-update')
+    .map(skill => ({ ...skill, source: `./${relative(resolve(dir), skill.dir)}` }));
 }
 
 function writeGenerated(targetPath, file) {
@@ -244,9 +329,9 @@ function runDiscover(dir) {
     Object.assign(mcpServers, readMcpFile(path));
   }
 
+  // Only the user's own skills are candidates; the factory ships none.
   const skillFiles = {};
   for (const dir of [
-    join(REPO_ROOT, "skills"),
     join(homedir(), ".pi", "agent", "skills"),
     join(target, ".pi", "skills"),
   ]) {
@@ -275,7 +360,7 @@ function runDiscover(dir) {
     mcpServers,
     clis: probeClis(CURATED_CLIS),
     subagents,
-    knownIntegrations: KNOWN_INTEGRATION_SKILLS,
+    models: modelCatalog(),
   };
 
   process.stdout.write(`${JSON.stringify(inventory, null, 2)}\n`);
@@ -319,8 +404,10 @@ function runGenerate(dir, dryRun) {
 
   const existing = readExisting(dir, normalized);
   const { files, warnings, errors: depErrors } = generateProject(normalized, existing, { piPackages: readPiPackages() });
-  if (failOnErrors(depErrors)) return;
+  const vendor = vendorPlan(dir, normalized);
+  if (failOnErrors([...depErrors, ...vendor.errors])) return;
   printWarnings(warnings);
+  warnUnavailableModels(normalized);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
   const conflicts = files.filter((f) => f.action === "conflict");
   const bundle = existsSync(join(resolve(dir), '.factory/installation.json')) ? null : localBundle();
@@ -328,6 +415,7 @@ function runGenerate(dir, dryRun) {
 
   if (dryRun) {
     printPlan(systemPath, dir, files, existing, "Planned changes (dry run — nothing written)");
+    printVendorPlan(vendor.copies);
     if (bundle) console.log(`  bundle standalone Factory maintenance (${bundle.installation.version}, ${bundle.installation.revision})`);
     process.exitCode = 0;
     return;
@@ -338,6 +426,7 @@ function runGenerate(dir, dryRun) {
     writeGenerated(target, f);
     console.log(`wrote ${f.path} (${f.action})`);
   }
+  applyVendorPlan(dir, vendor.copies);
   mkdirSync(join(resolve(dir), ".pi", "agents"), { recursive: true });
 
   // Write the deterministic effective-capability manifest and verify the
@@ -362,18 +451,13 @@ function runGenerate(dir, dryRun) {
 function runImport(dir) {
   const target = resolve(dir);
   const settingsPath = join(target, ".pi", "settings.json");
-  const piConfigPath = join(target, ".pi", "pi-config.json");
 
   let settings;
-  let piConfig;
   if (existsSync(settingsPath)) {
     try { settings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { fail(`unreadable ${settingsPath}`); return; }
   }
-  if (existsSync(piConfigPath)) {
-    try { piConfig = JSON.parse(readFileSync(piConfigPath, "utf-8")); } catch { fail(`unreadable ${piConfigPath}`); return; }
-  }
-  if (!settings && !piConfig) {
-    fail(`no readable .pi/settings.json or .pi/pi-config.json at ${target}`);
+  if (!settings) {
+    fail(`no readable .pi/settings.json at ${target}`);
     return;
   }
 
@@ -384,7 +468,7 @@ function runImport(dir) {
     mcpServers: readMcpFile(join(target, ".pi", "mcp.json")),
   };
 
-  const { system, report } = importSystem(settings, piConfig, detected);
+  const { system, report } = importSystem(settings, detected);
 
   // Fail before writing anything if runtime dependencies cannot be resolved.
   if (failOnErrors(generateProject(system, {}, { piPackages: readPiPackages() }).errors)) return;
@@ -442,14 +526,17 @@ async function runModify(dir, dryRun, yes) {
 
   const existing = readExisting(dir, normalized);
   const { files, conflicts, warnings, errors: depErrors } = modifyPlan(normalized, existing, { piPackages: readPiPackages() });
-  if (failOnErrors(depErrors)) return;
+  const vendor = vendorPlan(dir, normalized);
+  if (failOnErrors([...depErrors, ...vendor.errors])) return;
   printWarnings(warnings);
+  warnUnavailableModels(normalized);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
 
   // Always preview the full planned diff before touching anything.
   printPlan(systemPath, dir, files, existing, dryRun
     ? "Planned changes (dry run — nothing written)"
     : "Preview of changes to apply");
+  printVendorPlan(vendor.copies);
 
   if (dryRun) {
     process.exitCode = 0;
@@ -470,12 +557,18 @@ async function runModify(dir, dryRun, yes) {
 
   if (yes) {
     for (const f of changes) apply(f);
+    applyVendorPlan(dir, vendor.copies);
   } else {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     for (const f of changes) {
       const answer = await new Promise(resolve => rl.question(`Apply ${f.path}? [y/N] `, resolve));
       if (/^y(es)?$/i.test(answer.trim())) apply(f);
       else console.log(`skipped ${f.path}`);
+    }
+    for (const copy of vendor.copies) {
+      const answer = await new Promise(resolve => rl.question(`Vendor ${copy.dest}/ from ${copy.source}? [y/N] `, resolve));
+      if (/^y(es)?$/i.test(answer.trim())) applyVendorPlan(dir, [copy]);
+      else console.log(`skipped ${copy.dest}/`);
     }
     rl.close();
   }

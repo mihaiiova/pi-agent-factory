@@ -16,6 +16,7 @@ export const SOURCE = 'mihaiiova/pi-config';
 export const CHANNEL = 'development';
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const SHA = /^[a-f0-9]{40}$/;
+const LEGACY_SETTINGS_GENERATOR = 'extensions/pi-config/generate-settings.mjs';
 export function validateIdentity(meta) {
   if (meta?.source !== SOURCE || !(meta.channel === CHANNEL || /^tags\/v[0-9]+\.[0-9]+\.[0-9]+$/.test(meta.channel))) throw new Error('Untrusted Factory source/channel; reconfigure only through a reviewed bootstrap');
   if (!SHA.test(meta.revision) || typeof meta.version !== 'string' || !/^[0-9A-Za-z.+-]{1,80}$/.test(meta.version)) throw new Error('Invalid Factory revision/version');
@@ -41,7 +42,9 @@ function walk(dir, prefix = '') {
 export function validateManifest(manifest) {
   if (manifest?.protocol !== 1 || !Array.isArray(manifest.schemas) || !Array.isArray(manifest.files) || !manifest.files.length || manifest.files.length > 100) throw new Error('Unsupported maintenance protocol');
   for (const p of manifest.files) {
-    if (!(p === 'extensions/pi-config/generate-settings.mjs' || /^skills\/agent-factory\/[a-z0-9-]+\.(mjs|md)$/.test(p))) throw new Error(`Unsafe bundle source path: ${p}`);
+    // Published revisions before per-agent models also bundled the tier settings
+    // generator; their manifests must still validate for checks and rollback.
+    if (!(p === LEGACY_SETTINGS_GENERATOR || /^skills\/agent-factory\/[a-z0-9-]+\.(mjs|md)$/.test(p))) throw new Error(`Unsafe bundle source path: ${p}`);
   }
   for (const required of ['maintenance-extension.mjs', 'maintenance-smoke.mjs', 'maintenance-bundle.mjs', 'maintenance-updates.mjs']) {
     if (!manifest.files.includes(`skills/agent-factory/${required}`)) throw new Error(`Missing ${required}`);
@@ -83,7 +86,7 @@ export function localBundle(repo = REPO) {
   const version = JSON.parse(readSource('package.json')).version;
   // The source digest makes development snapshots reproducible without claiming
   // that uncommitted maintenance code was contained in HEAD.
-  const dirty = !!execFileSync('git', ['-C', repo, 'status', '--porcelain', '--', 'skills/agent-factory', 'extensions/pi-config/generate-settings.mjs', 'package.json'], { encoding: 'utf8' }).trim();
+  const dirty = !!execFileSync('git', ['-C', repo, 'status', '--porcelain', '--', 'skills/agent-factory', 'package.json'], { encoding: 'utf8' }).trim();
   return buildBundle(readSource, { source: SOURCE, channel: CHANNEL, revision, version, developmentSnapshot: dirty }, installedYamlDir());
 }
 export function verifyBundle(root, installation) {

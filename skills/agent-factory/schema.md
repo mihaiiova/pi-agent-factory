@@ -1,8 +1,8 @@
 # `system.yaml` schema (v1) + ownership contract
 
 This is the canonical reference for the Agent Factory's declarative system
-model. It is implemented and enforced by `parse.mjs`, `validate.mjs`, and
-`migrate.mjs`, surfaced through `factory validate <dir>`. The model lives at
+model. It is implemented and enforced by `parse.mjs` and `validate.mjs`, surfaced
+through `factory validate <dir>`. The model lives at
 `<dir>/.pi/system.yaml` and is the factory's source of truth for the generated
 project.
 
@@ -12,76 +12,76 @@ Top-level keys (all others rejected):
 
 | Key | Required | Type | Meaning |
 |---|---|---|---|
-| `schema` | yes | integer `1` | schema version (older versions migrate forward) |
+| `schema` | yes | integer `1` | schema version |
 | `name` | yes | kebab-case string | system/project name |
 | `description` | no | string | one-line summary |
-| `models` | no | object | model tiers + routing (→ `.pi/settings.json`) |
 | `orchestrator` | no | object | the primary Pi session (→ `.pi/APPEND_SYSTEM.md` + settings) |
 | `agents` | no | array | specialist subagents (→ `.pi/agents/*.md`) |
-| `skills` | no | array | skills incl. workflows (→ `.pi/skills/*/SKILL.md`) |
+| `skills` | no | array | authored, packaged or vendored skills (→ `.pi/skills/*/`) |
 | `integrations` | no | object | MCP servers + env requirements |
 | `workflows` | no | array | declared workflow boundaries (metadata only) |
 | `policies` | no | object | enforced + advisory policy |
-| `packages` | no | array of `npm:`/`git:` specs | additional runtime extension packages (primaries `pi-subagents`/`pi-mcp-adapter` are always included) |
+| `packages` | no | array of `npm:`/`git:` specs | additional runtime extension packages (primaries `pi-subagents`/`pi-mcp-adapter` are always included; packaged skill sources are added automatically) |
 
 The **orchestrator is a top-level block**, not an `agents[]` entry. Pi has no
 "primary agent" file: the primary session is shaped by `.pi/settings.json`
 (model + `defaultTools`) and `.pi/APPEND_SYSTEM.md` (instructions). `agents[]`
 holds specialist *subagents* only.
 
-### `models`
+### Models
+
+There are no model tiers and no default models. Every agent — the orchestrator
+and each subagent — names its own model, chosen from the machine's Pi line-up
+(`pi --list-models`, also reported by `factory discover` as `models`):
 
 ```yaml
-models:
-  tiers:                             # map tier-name → { model, thinking? }
-    high:   { model: openai-codex/gpt-5.6-terra, thinking: medium }
-    medium: { model: deepseek/deepseek-v4-pro, thinking: high }
-    small:  { model: deepseek/deepseek-v4-flash, thinking: low }
-  parentTier: high                   # a key of tiers
-  subagents:                         # subagent-name → tier-name
-    worker: medium
-    scout: small
-    reviewer: small
-    oracle: high
+orchestrator:
+  name: lead
+  model: provider/model-id      # required: "provider/id"
+  thinking: medium              # optional: off|minimal|low|medium|high|xhigh|max
+agents:
+  - name: researcher
+    model: other-provider/model-id
 ```
 
-Allowed keys: `tiers`, `parentTier`, `subagents`. Each tier's allowed keys are
-`model` (required non-empty string) and `thinking` (optional string). Tier names
-are arbitrary; `high`/`medium`/`small` is the pi-config convention.
-
-The `models` block maps to `extensions/pi-config/generate-settings.mjs`
-(`buildModelSettings`) **by a rename adapter, not a fork**. `buildModelSettings`
-reads the key `subagentTiers`, while this schema spells it `subagents`; the
-adapter is:
-
-```js
-buildModelSettings({
-  tiers: models.tiers,
-  parentTier: models.parentTier,
-  subagentTiers: models.subagents,
-});
-```
-
-`test/models-mapping.test.mjs` proves this mapping (including that a declared
-`worker: medium` overrides `buildModelSettings`'s `DEFAULT_SUBAGENT_TIERS`
-fallback of `worker: high`). `migrate.mjs` performs the same rename for v0
-(`models.subagentTiers` → `models.subagents`).
+Validation checks the `provider/id` shape and the thinking level, not
+availability: the catalog is machine-specific. `factory validate`, `generate`
+and `modify` warn about a model missing from the local line-up, without
+failing. The orchestrator's model becomes `defaultProvider`/`defaultModel`/
+`defaultThinkingLevel` in `.pi/settings.json`; a subagent's model and thinking
+level go into its own `.pi/agents/<name>.md` frontmatter. No routing overrides
+(`subagents.agentOverrides`) are emitted, and stale ones are removed.
 
 ### `orchestrator`
 
 Allowed keys: `name` (required string), `description`, `prompt`, `model`
-(required, a `models.tiers` key), `tools` (array of strings).
+(required `provider/id`), `thinking`, `tools` (array of strings).
 
 ### `agents[]`
 
 Allowed keys: `name` (required string), `description`, `tools` (array of
-strings), `model` (required, a `models.tiers` key), `prompt`. `tools:` is the
-subagent allowlist (an *enforced* policy). Duplicate `name`s are rejected.
+strings), `model` (required `provider/id`), `thinking`, `skills` (array of
+declared `skills[].name`), `prompt`, `inheritProjectContext`, `inheritSkills`.
+`tools:` is the subagent allowlist (an *enforced* policy). `skills:` selects the
+skills the subagent receives. Duplicate `name`s are rejected.
 
 ### `skills[]`
 
-Allowed keys: `name` (required string), `description`, `body`. A skill
-materializes to `.pi/skills/<name>/SKILL.md`. Duplicate `name`s are rejected.
+The factory ships no skills; every skill is one the user asks for or provides.
+Allowed keys: `name` (required string), `description`, and at most one of:
+
+- `body` — authored inline; materializes to `.pi/skills/<name>/SKILL.md`. A
+  skill with neither `body` nor `source` that a workflow names gets a generated
+  orchestration body.
+- `source: npm:<name>@<version>` or `git:<repo>@<ref>` — provided by a pinned
+  package, which joins the runtime `packages`. No local file is generated.
+- `source: ./path`, `../path`, `/abs/path` or `~/path` — a directory containing
+  `SKILL.md` whose frontmatter `name` matches. `factory generate`/`modify`
+  vendor it into `.pi/skills/<name>/` once (binary-safe, symlinks refused); an
+  existing project copy is never overwritten. Relative paths resolve from the
+  project directory.
+
+Duplicate `name`s are rejected.
 
 ### `integrations`
 
@@ -126,13 +126,15 @@ Allowed keys: `enforced` (array) and `advisory` (array of strings).
 path/key and the expected value. Rejected conditions:
 
 - non-object document;
-- `schema` missing or not `1` (older versions must be migrated first; newer or
-  unknown versions are rejected);
+- `schema` missing or not `1`;
 - `name` missing, empty, or not kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`);
 - unknown keys at any level (top level and every nested object, except the
   opaque MCP `config` object);
 - wrong types / missing required fields within each block;
-- unresolved references (tier, agent, skill, workflow, MCP names);
+- a missing or non-`provider/id` model, or an unknown thinking level;
+- unresolved references (agent, skill, workflow, MCP names, including
+  `agents[].skills`);
+- a skill declaring both `body` and `source`, or an unrecognized `source`;
 - malformed workflows (missing required fields, `agents`/`inputs`/`outputs` not
   string arrays, missing `skill` and `entry`);
 - incompatible configurations (a workflow or policy referencing an undeclared
@@ -148,31 +150,23 @@ identity, versions and update sources belong in `.factory/installation.json`,
 never in this operational model. An explicit empty orchestrator `tools: []`
 remains an empty allowlist; omitted tools use Pi defaults.
 
-## 3. Migration path
+## 3. Schema versions
 
-`migrate(doc)` returns a new document (never mutating the input) at the current
-schema. Supported migrations:
-
-- **v0 → v1** — v0 documents omitted `schema` and used
-  `models.subagentTiers` (the `generate-settings.mjs` spelling). Migration sets
-  `schema: 1` and renames `models.subagentTiers` → `models.subagents`.
-
-`factory validate` applies `migrate` when `schema` is missing or `0`, then
-validates. A future schema bump adds a further migration here while keeping
-older versions valid.
+Only `schema: 1` is accepted. There is no migration: documents written for the
+earlier tier-based layout (`models.tiers`, tier names as agent models) are
+rejected and must be redefined with per-agent models.
 
 ## 4. Ownership / edit-preservation contract
 
-Full text of `docs/agent-factory.md` §C.6 (generalizing
-`extensions/pi-config/generate-settings.mjs`):
+Full text of `docs/agent-factory.md` §C.6:
 
 1. **Derived files** (`settings.json` model fragment + `packages` + `defaultTools`,
    `mcp.json`, and the `run` launcher) are factory-owned and regenerated on
    every `generate`; **unknown keys the factory does not own are preserved**
-   (the same merge the model generator already performs). The `packages` list is
-   a factory-owned derived key computed from the Pi runtime primitives
-   (`pi-subagents`, `pi-mcp-adapter`) plus any `system.yaml` `packages` the
-   model declares (`deps.mjs` `runtimePackages`). Hand-editing a derived file is
+   The `packages` list is a factory-owned derived key computed from the Pi
+   runtime primitives (`pi-subagents`, `pi-mcp-adapter`) plus any `system.yaml`
+   `packages` and packaged skill sources the model declares (`deps.mjs`
+   `runtimePackages`). Hand-editing a derived file is
    unsupported — change the model instead.
 2. **Authored files** (agents, skills, prompts, `APPEND_SYSTEM.md`, README,
    `.gitignore`, `.env.example`) are user-owned. The factory scaffolds them
@@ -182,6 +176,9 @@ Full text of `docs/agent-factory.md` §C.6 (generalizing
    surfacing it for the user to resolve; it never silently overwrites (and, in
    this MVP, never auto-applies a conflict — the user resolves it by editing the
    file or re-running after a deliberate edit).
+   **Vendored skill directories** (`skills[].source` paths) are user-owned
+   copies: created once from the source, never overwritten or deleted by the
+   factory. Delete a copy explicitly to refresh it from its source.
 3. **`system.yaml`** is factory-owned but user-editable; `modify` updates only
    the keys it is changing and preserves unknown keys (best-effort on
    comments).

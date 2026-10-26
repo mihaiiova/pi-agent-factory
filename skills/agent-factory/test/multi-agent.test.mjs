@@ -6,20 +6,11 @@ const multiModel = {
   schema: 1,
   name: "seo-agent-system",
   description: "SEO analysis + article drafting",
-  models: {
-    tiers: {
-      high: { model: "openai-codex/gpt-5.6-terra", thinking: "medium" },
-      medium: { model: "deepseek/deepseek-v4-pro", thinking: "high" },
-      small: { model: "deepseek/deepseek-v4-flash", thinking: "low" },
-    },
-    parentTier: "high",
-    subagents: { worker: "medium", scout: "small", reviewer: "small", oracle: "high" },
-  },
   orchestrator: {
     name: "orchestrator",
     description: "Primary SEO agent",
     prompt: "You coordinate the SEO system.\n",
-    model: "high",
+    model: "provider-a/model-large", thinking: "medium",
     tools: ["read", "grep", "find", "ls", "bash", "edit", "write", "subagent"],
   },
   agents: [
@@ -27,21 +18,21 @@ const multiModel = {
       name: "seo-analyst",
       description: "Analyzes SEO data and identifies opportunities",
       tools: ["read", "grep", "find", "ls"],
-      model: "small",
+      model: "provider-b/model-small", thinking: "low",
       prompt: "You analyze SEO data and identify opportunities. You never publish; publication requires the orchestrator's approval.\n",
     },
     {
       name: "article-writer",
       description: "Drafts articles",
       tools: ["read", "write"],
-      model: "medium",
+      model: "provider-a/model-medium", thinking: "high",
       prompt: "You draft articles. When you need more research, request it from the researcher.\n",
     },
     {
       name: "researcher",
       description: "Maintains shared product knowledge",
       tools: ["read", "write", "bash"],
-      model: "small",
+      model: "provider-b/model-small", thinking: "low",
       prompt: "You independently maintain shared product knowledge under data/knowledge/.\n",
     },
   ],
@@ -84,13 +75,13 @@ test("N agents materialize to N .pi/agents/*.md files with correct frontmatter",
   assert.ok(analyst.content.includes("name: seo-analyst"));
   assert.ok(analyst.content.includes('description: "Analyzes SEO data and identifies opportunities"'));
   assert.ok(analyst.content.includes("tools: [read, grep, find, ls]"));
-  assert.ok(analyst.content.includes("model: deepseek/deepseek-v4-flash"), "tier name maps to model ref");
-  assert.ok(analyst.content.includes("thinking: low"), "thinking comes from the tier");
+  assert.ok(analyst.content.includes("model: provider-b/model-small"), "the agent's own model ref");
+  assert.ok(analyst.content.includes("thinking: low"), "the agent's own thinking level");
   assert.ok(analyst.content.includes("systemPrompt: |"));
   assert.ok(analyst.content.includes("You analyze SEO data and identify opportunities."));
 
   const writer = byPath(files, ".pi/agents/article-writer.md");
-  assert.ok(writer.content.includes("model: deepseek/deepseek-v4-pro"), "writer medium tier → model ref");
+  assert.ok(writer.content.includes("model: provider-a/model-medium"), "writer's own model ref");
   assert.ok(writer.content.includes("thinking: high"));
 });
 
@@ -102,7 +93,7 @@ test("declared inheritProjectContext / inheritSkills are emitted as frontmatter"
         name: "seo-analyst",
         description: "Reads project context",
         tools: ["read"],
-        model: "small",
+        model: "provider-b/model-small", thinking: "low",
         prompt: "Analyze with project context.\n",
         inheritProjectContext: true,
         inheritSkills: true,

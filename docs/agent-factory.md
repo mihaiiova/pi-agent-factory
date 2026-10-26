@@ -7,7 +7,10 @@
 > upgrades/rollback; see [the maintenance architecture](factory-update.md), which
 > supersedes this MVP plan's exclusions concerning maintenance extension code and
 > external-Factory dependence. The launcher now disables ancestor context-file
-> discovery with `--no-context-files`. This document is the
+> discovery with `--no-context-files`. Model tiers (`models.tiers`, §A.5) and
+> the built-in skill recommendations are superseded: every agent now names its
+> own `provider/id` model and skills come only from the user — see
+> `skills/agent-factory/schema.md`. This document is the
 > architecture reference; sections that describe *planned* behavior are
 > historical and kept for provenance where still relevant.
 >
