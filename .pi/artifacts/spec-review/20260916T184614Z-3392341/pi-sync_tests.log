@@ -1,3 +1,0 @@
-ok - dirty non-interactive sync refuses without staging or committing
-ok - all pi npm package specs are pinned
-ok - pi-sync derives its repo path from its own location

@@ -1,8 +1,0 @@
-ok - single user story classifies as trivial
-ok - multiple user stories classify as worker
-ok - missing User Stories section classifies as worker
-ok - epic container classifies as worker
-ok - reads a spec body from stdin
-ok - bulleted multiple user stories classify as worker
-
-All trivial-spec tests passed.
