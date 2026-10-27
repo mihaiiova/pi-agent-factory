@@ -74,7 +74,8 @@ skills the subagent receives. Duplicate `name`s are rejected.
 
 ### `skills[]`
 
-The factory ships no skills; every skill is one the user asks for or provides.
+The factory ships no skills of its own; each agent gets the skills the user
+chooses for it, including ones the factory suggests from skills.sh.
 Allowed keys: `name` (required string), `description`, and at most one of:
 
 - `body` — authored inline; materializes to `.pi/skills/<name>/SKILL.md`. A
@@ -87,6 +88,15 @@ Allowed keys: `name` (required string), `description`, and at most one of:
   vendor it into `.pi/skills/<name>/` once (binary-safe, symlinks refused); an
   existing project copy is never overwritten. Relative paths resolve from the
   project directory.
+- `source: skills:<owner>/<repo>/<skill-dir>@<commit>` — one skill directory
+  from the open Agent Skills ecosystem (skills.sh), pinned to a full 40-character
+  commit. `factory generate`/`modify` and `/factory-update apply` install it
+  with the `skills` CLI (`npx skills@1.7.4 add <github tree URL> --agent pi
+  --copy -y`) into the project's `.agents/skills/<name>/` — never globally —
+  and `skills-lock.json` records the commit. The installed `SKILL.md` must
+  declare `name` and, in maintenance, match the previewed content. Removing
+  the declaration removes the installed copy. `factory search-skills` and
+  `factory preview-skill <owner/repo>@<name>` find and pin skills.
 
 Duplicate `name`s are rejected.
 
@@ -128,7 +138,10 @@ How one agent writes one document, agreed with the user. Allowed keys: `name`
 `agents[].name`), `path` (optional project-relative file outside `.pi/` and
 `.factory/`; omit it for a report a subagent returns), `purpose`, `maxWords`
 (positive integer), `sections` (required non-empty array of `{ heading,
-guide? }`, in order) and `rules` (array of strings). A writer with a `path`
+guide? }`, in order), `rules` (array of strings) and `deliver` (array of
+`{ mcp, tool, with?, note? }`: send the document with that MCP tool, e.g. to
+Google Drive; `mcp` must be a declared server and the writer must have
+`mcp:<server>/<tool>` or `mcp:<server>`, or `mcp` for the orchestrator). A writer with a `path`
 must have `write` or `edit` when its tools are listed. The format is appended
 to the writer's instructions (`APPEND_SYSTEM.md` or its agent file) under
 "Document formats". Duplicate `name`s are rejected.

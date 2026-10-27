@@ -326,6 +326,20 @@ then does it preview a `document` operation for `/factory-update apply`. The
 format is rendered into the writer's instructions under "Document formats".
 `/factory-update review` also flags documents with no agreed format.
 
+## Skills from skills.sh
+
+`factory_plan discover` with a query searches skills.sh alongside npm and the
+MCP registry; with `skill: "owner/repo@name"` it pins that skill to the
+repository's current commit and returns its `SKILL.md` and file list. A
+proposal declares `source: skills:<owner>/<repo>/<dir>@<commit>` and lists the
+skill on the agents that should have it. The preview includes the skill's
+contents. On `/factory-update apply`, `npx skills@1.7.4 add <tree URL> --agent
+pi --copy -y` installs it into `.agents/skills/<name>/` in the project (never
+globally) and `skills-lock.json` records the commit; an installed `SKILL.md`
+that differs from the preview, or a lock without the pinned commit, is removed
+and nothing is applied. Removing the declaration removes the copy. The CLI
+honors `DISABLE_TELEMETRY=1`/`DO_NOT_TRACK=1` from your environment.
+
 ## Specialist launches
 
 Foreground subagents never load extensions, so a specialist with MCP or
@@ -334,6 +348,10 @@ extension tools would start without them. The factory marks such agents
 `.factory/pi-home/extensions/subagent/config.json`. `factory_plan inspect`
 reports `subagentRuns` — per agent, recent launches, failures and the first line
 of the latest failure diagnostic — so review can point at a broken specialist.
+A model-free launch check runs at every session start and in `inspect`: for each
+agent it confirms MCP servers have connected and expose the selected tools
+(after `includeTools`/`excludeTools`), extension tools are registered, declared
+skills are installed and background launch is configured, and it names any gap.
 Projects generated before 0.7.0 get the change through `/factory-update update`
 followed by `/factory-update reconcile` (or any applied change).
 

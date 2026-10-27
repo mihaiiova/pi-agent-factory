@@ -4,8 +4,9 @@
  * Pure seam: `buildRuntimePlan(model, opts) -> { agentDir, packages,
  * launcherScript, warnings, errors }`. A generated system runs with its own Pi config
  * directory (set via `PI_CODING_AGENT_DIR`) so it never inherits the host's
- * global skills, MCP servers, extensions, instructions, settings, or
- * credentials. No filesystem or CLI work happens here; `generate.mjs` composes
+ * global Pi skills, MCP servers, extensions, instructions, settings, or
+ * credentials. Pi still reads the shared Agent Skills folders
+ * (`~/.agents/skills/`, project `.agents/skills/`) by design. No filesystem or CLI work happens here; `generate.mjs` composes
  * the launcher content into the generated `run` file.
  */
 import { runtimePackages } from "./deps.mjs";

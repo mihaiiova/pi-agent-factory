@@ -16,7 +16,8 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
 ## Lifecycle
 
 1. **Understand** — interview for the outcome: what the system must achieve, which
-   distinct roles it needs, and what each role may touch. Ask only genuinely-required
+   distinct roles it needs, and what each role may touch — that is the user's
+   call for each agent; the factory adds no restrictions of its own. Ask only genuinely-required
    questions, one decision at a time; never re-ask a fact the next step already
    answers. **Done when** the outcome is unambiguous enough to design against.
 2. **Discover** — run `factory discover`. It reports the machine's full Pi model
@@ -24,6 +25,8 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    MCP servers and subagents. It knows no CLIs of its own: when the user names
    command-line tools the system will use, add `--cli <name>` for each to check
    they are installed. Resolve discoverable facts rather than asking.
+   Search the open skills registry with `factory search-skills <terms>`
+   (skills.sh: name, source repo, installs, page).
 3. **Design** — define the system from zero using the seven primitives
    (`orchestrator`, `agents`, `skills`, `integrations`, `workflows`, `policies`,
    `packages`).
@@ -32,19 +35,35 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
      line-up, and record it as `model: provider/id` (plus an optional
      `thinking:` level) on that agent. Agents may share a model or each use a
      different one. Any model can be changed later (step 7).
-   - **Skills:** the factory ships no skills and never recommends one unprompted.
-     Use only skills the user asks for or provides: an inline `body` they
-     describe, a pinned package (`source: npm:<name>@<version>` or
-     `git:<repo>@<ref>`), or a directory they point at (`source: ./path`,
-     `../path`, `/abs/path` or `~/path`), which is vendored into
-     `.pi/skills/<name>/`. Attach skills to the agents that need them with
-     `agents[].skills`.
-   - **Documents:** for every document an agent writes (workflow outputs) or a
-     report a subagent returns, propose a structure — purpose, sections in
-     order with a one-line guide each, a word limit and a few rules — and ask
+   - **Skills:** the factory ships no skills of its own; each agent gets the
+     skills the user chooses for it. Whenever you design, add or change an
+     agent, search skills.sh for its role (`factory search-skills <terms>`)
+     and suggest a few candidates per agent, with source repo, install count
+     and skills.sh page; install counts are information, not a filter. For
+     each one the user is interested in, run `factory preview-skill
+     <owner/repo>@<name>`: it pins the skill to the repository's current
+     commit and prints its `SKILL.md` and files, which you summarize (what it
+     instructs, any scripts) before the user decides. Record the user's picks
+     with the printed `source: skills:<owner>/<repo>/<dir>@<commit>`;
+     `factory generate` installs them into the project's `.agents/skills/<name>/`
+     with the `skills` CLI (project-local, never global) and `skills-lock.json`
+     records the commit. Skills can also be an inline `body`, a pinned package
+     (`source: npm:<name>@<version>` or `git:<repo>@<ref>`), or a directory the
+     user points at (`source: ./path`, `../path`, `/abs/path` or `~/path`),
+     vendored into `.pi/skills/<name>/`. Attach skills per agent with
+     `agents[].skills`. An agent the user wants to find and install skills
+     itself can be given the `vercel-labs/skills@find-skills` skill plus
+     `bash`; tell it, as a document rule or in its prompt, to install
+     project-locally (`--agent pi`, no `-g`).
+   - **Documents:** any agent may write or return any number of documents.
+     For each one, propose a structure — purpose, sections in order with a
+     one-line guide each, and optionally a word limit and rules — and ask
      the user to add, remove or change sections before recording it in
      `documents[]` with its `writer`. Propose; never decide the format alone.
-     The agreed format is rendered into the writer's instructions.
+     A document can also be delivered anywhere an MCP tool reaches (Google
+     Drive, Notion, Slack, …): `deliver: [{ mcp, tool, with?, note? }]`, any
+     number per document; the writer needs that tool. The agreed format and
+     deliveries are rendered into the writer's instructions.
 4. **Generate** — write `system.yaml`, then **preview first**: run
    `factory generate <dir> --dry-run` and show the planned diff. Only apply after
    the user confirms. Generation also writes `.factory/capabilities.json` — the
@@ -54,8 +73,10 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
 5. **Configure** — help with credentials: declare each variable in
    `integrations.env` and reference it as `${NAME}` in MCP config. `./run` loads
    declared names from the gitignored `.env`; the user fills it in (or later uses
-   `/factory-update env set NAME`). Prefer an MCP server with a narrow token over
-   granting `bash` to reach a CLI.
+   `/factory-update env set NAME`). Explain what each credential and tool can
+   reach (an MCP server with a scoped token, or `bash` with the user's own CLI
+   logins) and let the user choose per agent; the factory sets no limits of
+   its own.
    **Never write a secret into a committed file** — only `${ENV}` references and
    `.env.example` templates. **Done when** every required credential is declared as
    a `${ENV}`/`.env.example` entry and no secret is committed.
@@ -63,7 +84,10 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    the generated launcher (`./run -p "<workflow input>"`). The launcher is the
    canonical entry point and runs the system under its own isolated Pi config
    directory (`PI_CODING_AGENT_DIR=.factory/pi-home`), so the host's global
-   skills/MCP/extensions/credentials are not inherited.
+   Pi settings/MCP/extensions/credentials are not inherited. Skills in the
+   shared Agent Skills folder `~/.agents/skills/` (and `.agents/skills/` in the
+   project and its parents) do load for the orchestrator, by design;
+   subagents get only the skills listed for them.
 7. **Maintain** — every generated system bundles `/factory-update`, its thin
    skill/command and minimal standalone deterministic engine. Within `./run`, use
    `/factory-update <request>` to inspect/discover/preview a structured model

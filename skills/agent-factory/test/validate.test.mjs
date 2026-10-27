@@ -239,3 +239,21 @@ test("validateSystem checks document formats, writers and paths", () => {
   assert.ok(bad.some((e) => e.includes('documents[1] has unknown key "extra"')));
   assert.ok(bad.some((e) => e.includes('documents[2].writer "seo-analyst" has no write or edit tool')));
 });
+
+test("validateSystem checks document delivery targets against declared MCP servers and writer tools", () => {
+  const sections = [{ heading: "Body" }];
+  const base = validDoc();
+  const ok = validDoc({
+    agents: [...base.agents, { name: "publisher", model: "provider-a/m", tools: ["read", "mcp:openseo/save_doc"] }],
+    documents: [{ name: "brief", writer: "publisher", sections, deliver: [{ mcp: "openseo", tool: "save_doc", with: { folder: "Briefs" }, note: "one file per brief" }] }],
+  });
+  assert.deepEqual(validateSystem(ok).errors, []);
+  const bad = validateSystem(validDoc({ documents: [
+    { name: "a", writer: "seo-analyst", sections, deliver: [{ mcp: "nowhere", tool: "x" }, { mcp: "openseo", tool: "save_doc", with: "folder" }, { tool: "x", extra: 1 }] },
+  ] })).errors;
+  assert.ok(bad.some((e) => e.includes('deliver[0].mcp references "nowhere"')));
+  assert.ok(bad.some((e) => e.includes("deliver[1].with must be an object")));
+  assert.ok(bad.some((e) => e.includes('deliver[1]: writer "seo-analyst" cannot call openseo/save_doc')));
+  assert.ok(bad.some((e) => e.includes("deliver[2].mcp must be a non-empty string")));
+  assert.ok(bad.some((e) => e.includes('deliver[2] has unknown key "extra"')));
+});

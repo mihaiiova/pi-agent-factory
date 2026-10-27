@@ -29,11 +29,23 @@ its own model from the machine's Pi line-up (`pi --list-models`, also reported b
 `factory discover`), with an optional thinking level. Agents may share a model or
 each use a different one, and any model can be changed later.
 
-### Skills: only the ones you ask for or provide
+### Skills: chosen per agent, suggested from skills.sh
 
-The factory ships no skills and recommends none unprompted. A skill is authored
-inline, comes from a pinned package, or is vendored from a directory you point
-at, and each agent lists the skills it receives:
+The factory ships no skills of its own. When you set up a system, or add or
+change an agent, it searches the open skills registry ([skills.sh](https://skills.sh))
+for that agent's role and suggests a few candidates, with source, install count
+and page. It shows each skill's actual `SKILL.md` and files before you decide.
+Your picks are pinned to a commit and installed with the open `skills` CLI into
+the project's own `.agents/skills/` (never globally), recorded in
+`skills-lock.json`:
+
+```sh
+node skills/agent-factory/factory.mjs search-skills seo audit
+node skills/agent-factory/factory.mjs preview-skill coreyhaines31/marketingskills@seo-audit
+```
+
+A skill can also be authored inline, come from a pinned package, or be vendored
+from a directory you point at. Each agent lists the skills it receives:
 
 ```yaml
 schema: 1
@@ -54,7 +66,12 @@ skills:
     source: ../my-skills/notes            # vendored into .pi/skills/notes/ once
   - name: house-style
     source: npm:@acme/house-style@1.2.0   # pinned package, added to runtime packages
+  - name: seo-audit                       # from skills.sh, pinned to a commit
+    source: skills:coreyhaines31/marketingskills/skills/seo-audit@17772c7a80b7b8c7a47af30f648374cd8bd8adc5
 ```
+
+Skills in the shared Agent Skills folder `~/.agents/skills/` also load for the
+orchestrator; subagents get only the skills listed for them.
 
 ### Documents: formats you agree on
 
@@ -62,10 +79,15 @@ For each document an agent writes (or a report a subagent returns), the
 factory proposes a structure — purpose, sections in order, a word limit and a
 few rules — and you add, remove or change sections before it is recorded in
 `documents[]`. The agreed format goes into that agent's instructions, so each
-run produces the same shape. Change a format later with `/factory-update`.
+run produces the same shape. Any agent can have any number of documents, and a
+document can be delivered anywhere an MCP tool reaches — Google Drive, Notion,
+Slack — with `deliver: [{ mcp, tool, with }]`. Change formats later with
+`/factory-update`.
 
 Subagents that use MCP or extension tools (web search, for example) always
-run in the background, where those tools load; the factory sets this up.
+run in the background, where those tools load; the factory sets this up. On
+every start, `./run` checks that each agent will get the tools, MCP tools and
+skills it is declared to have, and names any that are missing.
 
 See [`schema.md`](skills/agent-factory/schema.md) for every field, validation
 rule and the file-ownership contract, and [docs/agent-factory.md](docs/agent-factory.md)

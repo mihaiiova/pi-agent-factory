@@ -305,3 +305,14 @@ test("agreed document formats land in their writer's instructions", () => {
   assert.match(writer, /  Research\.\n  \n  ## Document formats/);
   assert.match(writer, /### evidence-packet \(returned in your output\)/);
 });
+
+test("document delivery targets are rendered as steps for the writer", () => {
+  const documents = [{ name: "article", path: "drafts/article.md", writer: "writer", sections: [{ heading: "Body" }],
+    deliver: [{ mcp: "gdrive", tool: "create_file", with: { folder: "Owlie/Articles" } }, { mcp: "slack", tool: "post_message", note: "link only" }] }];
+  const withDocs = { ...model, agents: [{ name: "writer", model: "provider-a/m", tools: ["write", "mcp:gdrive/create_file", "mcp:slack/post_message"] }], documents };
+  const writer = byPath(generateProject(withDocs, {}).files, ".pi/agents/writer.md").content;
+  assert.match(writer, /When the file is written, also deliver it:/);
+  assert.match(writer, /- MCP server `gdrive`, tool `create_file` with \{"folder":"Owlie\/Articles"\}/);
+  assert.match(writer, /- MCP server `slack`, tool `post_message` — link only/);
+  assert.match(writer, /Report where each delivery landed/);
+});

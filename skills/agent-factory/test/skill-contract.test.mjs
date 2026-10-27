@@ -32,10 +32,12 @@ test("SKILL.md asks for each agent's model from the full Pi line-up", () => {
   assert.ok(/"op":"assign"/.test(skill), "documents changing a model later");
 });
 
-test("SKILL.md uses only skills the user asks for or provides", () => {
-  assert.ok(/ships no skills and never recommends one unprompted/.test(skill));
+test("SKILL.md suggests registry skills per agent and installs only the user's picks, project-locally", () => {
+  assert.ok(/ships no skills of its own; each agent gets the\s+skills the user chooses for it/.test(skill));
+  assert.ok(/search-skills/.test(skill) && /preview-skill/.test(skill), "searches and previews skills.sh skills");
+  assert.ok(/project-local, never global/.test(skill), "never installs globally");
   assert.ok(!skill.includes("knownIntegrations"), "no built-in recommendation list");
-  for (const form of ["npm:<name>@<version>", "./path", "agents[].skills"]) {
+  for (const form of ["npm:<name>@<version>", "./path", "agents[].skills", "skills:<owner>/<repo>/<dir>@<commit>"]) {
     assert.ok(skill.includes(form), `documents ${form}`);
   }
 });
