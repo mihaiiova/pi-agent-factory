@@ -16,7 +16,8 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
 ## Lifecycle
 
 1. **Understand** — interview for the outcome: what the system must achieve, which
-   distinct roles it needs, and what each role may touch. Ask only genuinely-required
+   distinct roles it needs, and what each role may touch — that is the user's
+   call for each agent; the factory adds no restrictions of its own. Ask only genuinely-required
    questions, one decision at a time; never re-ask a fact the next step already
    answers. **Done when** the outcome is unambiguous enough to design against.
 2. **Discover** — run `factory discover`. It reports the machine's full Pi model
@@ -39,9 +40,9 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
      `../path`, `/abs/path` or `~/path`), which is vendored into
      `.pi/skills/<name>/`. Attach skills to the agents that need them with
      `agents[].skills`.
-   - **Documents:** for every document an agent writes (workflow outputs) or a
-     report a subagent returns, propose a structure — purpose, sections in
-     order with a one-line guide each, a word limit and a few rules — and ask
+   - **Documents:** any agent may write or return any number of documents.
+     For each one, propose a structure — purpose, sections in order with a
+     one-line guide each, and optionally a word limit and rules — and ask
      the user to add, remove or change sections before recording it in
      `documents[]` with its `writer`. Propose; never decide the format alone.
      The agreed format is rendered into the writer's instructions.
@@ -54,8 +55,10 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
 5. **Configure** — help with credentials: declare each variable in
    `integrations.env` and reference it as `${NAME}` in MCP config. `./run` loads
    declared names from the gitignored `.env`; the user fills it in (or later uses
-   `/factory-update env set NAME`). Prefer an MCP server with a narrow token over
-   granting `bash` to reach a CLI.
+   `/factory-update env set NAME`). Explain what each credential and tool can
+   reach (an MCP server with a scoped token, or `bash` with the user's own CLI
+   logins) and let the user choose per agent; the factory sets no limits of
+   its own.
    **Never write a secret into a committed file** — only `${ENV}` references and
    `.env.example` templates. **Done when** every required credential is declared as
    a `${ENV}`/`.env.example` entry and no secret is committed.
