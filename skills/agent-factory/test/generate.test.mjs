@@ -264,3 +264,44 @@ test("generateProject emits the executable run launcher", () => {
   assert.match(run.content, /PI_CODING_AGENT_DIR/);
   assert.match(run.content, /exec pi/);
 });
+
+test("MCP and extension specialists run in the background; builtin-only ones do not", () => {
+  const withAgents = {
+    ...model,
+    agents: [
+      { name: "researcher", model: "provider-a/m", tools: ["read", "mcp:seo", "web_search"] },
+      { name: "writer", model: "provider-a/m", tools: ["read", "write"] },
+    ],
+  };
+  const { files } = generateProject(withAgents, { ".factory/pi-home/extensions/subagent/config.json": '{"timeoutMs": 5}\n' });
+  assert.match(byPath(files, ".pi/agents/researcher.md").content, /\nasync: true\n/);
+  assert.doesNotMatch(byPath(files, ".pi/agents/writer.md").content, /async:/);
+  const config = byPath(files, ".factory/pi-home/extensions/subagent/config.json");
+  assert.deepEqual(JSON.parse(config.content), { timeoutMs: 5, forceTopLevelAsync: true });
+  assert.match(byPath(files, ".pi/APPEND_SYSTEM.md").content, /`researcher` use MCP or extension tools/);
+
+  // Builtin-only systems keep their files exactly as before.
+  const plain = generateProject({ ...model, agents: [withAgents.agents[1]] }, {}).files;
+  assert.equal(byPath(plain, ".factory/pi-home/extensions/subagent/config.json"), undefined);
+  assert.doesNotMatch(byPath(plain, ".pi/APPEND_SYSTEM.md").content, /Running specialists/);
+});
+
+test("agreed document formats land in their writer's instructions", () => {
+  const documents = [
+    { name: "decisions", path: "strategy/decisions.md", writer: model.orchestrator.name, purpose: "Owner decisions", maxWords: 600,
+      sections: [{ heading: "Decide now", guide: "Yes/no questions" }, { heading: "Actions" }], rules: ["Caveats only in the last section"] },
+    { name: "evidence-packet", writer: "writer", sections: [{ heading: "Findings" }] },
+  ];
+  const withDocs = { ...model, agents: [{ name: "writer", model: "provider-a/m", tools: ["read"], prompt: "Research." }], documents };
+  const { files } = generateProject(withDocs, {});
+  const lead = byPath(files, ".pi/APPEND_SYSTEM.md").content;
+  assert.match(lead, /## Document formats/);
+  assert.match(lead, /### decisions → `strategy\/decisions.md`/);
+  assert.match(lead, /Length: at most 600 words\./);
+  assert.match(lead, /1\. \*\*Decide now\*\* — Yes\/no questions\n2\. \*\*Actions\*\*/);
+  assert.match(lead, /- Caveats only in the last section/);
+  assert.doesNotMatch(lead, /evidence-packet/);
+  const writer = byPath(files, ".pi/agents/writer.md").content;
+  assert.match(writer, /  Research\.\n  \n  ## Document formats/);
+  assert.match(writer, /### evidence-packet \(returned in your output\)/);
+});

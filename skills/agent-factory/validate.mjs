@@ -15,7 +15,7 @@ const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const TOP_LEVEL_KEYS = [
   "schema", "name", "description", "orchestrator",
-  "agents", "skills", "integrations", "workflows", "policies", "packages",
+  "agents", "skills", "integrations", "workflows", "documents", "policies", "packages",
 ];
 const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "thinking", "tools"];
 const AGENT_KEYS = [
@@ -35,6 +35,8 @@ const WORKFLOW_KEYS = [
   "inputs", "outputs", "approval", "verify",
 ];
 const TRIGGER_KEYS = ["kind"];
+const DOCUMENT_KEYS = ["name", "path", "writer", "purpose", "maxWords", "sections", "rules"];
+const SECTION_KEYS = ["heading", "guide"];
 const POLICIES_KEYS = ["enforced", "advisory"];
 const ENFORCED_KEYS = ["agent", "tools", "mcp", "hide"];
 
@@ -501,6 +503,48 @@ export function validateSystem(doc) {
           `document.policies.enforced[${i}].mcp references "${rule.mcp}" which ` +
             (available ? `is not a declared MCP server (declared: ${available})` : "is not a declared MCP server (no servers declared)"),
         );
+      }
+    });
+  }
+
+  // ── documents ───────────────────────────────────────────────
+  collectNames(doc.documents, "document.documents", errors);
+  if (Array.isArray(doc.documents)) {
+    const toolsOf = (name) => (name === orchestratorName ? doc.orchestrator?.tools
+      : doc.agents?.find((a) => isPlainObject(a) && a.name === name)?.tools);
+    doc.documents.forEach((d, i) => {
+      if (!isPlainObject(d)) return;
+      const path = `document.documents[${i}]`;
+      checkUnknownKeys(d, DOCUMENT_KEYS, path, errors);
+      checkNonEmptyString(d.name, `${path}.name`, errors);
+      checkKebabCase(d.name, `${path}.name`, errors);
+      checkNonEmptyString(d.writer, `${path}.writer`, errors);
+      if (isNonEmptyString(d.writer)) agentOrOrchestrator(d.writer, `${path}.writer`);
+      if (d.purpose !== undefined) checkNonEmptyString(d.purpose, `${path}.purpose`, errors);
+      if (d.rules !== undefined) checkStringArray(d.rules, `${path}.rules`, errors);
+      if (d.maxWords !== undefined && !(Number.isInteger(d.maxWords) && d.maxWords > 0)) {
+        errors.push(`${path}.maxWords must be a positive integer`);
+      }
+      if (d.path !== undefined) {
+        if (!isNonEmptyString(d.path) || d.path.startsWith("/") || d.path.startsWith("~") ||
+            d.path.split(/[\\/]/).some((seg) => seg === "..") || /^\.(pi|factory)([\\/]|$)/.test(d.path)) {
+          errors.push(`${path}.path must be a project-relative file path outside .pi/ and .factory/ (got ${JSON.stringify(d.path)})`);
+        }
+        const tools = isNonEmptyString(d.writer) ? toolsOf(d.writer) : undefined;
+        if (Array.isArray(tools) && !tools.includes("write") && !tools.includes("edit")) {
+          errors.push(`${path}.writer "${d.writer}" has no write or edit tool; omit path for a report it returns, or choose a writer that can write files`);
+        }
+      }
+      if (!Array.isArray(d.sections) || d.sections.length === 0) {
+        errors.push(`${path}.sections must be a non-empty array of { heading, guide }`);
+      } else {
+        d.sections.forEach((section, j) => {
+          const sp = `${path}.sections[${j}]`;
+          if (!isPlainObject(section)) { errors.push(`${sp} must be an object`); return; }
+          checkUnknownKeys(section, SECTION_KEYS, sp, errors);
+          checkNonEmptyString(section.heading, `${sp}.heading`, errors);
+          if (section.guide !== undefined) checkNonEmptyString(section.guide, `${sp}.guide`, errors);
+        });
       }
     });
   }

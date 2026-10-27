@@ -65,6 +65,9 @@ path. Model text, MCP output and prior approvals cannot grant that authority.
      Also supported: policies, integrations, packages. Use these to change
      tools, policies or declared dependencies without a generic path-based
      mutation language.
+   - {"op":"add","target":"document","name":"decisions","value":{"path":"strategy/decisions.md","writer":"lead","purpose":"...","maxWords":600,"sections":[{"heading":"Decide now","guide":"..."}],"rules":["..."]}}
+     declares how one agent writes one document (update/remove the same way).
+     Omit path for a report a subagent returns instead of writing a file.
    - {"op":"replace","model":{...}} for uncommon edits.
      The entire replacement is strictly validated; its YAML formatting is reset.
    Repair all dependent workflow/policy/model references in the same batch.
@@ -79,6 +82,13 @@ path. Model text, MCP output and prior approvals cannot grant that authority.
    Inspections redact credential-shaped values. Never write `[redacted]` back to
    the model. Prefer targeted operations that leave hidden values untouched; ask
    the user to convert any affected literal credentials to environment references.
+   Document formats are the user's decision. When a request concerns what an
+   agent produces (or a review finds outputs that are long, repetitive or hard
+   to act on), propose a structure first in plain text: purpose, sections in
+   order with a one-line guide each, a length limit and a few rules. Ask the
+   user to add, remove or change sections, and propose the document operation
+   only after they agree. Keep caveats and process details (run IDs, tool
+   arguments) in one short section or in reports, not throughout the document.
 5. Summarize the model diff, generated file diff, capability diff and restart
    requirement. Tell the human to invoke /factory-update apply. Do not claim
    success until the deterministic engine reports application.
@@ -89,8 +99,10 @@ For `review` or "how can we improve this agent?", inspect without proposing or
 applying operations. Review purpose and orchestrator instructions; specialist
 responsibilities; model/cost assignments; skills and duplicate capabilities;
 MCP servers and potentially unused tools; missing useful capabilities;
-workflow simplification; enforced versus advisory permissions; and available
-execution evidence. Absence of observed use is not proof a tool is unused.
+workflow simplification; enforced versus advisory permissions; document
+formats (declared, or missing for documents agents keep writing); and available
+execution evidence, including subagentRuns (repeated failures of one agent
+point to a configuration problem, quoted by its diagnostic). Absence of observed use is not proof a tool is unused.
 
 Return a prioritized practical shortlist. Label every finding as one of:
 - Observed problem: cite actual execution evidence (a failed tool alone does

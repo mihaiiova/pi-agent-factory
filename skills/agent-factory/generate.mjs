@@ -22,6 +22,7 @@ import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
 import { infrastructureFiles } from "./maintenance-infra.mjs";
+import { documentInstructions } from "./documents.mjs";
 
 const MARKER = "agent-factory:generated v1";
 /** Primary-session model keys the factory owns inside `.pi/settings.json`. */
@@ -41,6 +42,26 @@ const GITIGNORE_BODY = [
   ".pi/sessions/",
   "",
 ].join("\n");
+
+/** Pi's built-in tools. Any other tool (`mcp:` selections, extension tools
+ * such as web search) is registered by an extension. */
+const BUILTIN_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+/** pi-subagents config inside the isolated Pi home (its getAgentDir()). */
+export const SUBAGENT_CONFIG = ".factory/pi-home/extensions/subagent/config.json";
+
+/**
+ * Foreground subagents run inside the parent process and never load ambient
+ * extensions, so a child that needs MCP or extension tools must run in the
+ * background. Omitted tools inherit the ambient extensions too.
+ */
+export function needsBackground(tools) {
+  return !Array.isArray(tools) || tools.some((tool) => !BUILTIN_TOOLS.has(tool));
+}
+
+function backgroundAgents(model) {
+  return agentEntries(model).filter((agent) =>
+    needsBackground(enforcedAgentTools(agent.name, model.policies, agent.tools)));
+}
 
 /** Project-relative paths the single-agent generator materializes. */
 export const GENERATED_PATHS = [
@@ -213,6 +234,40 @@ function buildMcpJson(model, existingText) {
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 
+/** Force background launches so a caller cannot start an MCP specialist in
+ * the foreground, where its tools would be missing. Other keys are kept. */
+function buildSubagentConfig(existingText) {
+  let existing = {};
+  try {
+    existing = JSON.parse(existingText ?? "{}");
+  } catch {
+    existing = {};
+  }
+  if (!isPlainObject(existing)) existing = {};
+  return `${JSON.stringify({ ...existing, forceTopLevelAsync: true }, null, 2)}\n`;
+}
+
+function orchestratorBody(model) {
+  const orchestrator = isPlainObject(model.orchestrator) ? model.orchestrator : {};
+  const prompt = typeof orchestrator.prompt === "string" ? orchestrator.prompt : "";
+  const background = backgroundAgents(model).map((agent) => `\`${agent.name}\``);
+  const parts = [prompt.replace(/\n$/, "")];
+  if (background.length > 0) {
+    parts.push([
+      "## Running specialists",
+      "",
+      `${background.join(", ")} use MCP or extension tools, so they always run in the`,
+      "background. Launch them, then wait for their completion notice before using",
+      "their results. A foreground launch cannot give them their tools.",
+      "",
+    ].join("\n"));
+  }
+  if (isNonEmptyString(orchestrator.name)) parts.push(documentInstructions(model, orchestrator.name));
+  const body = parts.filter(Boolean).join("\n\n");
+  // Unchanged prompt text stays byte-identical for systems without additions.
+  return body === prompt.replace(/\n$/, "") ? prompt : body;
+}
+
 function policySection(model) {
   const policies = isPlainObject(model.policies) ? model.policies : {};
   const enforced = Array.isArray(policies.enforced) ? policies.enforced : [];
@@ -281,7 +336,7 @@ function envBody(model) {
     .join("\n") + "\n";
 }
 
-function agentBody(agent, tools) {
+function agentBody(agent, tools, model) {
   const lines = ["---"];
   lines.push(`name: ${agent.name}`);
   if (isNonEmptyString(agent.description)) lines.push(`description: ${yamlString(agent.description)}`);
@@ -295,7 +350,9 @@ function agentBody(agent, tools) {
   }
   if (agent.inheritProjectContext === true) lines.push("inheritProjectContext: true");
   if (agent.inheritSkills === true) lines.push("inheritSkills: true");
-  const prompt = isNonEmptyString(agent.prompt) ? agent.prompt : "";
+  if (needsBackground(tools)) lines.push("async: true");
+  const prompt = [isNonEmptyString(agent.prompt) ? agent.prompt.replace(/\n$/, "") : "", documentInstructions(model, agent.name)]
+    .filter(Boolean).join("\n\n");
   if (prompt) {
     lines.push("systemPrompt: |");
     for (const line of prompt.replace(/\n$/, "").split("\n")) lines.push(`  ${line}`);
@@ -345,7 +402,7 @@ function agentFiles(model, existing) {
   return agentEntries(model).map((agent) => {
     const path = agentPath(agent);
     const tools = enforcedAgentTools(agent.name, model.policies, agent.tools);
-    return authoredFile(path, "trailing-html", agentBody(agent, tools), existing[path]);
+    return authoredFile(path, "trailing-html", agentBody(agent, tools, model), existing[path]);
   });
 }
 
@@ -366,6 +423,7 @@ export function managedPaths(model) {
   const paths = [...GENERATED_PATHS];
   for (const agent of agentEntries(model)) paths.push(agentPath(agent));
   for (const skill of skillEntries(model)) paths.push(skillPath(skill));
+  if (backgroundAgents(model).length > 0) paths.push(SUBAGENT_CONFIG);
   return paths;
 }
 
@@ -383,9 +441,10 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
   const existing = isPlainObject(existingFiles) ? existingFiles : {};
   const piPackages = isPlainObject(opts) ? opts.piPackages : undefined;
   const plan = buildRuntimePlan(model, { piPackages });
-  const prompt = isPlainObject(model.orchestrator) && typeof model.orchestrator.prompt === "string"
-    ? model.orchestrator.prompt
-    : "";
+  const prompt = orchestratorBody(model);
+  const subagentConfig = backgroundAgents(model).length > 0
+    ? [derivedFile(SUBAGENT_CONFIG, buildSubagentConfig(existing[SUBAGENT_CONFIG]), existing[SUBAGENT_CONFIG])]
+    : [];
 
   const files = [
     derivedFile(".pi/settings.json", buildSettings(model, existing[".pi/settings.json"], plan.packages), existing[".pi/settings.json"]),
@@ -402,6 +461,7 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
       if (current !== undefined && current !== content) return { path, content: current, desired: content, action: 'conflict' };
       return derivedFile(path, content, current);
     }),
+    ...subagentConfig,
     ...agentFiles(model, existing),
     ...skillFiles(model, existing),
   ];
