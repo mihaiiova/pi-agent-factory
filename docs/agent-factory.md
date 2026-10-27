@@ -554,8 +554,11 @@ Generated projects are **self-contained by declaration**, not by vendoring:
   never shipped into the generated runtime.
 - Each generated project carries a `run` launcher that sets
   `PI_CODING_AGENT_DIR` to the project's `.factory/pi-home`, so the generated
-  runtime never inherits the host's global skills, MCP servers, extensions,
-  instructions, settings, or credentials.
+  runtime never inherits the host's global Pi skills, MCP servers, extensions,
+  instructions, settings, or credentials. Skills in the shared Agent Skills
+  folders (`~/.agents/skills/`, and `.agents/skills/` in the project and its
+  parents) are read by Pi itself and do load for the orchestrator; subagents
+  receive only the skills listed for them.
 - Nothing is copied out of pi-config into the project (avoids a second,
   independently maintained implementation), and nothing depends on a machine's
   ambient global config.

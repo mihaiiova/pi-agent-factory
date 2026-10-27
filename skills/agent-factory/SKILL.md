@@ -66,7 +66,10 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    the generated launcher (`./run -p "<workflow input>"`). The launcher is the
    canonical entry point and runs the system under its own isolated Pi config
    directory (`PI_CODING_AGENT_DIR=.factory/pi-home`), so the host's global
-   skills/MCP/extensions/credentials are not inherited.
+   Pi settings/MCP/extensions/credentials are not inherited. Skills in the
+   shared Agent Skills folder `~/.agents/skills/` (and `.agents/skills/` in the
+   project and its parents) do load for the orchestrator, by design;
+   subagents get only the skills listed for them.
 7. **Maintain** — every generated system bundles `/factory-update`, its thin
    skill/command and minimal standalone deterministic engine. Within `./run`, use
    `/factory-update <request>` to inspect/discover/preview a structured model

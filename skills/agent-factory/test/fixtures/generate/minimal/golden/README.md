@@ -1,4 +1,4 @@
-<!-- agent-factory:generated v1 sha256=bf7844e78e5b42ba7893f4ad6d45ebc57ba74a0b8cfc28e9731adf70c025782b -->
+<!-- agent-factory:generated v1 sha256=044f1259a27fd991c53dc4092989e195c07b488bad2fe65bd69392904e96c7db -->
 # seo-agent-system
 
 SEO analysis + article drafting
@@ -6,8 +6,9 @@ SEO analysis + article drafting
 ## Run
 
 The generated `./run` launcher is the entry point. It starts Pi with the
-project's own isolated config directory so your global skills, MCP servers,
-extensions, and credentials are not inherited.
+project's own isolated config directory so your global Pi settings, MCP
+servers, extensions and credentials are not inherited. Skills in the shared
+Agent Skills folder (`~/.agents/skills/`) do load, for the orchestrator.
 
 ```sh
 ./run             # interactive
