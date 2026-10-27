@@ -45,7 +45,11 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    deterministic effective-capability manifest (orchestrator/subagent tools,
    skills, MCP servers + exclusions, packages) derived from `system.yaml`, used
    to inspect and cross-check the generated capability surface.
-5. **Configure** — help with credentials: env vars, `gh auth`, and MCP env vars.
+5. **Configure** — help with credentials: declare each variable in
+   `integrations.env` and reference it as `${NAME}` in MCP config. `./run` loads
+   declared names from the gitignored `.env`; the user fills it in (or later uses
+   `/factory-update env set NAME`). Prefer an MCP server with a narrow token over
+   granting `bash` to reach a CLI.
    **Never write a secret into a committed file** — only `${ENV}` references and
    `.env.example` templates. **Done when** every required credential is declared as
    a `${ENV}`/`.env.example` entry and no secret is committed.

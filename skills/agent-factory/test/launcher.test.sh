@@ -64,5 +64,42 @@ if grep -q 'cwd=' "$LAUNCHER_LOG"; then
 fi
 pass "launcher: fails before invoking pi when .pi/system.yaml is missing"
 
+# ── Declared env names load from .env; nothing in it executes ──
+envproj="$work/envproj"
+mkdir -p "$envproj/.pi"
+cat > "$envproj/.pi/system.yaml" <<'YAML'
+schema: 1
+name: env-launcher
+orchestrator:
+  name: lead
+  model: provider-a/model-large
+integrations:
+  env:
+    - name: GITHUB_PAT
+      secret: true
+    - name: QUOTED
+    - name: PRESET
+YAML
+node "$factory" generate "$envproj" >/dev/null 2>&1
+marker="$work/pwned"
+cat > "$envproj/.env" <<ENVFILE
+# comment
+GITHUB_PAT=abc=def \$(touch $marker) \`touch $marker\`
+export QUOTED="hello world"
+PRESET=from-file
+NODE_OPTIONS=--require=/nonexistent.js
+ENVFILE
+cat > "$bin/pi" <<'EOF'
+#!/usr/bin/env bash
+env | grep -E '^(GITHUB_PAT|QUOTED|PRESET|NODE_OPTIONS|FACTORY_ENV_NAMES|factory_)=' | sort > "$LAUNCHER_LOG"
+EOF
+PRESET=from-shell "$envproj/run"
+[[ ! -e "$marker" ]] || fail "launcher executed content from .env"
+expected="GITHUB_PAT=abc=def \$(touch $marker) \`touch $marker\`
+PRESET=from-shell
+QUOTED=hello world"
+[[ "$(cat "$LAUNCHER_LOG")" == "$expected" ]] || fail "launcher .env loading wrong: $(cat "$LAUNCHER_LOG")"
+pass "launcher: loads only declared .env names, never executes them, shell values win"
+
 echo
 echo "All launcher tests passed."

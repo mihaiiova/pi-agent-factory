@@ -24,6 +24,10 @@ const AGENT_KEYS = [
 ];
 const SKILL_KEYS = ["name", "description", "body", "source"];
 const INTEGRATIONS_KEYS = ["mcp", "env"];
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// ./run loads declared names from .env; these would let a .env value change
+// what code runs or where traffic goes, so they cannot be declared.
+const RESERVED_ENV_RE = /^(PATH|HOME|SHELL|USER|IFS|ENV|BASH_ENV|PS4|PROMPT_COMMAND|TMPDIR|NODE_OPTIONS|NODE_PATH|NODE_EXTRA_CA_CERTS|NODE_TLS_REJECT_UNAUTHORIZED|SSL_CERT_FILE|SSL_CERT_DIR|LD_[A-Z0-9_]*|DYLD_[A-Z0-9_]*|PI_CODING_AGENT_DIR|PI_PACKAGE_DIR|PI_OFFLINE|PI_NO_UPDATE_CHECK|GIT_SSH_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG_[A-Z0-9_]*|PYTHONPATH|PYTHONSTARTUP|PERL5OPT|RUBYOPT|HTTPS?_PROXY|ALL_PROXY|NO_PROXY|FACTORY_[A-Z0-9_]*)$/i;
 const MCP_KEYS = ["name", "config"];
 const ENV_KEYS = ["name", "secret"];
 const WORKFLOW_KEYS = [
@@ -305,6 +309,13 @@ export function validateSystem(doc) {
             }
             checkUnknownKeys(env, ENV_KEYS, `document.integrations.env[${i}]`, errors);
             checkNonEmptyString(env.name, `document.integrations.env[${i}].name`, errors);
+            if (typeof env.name === "string" && env.name.length > 0) {
+              if (!ENV_NAME_RE.test(env.name)) {
+                errors.push(`document.integrations.env[${i}].name must be a shell variable name (letters, digits, underscore; not starting with a digit)`);
+              } else if (RESERVED_ENV_RE.test(env.name)) {
+                errors.push(`document.integrations.env[${i}].name "${env.name}" is reserved: it changes how the shell, Node, Pi or the network stack runs, so ./run never loads it from .env`);
+              }
+            }
             if (env.secret !== undefined && typeof env.secret !== "boolean") {
               errors.push(`document.integrations.env[${i}].secret must be a boolean`);
             }

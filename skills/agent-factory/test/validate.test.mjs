@@ -200,3 +200,19 @@ test("validateSystem accepts declared npm:/git: packages and rejects bad specs",
     assert.ok(errors.some((e) => e.includes("document.packages")), `error names packages: ${errors.join("; ")}`);
   }
 });
+
+test("validateSystem requires shell-safe, non-reserved env names", () => {
+  const withEnv = (name) => {
+    const doc = validDoc();
+    doc.integrations = { ...doc.integrations, env: [{ name, secret: true }] };
+    return doc;
+  };
+  assert.equal(validateSystem(withEnv("GITHUB_PAT")).ok, true);
+  assert.equal(validateSystem(withEnv("PI_API_KEY")).ok, true);
+  for (const name of ["1TOKEN", "MY-TOKEN", "A B"]) {
+    assert.ok(validateSystem(withEnv(name)).errors.some((e) => /shell variable name/.test(e)), name);
+  }
+  for (const name of ["PATH", "NODE_OPTIONS", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "https_proxy", "PI_CODING_AGENT_DIR", "BASH_ENV", "factory_line"]) {
+    assert.ok(validateSystem(withEnv(name)).errors.some((e) => /is reserved/.test(e)), name);
+  }
+});

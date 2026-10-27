@@ -103,7 +103,9 @@ formatting. Full-model replacement can reformat YAML.
 ]
 ```
 
-- `add/update/remove`: `mcp`, `agent`, `skill`, `workflow`.
+- `add/update/remove`: `mcp`, `env`, `agent`, `skill`, `workflow`. An `env`
+  entry declares a variable name (and `secret`); values are never part of a
+  proposal.
 - `assign`: orchestrator or specialist name → its own `provider/id` model, with
   an optional `thinking` level (`null` removes it). Pick from the Pi line-up the
   inspection reports.
@@ -279,6 +281,63 @@ Review recovery conflicts manually rather than deleting journals/locks blindly.
 PID reuse can conservatively prevent stale-lock recovery; confirm no maintenance
 process is live before repairing an ambiguous lock.
 
+## Documentation retrieval
+
+During a `/factory-update` request, `factory_plan` can read public
+documentation so the maintainer can verify an integration before proposing it:
+
+```json
+{"action":"fetch","url":"https://github.com/github/github-mcp-server"}
+{"action":"fetch","url":"https://github.com/github/github-mcp-server/releases/latest"}
+{"action":"fetch","url":"https://github.com/github/github-mcp-server","offset":40000}
+```
+
+- Any public `https://` URL on the default port. `github.com` repository,
+  `blob` and `releases` pages are read in raw form (README text, file content,
+  release JSON). HTML is reduced to readable text; text, JSON, XML and YAML are
+  accepted, anything else is refused.
+- Results carry the requested and final URL, redirects, retrieval time, status,
+  content type, total length and a 40,000-character slice; `nextOffset`
+  continues a longer document without fetching it again.
+- The user approves each new host once per maintenance request; the approval
+  and fetched documents are discarded when the turn ends.
+- SSRF protection: every hop (up to 5 redirects) is validated before
+  connecting. Hosts must resolve only to globally routable addresses — private,
+  loopback, link-local, CGNAT, metadata, multicast, reserved, NAT64/6to4 and
+  IPv4-mapped forms are refused — and the connection is pinned to the checked
+  address, so a second DNS answer (rebinding) is never used. TLS is verified.
+  One 15-second deadline covers DNS, redirects and the body; bodies are capped
+  at 2 MB.
+- No cookies, credentials, proxies or local files are used. URLs with
+  embedded credentials or credential-like query parameters (`token`, `key`,
+  `signature`, …) are refused rather than sent.
+- Retrieved content is labeled untrusted data. It cannot apply, install or
+  approve anything; a failed fetch is reported as unverified.
+
+`action=discover` also accepts `clis` (e.g. `"docker gh"`) to report which
+commands exist on this machine's PATH, without running them.
+
+## Integration credentials
+
+Declare each variable an integration needs in `integrations.env` and reference
+it as `${NAME}` in MCP configuration. `./run` loads exactly the declared names
+from the project's gitignored `.env`: lines are parsed, never sourced, so a
+value cannot run commands, and a variable already set in the shell wins.
+Names that change how the shell, Node, Pi or the network stack behave
+(`PATH`, `NODE_OPTIONS`, `LD_*`, proxies, `PI_CODING_AGENT_DIR`, …) cannot be
+declared.
+
+The maintainer declares variables in a proposal; the human sets values:
+
+```text
+/factory-update env                 # which declared variables are set (never values)
+/factory-update env set GITHUB_PAT  # prompt for the value and save it to .env
+```
+
+The value is typed into a local prompt and written straight to `.env` (mode
+600). It never passes through the model or the session. Pi's prompt is not
+masked, so the value is visible while typing. Restart `./run` to load it.
+
 ## Security boundaries and limitations
 
 - Only the direct user command arms `factory_plan`; it is hidden/unreachable in
@@ -309,8 +368,10 @@ process is live before repairing an ambiguous lock.
   environment secret is read by inspection. Redaction is best-effort, not DLP:
   credentials embedded in arbitrary prose/commands cannot be reliably identified.
   Keep secrets out of declarative/authored content and use environment references.
-- Current public discovery is npm/MCP-registry lookup plus the isolated model
-  registry; it is not a universal web browser or proof of integration quality.
+- Public discovery is npm/MCP-registry lookup, the isolated model registry and
+  read-only documentation retrieval. Retrieved pages are evidence, not proof of
+  integration quality; their content can attempt prompt injection, which the
+  maintainer must ignore and which cannot reach the apply path.
   Only current-session tool-result summaries are automatic execution evidence.
 - Configuration/metadata transactions are recoverable, not filesystem-wide
   ACID against unrelated editors or power loss. Cooperating maintenance writers

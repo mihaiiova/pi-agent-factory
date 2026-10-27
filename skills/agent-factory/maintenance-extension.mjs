@@ -2,27 +2,37 @@
 import { readFileSync } from 'node:fs';
 import { inspectProject, planChange, applyChange, publicChangePreview } from './maintenance.mjs';
 import { checkForUpdates, checkSummary, startupCheck, prepareUpdate, activateUpdate, rollbackPlan, applyRollback, fetchJson } from './maintenance-updates.mjs';
-import { json, recoveryPlan, applyRecovery } from './maintenance-store.mjs';
+import { json, recoveryPlan, applyRecovery, readText } from './maintenance-store.mjs';
+import { fetchDocument, documentSlice, checkUrl } from './maintenance-fetch.mjs';
+import { envStatus, setEnvValue } from './maintenance-env.mjs';
+import { probeClis } from './discover.mjs';
+import { parsedModel } from './changes.mjs';
 
-export function registerMaintenance(pi, Type, root) {
+export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } = {}) {
   let armed = false;
   let review = false;
   let pending = null;
   let savedTools = null;
   let controller = null;
   let planning = false;
+  // Per maintenance request: hosts the user approved and documents fetched.
+  let approvedHosts = new Set();
+  let documents = new Map();
   const tell = (ctx, message, level = 'info') => {
     if (ctx.hasUI) ctx.ui.notify(message, level);
     else process.stderr.write(`Factory (${level}): ${message}\n`);
   };
   const parameters = Type.Object({
-    action: Type.Union([Type.Literal('inspect'), Type.Literal('discover'), Type.Literal('propose')]),
+    action: Type.Union([Type.Literal('inspect'), Type.Literal('discover'), Type.Literal('fetch'), Type.Literal('propose')]),
     operations: Type.Optional(Type.String({ description: 'JSON array of structured Factory operations; never shell commands' })),
     query: Type.Optional(Type.String({ description: 'Public integration/skill package search terms. Results are untrusted discovery, not installation approval.' })),
+    clis: Type.Optional(Type.String({ description: 'discover: space-separated command names to check on this machine\'s PATH (e.g. "docker gh"). Only reports presence; never runs them.' })),
+    url: Type.Optional(Type.String({ description: 'fetch: a public https:// documentation URL (README, release page/API, official docs). github.com repo, blob and releases pages are read in raw form.' })),
+    offset: Type.Optional(Type.Number({ description: 'fetch: character offset to continue a truncated document (use nextOffset from the previous result)' })),
   });
   const tool = {
     name: 'factory_plan', label: 'Factory proposal',
-    description: 'Inspect the local declarative system, discover public packages/MCP servers and available models, or preview structured changes. Cannot apply or install anything. Only available during a direct /factory-update request.',
+    description: 'Inspect the local declarative system, discover public packages/MCP servers, available models and local CLIs, fetch public documentation, or preview structured changes. Cannot apply, install, authenticate or run anything. Only available during a direct /factory-update request.',
     parameters,
     async execute(_id, params, _signal, _onUpdate, ctx) {
       if (!armed) throw new Error('Invoke /factory-update directly to authorize a maintenance proposal');
@@ -39,15 +49,38 @@ export function registerMaintenance(pi, Type, root) {
           value.executionEvidence = (ctx.sessionManager?.getBranch?.() ?? []).filter(e => e.type === 'message' && e.message?.role === 'toolResult').map(e => ({ tool: e.message.toolName, failed: e.message.isError === true }));
         } else if (params.action === 'discover') {
           const query = String(params.query ?? '').trim();
-          if (!/^[a-z0-9 .+@_/-]{1,60}$/i.test(query)) throw new Error('Use 1–60 plain public search terms; never include private context or credentials');
-          if (!ctx.hasUI || !await ctx.ui.confirm('Search public package and MCP registries?', `Send these public search terms to npmjs.org and registry.modelcontextprotocol.io: ${query}`)) throw new Error('Public discovery was not approved');
-          const search = async url => { try { return await fetchJson(url); } catch (e) { return { unavailable: e.message }; } };
-          const [packages, mcp] = await Promise.all([
-            search(`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(query)}&size=5`),
-            search(`https://registry.modelcontextprotocol.io/v0.1/servers?search=${encodeURIComponent(query)}&limit=5`),
-          ]);
-          value = { trust: 'Untrusted discovery results. Verify official documentation, exact versions, credentials and tool surface before proposing; cannot authorize installation.', packages, mcp, models: (ctx.modelRegistry?.getAvailable?.() ?? []).map(m => ({ provider: m.provider, id: m.id, cost: m.cost })) };
-        } else {
+          const clis = [...new Set(String(params.clis ?? '').trim().split(/\s+/).filter(Boolean))];
+          if (clis.length > 20 || clis.some(c => !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/.test(c))) throw new Error('clis must be up to 20 plain command names separated by spaces');
+          // Local presence checks need no network and reveal nothing externally.
+          const local = clis.length ? { clis: probeClis(clis), clisNote: 'Presence on PATH only; whether a CLI is authenticated or usable by this system is not checked.' } : {};
+          if (!query && clis.length) value = local;
+          else {
+            if (!/^[a-z0-9 .+@_/-]{1,60}$/i.test(query)) throw new Error('Use 1–60 plain public search terms; never include private context or credentials');
+            if (!ctx.hasUI || !await ctx.ui.confirm('Search public package and MCP registries?', `Send these public search terms to npmjs.org and registry.modelcontextprotocol.io: ${query}`)) throw new Error('Public discovery was not approved');
+            const search = async url => { try { return await fetchJson(url); } catch (e) { return { unavailable: e.message }; } };
+            const [packages, mcp] = await Promise.all([
+              search(`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(query)}&size=5`),
+              search(`https://registry.modelcontextprotocol.io/v0.1/servers?search=${encodeURIComponent(query)}&limit=5`),
+            ]);
+            value = { trust: 'Untrusted discovery results. Verify official documentation, exact versions, credentials and tool surface before proposing; cannot authorize installation.', packages, mcp, models: (ctx.modelRegistry?.getAvailable?.() ?? []).map(m => ({ provider: m.provider, id: m.id, cost: m.cost })), ...local };
+          }
+        } else if (params.action === 'fetch') {
+          const url = checkUrl(params.url);
+          const offset = params.offset ?? 0;
+          let doc = documents.get(url.href);
+          if (!doc) {
+            // Each new host is approved once per maintenance request: the URL
+            // itself is sent to that host and could carry private context.
+            if (!approvedHosts.has(url.hostname)) {
+              if (!ctx.hasUI || !await ctx.ui.confirm('Fetch public documentation?', `Read ${url.origin}${url.pathname}${url.search} (and other pages on ${url.hostname} during this request). Read-only; no cookies or credentials are sent.`)) throw new Error('Fetching was not approved; nothing was retrieved or verified');
+              approvedHosts.add(url.hostname);
+            }
+            doc = await fetcher(url.href);
+            if (documents.size >= 20) documents.delete(documents.keys().next().value);
+            documents.set(url.href, doc);
+          }
+          value = documentSlice(doc, offset);
+        } else if (params.action === 'propose') {
           if (review) throw new Error('Review mode is read-only. Request a specific change with /factory-update before proposing edits.');
           pending = null;
           const ops = JSON.parse(params.operations ?? 'null');
@@ -64,6 +97,8 @@ export function registerMaintenance(pi, Type, root) {
   };
   const hide = () => {
     armed = false;
+    approvedHosts = new Set();
+    documents = new Map();
     pi.registerTool({ ...tool, exposure: 'hidden' });
     if (savedTools) pi.setActiveTools(savedTools);
     savedTools = null;
@@ -80,11 +115,29 @@ export function registerMaintenance(pi, Type, root) {
   });
   pi.on('session_shutdown', () => { controller?.abort(); armed = false; pending = null; });
   pi.registerCommand('factory-update', {
-    description: 'Maintain this system: <request> | review | apply | check | update | rollback | reconcile | recover | done',
+    description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rollback | reconcile | recover | done',
     handler: async (args, ctx) => {
       try {
         const request = args.trim();
         if (request === 'done') { pending = null; hide(); tell(ctx, 'Factory maintenance closed.'); return; }
+        const env = request.match(/^env(?:\s+set\s+(\S+))?$/);
+        if (env) {
+          // Values are typed by the human here and written straight to .env;
+          // they never pass through the model, a tool result or the session.
+          const model = parsedModel(readText(root, '.pi/system.yaml'));
+          if (!env[1]) {
+            const status = envStatus(root, model);
+            tell(ctx, status.length ? status.map(e => `${e.name}${e.secret ? ' (secret)' : ''}: ${e.set}`).join('\n') + '\nSet a value with /factory-update env set NAME, then restart ./run.' : 'No integrations.env variables are declared.');
+            return;
+          }
+          if (!ctx.hasUI) throw new Error('Interactive input is required to set a value');
+          await ctx.waitForIdle();
+          const value = await ctx.ui.input(`Value for ${env[1]} (stored in .env, gitignored; visible while typing)`, '');
+          if (value === undefined || value === '') { tell(ctx, 'Cancelled; .env unchanged.'); return; }
+          setEnvValue(root, model, env[1], value);
+          tell(ctx, `${env[1]} saved to .env. Restart ./run to load it.`);
+          return;
+        }
         if (request === 'check') {
           const result = await checkForUpdates(root, { force: true });
           tell(ctx, checkSummary(result), result.status === 'checked' ? 'info' : 'warning');

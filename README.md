@@ -67,6 +67,11 @@ configuration (own config dir, own credentials: `/login` once per project).
 Inside it, `/factory-update <request>` previews declarative changes —
 including switching an agent's model — and `/factory-update apply` confirms
 them.
+While preparing a change, the maintainer can read public documentation (for
+example an MCP server's README and releases) to verify versions, tools and
+auth, and can declare the environment variables an integration needs. You set
+their values with `/factory-update env set NAME`; `./run` loads them from the
+project's gitignored `.env`.
 
 On every start, `./run` checks in the background whether a newer Factory
 release exists, by comparing the git commit the project was generated from
