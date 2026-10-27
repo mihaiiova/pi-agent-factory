@@ -90,8 +90,12 @@ Allowed keys: `mcp` (array) and `env` (array).
 - `mcp[]` entries: `name` (required string) and `config` (required non-empty
   object — `{url: …}` or `{command, args}`; the config shape is opaque and
   passed through to `.pi/mcp.json`). Duplicate `name`s are rejected.
-- `env[]` entries: `name` (required string) and `secret` (optional boolean).
-  These become `.env.example` entries.
+- `env[]` entries: `name` (required shell variable name) and `secret`
+  (optional boolean). These become `.env.example` entries, and `./run` loads
+  exactly these names from the gitignored `.env` (parsed, never sourced; the
+  caller's environment wins). Names that change how the shell, Node, Pi or the
+  network stack run (`PATH`, `NODE_OPTIONS`, `LD_*`, `DYLD_*`, proxy variables,
+  `PI_CODING_AGENT_DIR`, `FACTORY_*`, …) are rejected.
 
 ### `workflows[]`
 

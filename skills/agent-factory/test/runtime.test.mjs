@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRuntimePlan, launcherScript, AGENT_DIR } from "../runtime.mjs";
+import { buildRuntimePlan, launcherScript, envNames, AGENT_DIR } from "../runtime.mjs";
 
 const PI_PACKAGES = ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"];
 
@@ -31,4 +31,13 @@ test("launcherScript sets the isolated agent dir and never copies auth.json", ()
 
 test("AGENT_DIR constant is the stable project-relative pi-home", () => {
   assert.equal(AGENT_DIR, ".factory/pi-home");
+});
+
+test("launcherScript adds a .env loader only for declared env names", () => {
+  assert.ok(!launcherScript().includes(".env"));
+  assert.ok(!launcherScript([]).includes("FACTORY_ENV_NAMES"));
+  const script = launcherScript(envNames({ integrations: { env: [{ name: "GITHUB_PAT" }, { name: "OTHER" }, { name: "GITHUB_PAT" }] } }));
+  assert.match(script, /FACTORY_ENV_NAMES=" GITHUB_PAT OTHER "/);
+  assert.ok(script.indexOf("FACTORY_ENV_NAMES") > script.indexOf("export PI_CODING_AGENT_DIR"), "the agent dir cannot be overridden from .env");
+  assert.ok(!/\bsource\b|^\s*\. /m.test(script), ".env is parsed, never sourced");
 });
