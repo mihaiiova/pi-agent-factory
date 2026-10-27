@@ -758,3 +758,35 @@ test('env variables are declared by proposal and their values set only by the us
   await command('env set GITHUB_PAT');
   assert.equal(readText(root, '.env'), '# keep me\nOTHER=1\nGITHUB_PAT=rotated\n');
 });
+
+test('document formats are proposed as operations and land in the writer instructions', t => {
+  const root = project(t);
+  const plan = planChange(root, [{ op: 'add', target: 'document', name: 'decisions', value: {
+    writer: 'lead', maxWords: 600,
+    sections: [{ heading: 'Decide now', guide: 'Yes/no questions' }, { heading: 'Actions' }],
+  } }]);
+  assert.match(plan.writes['.pi/system.yaml'], /# Preserve this purpose comment/);
+  assert.match(plan.writes['.pi/APPEND_SYSTEM.md'], /### decisions \(returned in your output\)[\s\S]*1\. \*\*Decide now\*\* — Yes\/no questions/);
+  applyChange(root, plan, true);
+  assert.deepEqual(inspectProject(root).effectiveCapabilities.documents, [{ name: 'decisions', writer: 'lead' }]);
+  // The lead only has read, so it cannot be given a file to write.
+  assert.throws(() => planChange(root, [{ op: 'update', target: 'document', name: 'decisions', value: { path: 'strategy/decisions.md' } }]), /no write or edit tool/);
+  assert.throws(() => planChange(root, [{ op: 'add', target: 'document', name: 'bad', value: { writer: 'nobody', sections: [] } }]), /writer references "nobody"/);
+});
+
+test('inspect summarizes subagent launches and the latest failure diagnostic only', t => {
+  const root = project(t);
+  const home = join(root, '.factory/pi-home');
+  const artifacts = join(home, 'sessions/s1/subagent-artifacts');
+  mkdirSync(artifacts, { recursive: true });
+  writeFileSync(join(home, 'run-history.jsonl'), [
+    { agent: 'researcher', task: '[redacted]', status: 'error', outcome: 'failed' },
+    { agent: 'researcher', task: '[redacted]', status: 'ok', outcome: 'completed' },
+    { agent: 'writer', status: 'error', outcome: 'failed' },
+  ].map(r => JSON.stringify(r)).join('\n') + '\nnot json\n');
+  writeFileSync(join(artifacts, 'r1_writer_0_meta.json'), JSON.stringify({ agent: 'writer', exitCode: 1, task: 'secret task text', error: 'ran as a foreground child\nlong details' }));
+  const runs = inspectProject(root).subagentRuns;
+  assert.deepEqual(runs.researcher, { runs: 2, failed: 1, last: 'completed' });
+  assert.deepEqual(runs.writer, { runs: 1, failed: 1, last: 'failed', lastError: 'ran as a foreground child' });
+  assert.doesNotMatch(JSON.stringify(runs), /secret task text/);
+});

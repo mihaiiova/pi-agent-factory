@@ -15,6 +15,7 @@ import { hiddenMcpTools, enforcedAgentTools } from "./policy.mjs";
 import { runtimePackages } from "./deps.mjs";
 import { declaredPackages, skillSourceKind } from "./skill-sources.mjs";
 import { splitModelRef } from "./models.mjs";
+import { needsBackground } from "./generate.mjs";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -54,6 +55,10 @@ export function effectiveCapabilities(model, opts = {}) {
       model: agent.model,
       ...(typeof agent.thinking === "string" ? { thinking: agent.thinking } : {}),
       skills: sortUnique(agent.skills),
+      ...(needsBackground(enforcedAgentTools(agent.name, model.policies, agent.tools)) ? { launch: "background" } : {}),
+    })),
+    documents: (Array.isArray(model.documents) ? model.documents : []).map((d) => ({
+      name: d.name, writer: d.writer, ...(d.path ? { path: d.path } : {}),
     })),
     skills: (Array.isArray(model.skills) ? model.skills : []).map((skill) => ({
       name: skill.name,

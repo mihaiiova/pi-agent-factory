@@ -56,6 +56,17 @@ skills:
     source: npm:@acme/house-style@1.2.0   # pinned package, added to runtime packages
 ```
 
+### Documents: formats you agree on
+
+For each document an agent writes (or a report a subagent returns), the
+factory proposes a structure — purpose, sections in order, a word limit and a
+few rules — and you add, remove or change sections before it is recorded in
+`documents[]`. The agreed format goes into that agent's instructions, so each
+run produces the same shape. Change a format later with `/factory-update`.
+
+Subagents that use MCP or extension tools (web search, for example) always
+run in the background, where those tools load; the factory sets this up.
+
 See [`schema.md`](skills/agent-factory/schema.md) for every field, validation
 rule and the file-ownership contract, and [docs/agent-factory.md](docs/agent-factory.md)
 for the architecture.

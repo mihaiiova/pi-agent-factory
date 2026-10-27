@@ -9,9 +9,44 @@ import { infrastructureFiles } from './maintenance-infra.mjs';
 import { redacted, redactForModel, assertNoNewSecrets } from './maintenance-secrets.mjs';
 import { vendoredSkills } from './skill-sources.mjs';
 import { readText, readJson, fingerprints, transact, json } from './maintenance-store.mjs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 function pinsAt(root) {
   return readJson(root, '.pi/settings.json').packages ?? [];
+}
+/** Recent subagent launches from the isolated Pi home: agent, outcome and the
+ * first line of the latest failure diagnostic. Tasks and outputs are never read. */
+export function subagentRuns(root, limit = 50) {
+  const lines = (readText(root, '.factory/pi-home/run-history.jsonl') ?? '').split('\n').filter(Boolean).slice(-limit);
+  const byAgent = {};
+  for (const line of lines) {
+    let run;
+    try { run = JSON.parse(line); } catch { continue; }
+    if (typeof run?.agent !== 'string') continue;
+    const entry = byAgent[run.agent] ??= { runs: 0, failed: 0 };
+    entry.runs += 1;
+    if (run.status === 'error' || run.outcome === 'failed') entry.failed += 1;
+    entry.last = run.outcome ?? run.status;
+  }
+  const sessions = join(root, '.factory/pi-home/sessions');
+  const metas = [];
+  try {
+    for (const dir of readdirSync(sessions)) {
+      const artifacts = join(sessions, dir, 'subagent-artifacts');
+      if (!existsSync(artifacts)) continue;
+      for (const name of readdirSync(artifacts)) if (name.endsWith('_meta.json')) metas.push(join(artifacts, name));
+    }
+  } catch { /* no sessions yet */ }
+  metas.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+  for (const file of metas.slice(0, 50)) {
+    let meta;
+    try { meta = JSON.parse(readFileSync(file, 'utf8')); } catch { continue; }
+    const entry = byAgent[meta?.agent];
+    if (!entry || entry.lastError || !meta.exitCode || typeof meta.error !== 'string') continue;
+    entry.lastError = meta.error.split('\n')[0].slice(0, 300);
+  }
+  return byAgent;
 }
 export function inspectProject(root) {
   const text = readText(root, '.pi/system.yaml');
@@ -27,7 +62,8 @@ export function inspectProject(root) {
       const content = readText(root, p);
       return [p, p.endsWith('.json') && content !== null ? json(redacted(JSON.parse(content))) : content];
     })),
-    evidence: 'No execution evidence inferred from configuration. Only cite execution evidence the user supplies or explicitly authorizes reading; never read auth files or environment secrets. Credential redaction is best-effort, not a general secret scanner.',
+    subagentRuns: subagentRuns(root),
+    evidence: 'subagentRuns summarizes recent launches (agent, outcome, first diagnostic line) from .factory/pi-home; repeated failures are a configuration problem to propose a fix for. No other execution evidence inferred from configuration. Only cite execution evidence the user supplies or explicitly authorizes reading; never read auth files or environment secrets. Credential redaction is best-effort, not a general secret scanner.',
   });
 }
 export function planChange(root, operations) {

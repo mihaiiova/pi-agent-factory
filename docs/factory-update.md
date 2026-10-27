@@ -317,6 +317,26 @@ documentation so the maintainer can verify an integration before proposing it:
 `action=discover` also accepts `clis` (e.g. `"docker gh"`) to report which
 commands exist on this machine's PATH, without running them.
 
+## Document formats
+
+`documents[]` records how one agent writes one document. Ask for a change in
+plain words (`/factory-update make the strategy doc a one-page decision doc`);
+the maintainer first proposes the structure in text, you adjust it, and only
+then does it preview a `document` operation for `/factory-update apply`. The
+format is rendered into the writer's instructions under "Document formats".
+`/factory-update review` also flags documents with no agreed format.
+
+## Specialist launches
+
+Foreground subagents never load extensions, so a specialist with MCP or
+extension tools would start without them. The factory marks such agents
+`async: true` and writes `forceTopLevelAsync: true` to
+`.factory/pi-home/extensions/subagent/config.json`. `factory_plan inspect`
+reports `subagentRuns` — per agent, recent launches, failures and the first line
+of the latest failure diagnostic — so review can point at a broken specialist.
+Projects generated before 0.7.0 get the change through `/factory-update update`
+followed by `/factory-update reconcile` (or any applied change).
+
 ## Integration credentials
 
 Declare each variable an integration needs in `integrations.env` and reference

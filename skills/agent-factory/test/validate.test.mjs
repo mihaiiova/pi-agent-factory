@@ -216,3 +216,26 @@ test("validateSystem requires shell-safe, non-reserved env names", () => {
     assert.ok(validateSystem(withEnv(name)).errors.some((e) => /is reserved/.test(e)), name);
   }
 });
+
+test("validateSystem checks document formats, writers and paths", () => {
+  const sections = [{ heading: "Decide now", guide: "Yes/no questions" }];
+  const ok = validDoc({ documents: [
+    { name: "decisions", path: "data/decisions.md", writer: "article-writer", maxWords: 600, sections, rules: ["One page"] },
+    { name: "evidence", writer: "seo-analyst", sections },
+  ] });
+  assert.deepEqual(validateSystem(ok).errors, []);
+
+  const bad = validateSystem(validDoc({ documents: [
+    { name: "a", path: "../out.md", writer: "nobody", sections: [] },
+    { name: "b", path: ".pi/agents/x.md", writer: "article-writer", maxWords: 0, sections: [{ guide: "x" }], extra: 1 },
+    { name: "c", path: "reports/c.md", writer: "seo-analyst", sections },
+  ] })).errors;
+  assert.ok(bad.some((e) => e.includes("documents[0].path must be a project-relative")));
+  assert.ok(bad.some((e) => e.includes("documents[0].writer references \"nobody\"")));
+  assert.ok(bad.some((e) => e.includes("documents[0].sections must be a non-empty array")));
+  assert.ok(bad.some((e) => e.includes("documents[1].path must be a project-relative")));
+  assert.ok(bad.some((e) => e.includes("documents[1].maxWords")));
+  assert.ok(bad.some((e) => e.includes("documents[1].sections[0].heading")));
+  assert.ok(bad.some((e) => e.includes('documents[1] has unknown key "extra"')));
+  assert.ok(bad.some((e) => e.includes('documents[2].writer "seo-analyst" has no write or edit tool')));
+});

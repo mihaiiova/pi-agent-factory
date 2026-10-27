@@ -20,6 +20,7 @@ Top-level keys (all others rejected):
 | `skills` | no | array | authored, packaged or vendored skills (→ `.pi/skills/*/`) |
 | `integrations` | no | object | MCP servers + env requirements |
 | `workflows` | no | array | declared workflow boundaries (metadata only) |
+| `documents` | no | array | agreed formats for documents agents write or return |
 | `policies` | no | object | enforced + advisory policy |
 | `packages` | no | array of `npm:`/`git:` specs | additional runtime extension packages (primaries `pi-subagents`/`pi-mcp-adapter` are always included; packaged skill sources are added automatically) |
 
@@ -62,7 +63,13 @@ Allowed keys: `name` (required string), `description`, `prompt`, `model`
 Allowed keys: `name` (required string), `description`, `tools` (array of
 strings), `model` (required `provider/id`), `thinking`, `skills` (array of
 declared `skills[].name`), `prompt`, `inheritProjectContext`, `inheritSkills`.
-`tools:` is the subagent allowlist (an *enforced* policy). `skills:` selects the
+`tools:` is the subagent allowlist (an *enforced* policy). A subagent whose
+tools include anything beyond Pi's builtins (`read`, `bash`, `edit`, `write`,
+`grep`, `find`, `ls`) — `mcp:` selections or extension tools such as
+`web_search` — or that omits `tools`, gets `async: true`: foreground children
+never load extensions, so those tools would be missing. Such systems also get
+`.factory/pi-home/extensions/subagent/config.json` with
+`forceTopLevelAsync: true` so a caller cannot launch them in the foreground. `skills:` selects the
 skills the subagent receives. Duplicate `name`s are rejected.
 
 ### `skills[]`
@@ -114,6 +121,33 @@ Workflows are **declared boundaries, not a graph of internal steps**: execution
 authority stays with the named skill's own procedure. Duplicate `name`s are
 rejected.
 
+### `documents[]`
+
+How one agent writes one document, agreed with the user. Allowed keys: `name`
+(required kebab-case), `writer` (required: `orchestrator.name` or an
+`agents[].name`), `path` (optional project-relative file outside `.pi/` and
+`.factory/`; omit it for a report a subagent returns), `purpose`, `maxWords`
+(positive integer), `sections` (required non-empty array of `{ heading,
+guide? }`, in order) and `rules` (array of strings). A writer with a `path`
+must have `write` or `edit` when its tools are listed. The format is appended
+to the writer's instructions (`APPEND_SYSTEM.md` or its agent file) under
+"Document formats". Duplicate `name`s are rejected.
+
+```yaml
+documents:
+  - name: decisions
+    path: strategy/decisions.md
+    writer: lead
+    purpose: One page the owner can act on.
+    maxWords: 600
+    sections:
+      - { heading: Decide now, guide: "Yes/no questions for the owner, at most 3" }
+      - { heading: Actions, guide: "Table: action | owner | due | done when" }
+      - { heading: Open questions, guide: "At most 5" }
+      - { heading: Evidence and limits, guide: "At most 5 bullets linking to reports/" }
+    rules: [ "Caveats only in Evidence and limits", "No run IDs or tool arguments" ]
+```
+
 ### `policies`
 
 Allowed keys: `enforced` (array) and `advisory` (array of strings).
@@ -143,7 +177,7 @@ path/key and the expected value. Rejected conditions:
   string arrays, missing `skill` and `entry`);
 - incompatible configurations (a workflow or policy referencing an undeclared
   agent/skill/MCP);
-- duplicate `name` within `agents[]`, `skills[]`, `integrations.mcp[]`, or
+- duplicate `name` within `agents[]`, `skills[]`, `integrations.mcp[]`, `documents[]`, or
   `workflows[]`.
 
 The skill name `factory-update` is reserved for bundled maintenance infrastructure
