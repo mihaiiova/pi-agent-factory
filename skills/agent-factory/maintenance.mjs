@@ -8,6 +8,7 @@ import { diffLines } from './diff.mjs';
 import { infrastructureFiles } from './maintenance-infra.mjs';
 import { redacted, redactForModel, assertNoNewSecrets } from './maintenance-secrets.mjs';
 import { vendoredSkills } from './skill-sources.mjs';
+import { registrySkills, installedDir, installRegistrySkill, removeRegistrySkill, previewRegistrySkill, SKILLS_CLI } from './registry-skills.mjs';
 import { readText, readJson, fingerprints, transact, json } from './maintenance-store.mjs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -111,6 +112,14 @@ export function planChange(root, operations) {
     const after = newScaffolds.find(s => s.path === f.path)?.content;
     if (before !== after && existing[f.path] !== after) throw new Error(`Authored file conflict: ${f.path}; reconcile the content explicitly before changing its declaration`);
   }
+  // Registry skills are installed by the skills CLI on apply (project-local
+  // .agents/skills/<name>/), never written by the generator.
+  const oldRegistry = new Map(registrySkills(oldModel).map(s => [s.name, s.source]));
+  const newRegistry = registrySkills(model);
+  const skills = {
+    install: newRegistry.filter(s => oldRegistry.get(s.name) !== s.source || readText(root, `${installedDir(s.name)}/SKILL.md`) === null),
+    remove: [...oldRegistry.keys()].filter(name => !newRegistry.some(s => s.name === name) && readText(root, `${installedDir(name)}/SKILL.md`) !== null),
+  };
   const writes = { '.pi/system.yaml': text };
   const files = plan.files.filter(f => ['write', 'create'].includes(f.action));
   for (const f of files) writes[f.path] = f.content;
@@ -131,7 +140,7 @@ export function planChange(root, operations) {
   const afterCapabilities = effectiveCapabilities(model, opts);
   writes['.factory/capabilities.json'] = json(afterCapabilities);
   return {
-    kind: 'configuration', writes,
+    kind: 'configuration', writes, skills,
     expected: fingerprints(root, [...paths, ...Object.keys(writes), '.factory/installation.json']),
     preview: {
       reconciliation: reconcile ? drift : [],
@@ -144,6 +153,11 @@ export function planChange(root, operations) {
       modelDiff: diffLines(oldText, text),
       files: files.map(f => ({ path: f.path, action: f.action, diff: diffLines(existing[f.path] ?? '', f.content) })),
       capabilitiesDiff: diffLines(json(beforeCapabilities), json(afterCapabilities)),
+      ...(skills.install.length || skills.remove.length ? { skills: {
+        install: skills.install.map(s => ({ name: s.name, source: s.source, into: `${installedDir(s.name)}/` })),
+        remove: skills.remove.map(name => `${installedDir(name)}/`),
+        how: `On apply, npx ${SKILLS_CLI} add <source> --agent pi --copy -y runs in this project (project-local, never global) and records the commit in skills-lock.json. Installed SKILL.md must match the preview. Skills can instruct agents to run programs; read them before approving.`,
+      } } : {}),
       restart: 'Restart ./run after applying: tool, package, MCP and resource changes are not hot-activated.',
     },
   };
@@ -163,9 +177,31 @@ export function publicChangePreview(root, plan) {
   });
   return redactForModel(root, { ...plan.preview, modelDiff, files });
 }
-export function applyChange(root, plan, approved = false) {
+/** Attach what each skill to install contains (SKILL.md text and files at the
+ * pinned commit). Install verification then checks the exact SKILL.md shown. */
+export async function withSkillPreviews(plan, { fetcher } = {}) {
+  if (!plan?.skills?.install?.length) return plan;
+  const previews = {};
+  for (const skill of plan.skills.install) previews[skill.name] = await previewRegistrySkill(skill.source, fetcher ? { fetcher } : {});
+  plan.skillPreviews = previews;
+  plan.preview.skills.contents = Object.values(previews).map(p => ({ source: p.source, page: p.page, files: p.files, fileListComplete: p.fileListComplete, skillMd: p.skillMd }));
+  return plan;
+}
+export function applyChange(root, plan, approved = false, { run } = {}) {
   if (plan?.kind !== 'configuration') throw new Error('Expected a configuration proposal');
-  transact(root, plan.writes, plan.expected, approved);
+  if (approved !== true) throw new Error('Explicit user approval required');
+  const installed = [];
+  try {
+    for (const skill of plan.skills?.install ?? []) {
+      installRegistrySkill(root, skill, { expectedSha256: plan.skillPreviews?.[skill.name]?.skillMdSha256, ...(run ? { run } : {}) });
+      installed.push(skill.name);
+    }
+    transact(root, plan.writes, plan.expected, approved);
+  } catch (error) {
+    for (const name of installed) removeRegistrySkill(root, name, run ? { run } : {});
+    throw error;
+  }
+  for (const name of plan.skills?.remove ?? []) removeRegistrySkill(root, name, run ? { run } : {});
   // Verification is deterministic and credential-free.
   try {
     const report = inspectProject(root);

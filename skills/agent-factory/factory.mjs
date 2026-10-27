@@ -9,6 +9,8 @@
                              print a read-only capability inventory as JSON;
                              probes only the CLIs named with --cli
  *   modify <dir> [--dry-run] [--yes]  diff project vs model, apply confirmed changes
+ *   search-skills <query...>   search skills.sh (JSON)
+ *   preview-skill <spec>       pin owner/repo@name, or show a skills: source
  *   import <dir>               reconstruct system.yaml from an existing project
  *   change <dir> --operations <file> [--dry-run] [--yes] declarative change batch
  *   bootstrap-update <dir> [--dry-run] [--yes] add standalone maintenance
@@ -38,8 +40,9 @@ import { loadYaml } from "./yaml-loader.mjs";
 import { importSystem } from "./import.mjs";
 import { parseModelList, unavailableModelWarnings } from "./models.mjs";
 import { vendoredSkills } from "./skill-sources.mjs";
+import { registrySkills, installedDir, installRegistrySkill, searchSkills, previewRegistrySkill, resolveRegistrySkill } from "./registry-skills.mjs";
 import { localBundle, bootstrapPlan, applyBootstrap } from './maintenance-bundle.mjs';
-import { planChange, applyChange } from './maintenance.mjs';
+import { planChange, applyChange, withSkillPreviews } from './maintenance.mjs';
 import { recoveryPlan, applyRecovery } from './maintenance-store.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -60,6 +63,11 @@ Commands:
                              install standalone maintenance in an older project
   change <dir> --operations <json-file> [--dry-run] [--yes]
                              validate/preview a structured system.yaml change
+  search-skills <query...>   search the open skills registry (skills.sh) as JSON
+  preview-skill <owner/repo@name | source>
+                             pin a skills.sh result to its current commit, or
+                             read a pinned "skills:<owner>/<repo>/<dir>@<commit>"
+                             source; prints the source, SKILL.md and files (JSON)
   import <dir>               reconstruct <dir>/.pi/system.yaml from an existing
                              Pi project (settings + detected agents/skills/MCP)
 
@@ -176,6 +184,22 @@ function vendorPlan(dir, model) {
     }
   }
   return { copies, errors };
+}
+
+/** Registry skills not yet installed in the project's `.agents/skills/`. */
+function registryPlan(dir, model) {
+  return registrySkills(model).filter((skill) => !existsSync(join(resolve(dir), installedDir(skill.name), "SKILL.md")));
+}
+
+function printRegistryPlan(skills) {
+  for (const skill of skills) console.log(`  ${pad("install")} ${installedDir(skill.name)}/ (skills CLI, ${skill.source})`);
+}
+
+function applyRegistryPlan(dir, skills) {
+  for (const skill of skills) {
+    installRegistrySkill(resolve(dir), skill);
+    console.log(`installed ${installedDir(skill.name)}/ from ${skill.source}`);
+  }
 }
 
 function printVendorPlan(copies) {
@@ -419,6 +443,7 @@ function runGenerate(dir, dryRun) {
   if (dryRun) {
     printPlan(systemPath, dir, files, existing, "Planned changes (dry run — nothing written)");
     printVendorPlan(vendor.copies);
+    printRegistryPlan(registryPlan(dir, normalized));
     if (bundle) console.log(`  bundle standalone Factory maintenance (${bundle.installation.version}, ${bundle.installation.revision})`);
     process.exitCode = 0;
     return;
@@ -430,6 +455,7 @@ function runGenerate(dir, dryRun) {
     console.log(`wrote ${f.path} (${f.action})`);
   }
   applyVendorPlan(dir, vendor.copies);
+  try { applyRegistryPlan(dir, registryPlan(dir, normalized)); } catch (err) { fail(err.message); return; }
   mkdirSync(join(resolve(dir), ".pi", "agents"), { recursive: true });
 
   // Write the deterministic effective-capability manifest and verify the
@@ -540,6 +566,8 @@ async function runModify(dir, dryRun, yes) {
     ? "Planned changes (dry run — nothing written)"
     : "Preview of changes to apply");
   printVendorPlan(vendor.copies);
+  const installs = registryPlan(dir, normalized);
+  printRegistryPlan(installs);
 
   if (dryRun) {
     process.exitCode = 0;
@@ -561,6 +589,7 @@ async function runModify(dir, dryRun, yes) {
   if (yes) {
     for (const f of changes) apply(f);
     applyVendorPlan(dir, vendor.copies);
+    try { applyRegistryPlan(dir, installs); } catch (err) { fail(err.message); return; }
   } else {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     for (const f of changes) {
@@ -572,6 +601,11 @@ async function runModify(dir, dryRun, yes) {
       const answer = await new Promise(resolve => rl.question(`Vendor ${copy.dest}/ from ${copy.source}? [y/N] `, resolve));
       if (/^y(es)?$/i.test(answer.trim())) applyVendorPlan(dir, [copy]);
       else console.log(`skipped ${copy.dest}/`);
+    }
+    for (const skill of installs) {
+      const answer = await new Promise(resolve => rl.question(`Install ${installedDir(skill.name)}/ from ${skill.source} with the skills CLI? [y/N] `, resolve));
+      if (!/^y(es)?$/i.test(answer.trim())) { console.log(`skipped ${installedDir(skill.name)}/`); continue; }
+      try { applyRegistryPlan(dir, [skill]); } catch (err) { console.error(`error - ${err.message}`); process.exitCode = 1; }
     }
     rl.close();
   }
@@ -648,7 +682,7 @@ async function main(argv) {
     const root = resolve(dir);
     const index = rest.indexOf('--operations');
     if (command === 'change' && (index < 0 || !rest[index + 1])) { fail('change requires --operations <json-file>'); return; }
-    const plan = command === 'bootstrap-update' ? bootstrapPlan(root) : command === 'recover' ? recoveryPlan(root) : planChange(root, JSON.parse(readFileSync(rest[index + 1], 'utf8')));
+    const plan = command === 'bootstrap-update' ? bootstrapPlan(root) : command === 'recover' ? recoveryPlan(root) : await withSkillPreviews(planChange(root, JSON.parse(readFileSync(rest[index + 1], 'utf8'))));
     console.log(JSON.stringify(plan.preview, null, 2));
     if (dryRun) { console.log('Dry run — nothing written.'); return; }
     let approved = rest.includes('--yes');
@@ -662,6 +696,17 @@ async function main(argv) {
     else if (command === 'recover') applyRecovery(root, plan, true);
     else applyChange(root, plan, true);
     console.log('Applied. Restart ./run.');
+    return;
+  }
+
+  if (command === "search-skills" || command === "preview-skill") {
+    const args = [dir, ...rest].filter(Boolean);
+    if (args.length === 0) { fail(`${command} requires ${command === "search-skills" ? "a query" : "a skills: source"}`); return; }
+    try {
+      const result = command === "search-skills" ? await searchSkills(args.join(" "))
+        : args[0].startsWith("skills:") ? await previewRegistrySkill(args[0]) : await resolveRegistrySkill(args[0]);
+      console.log(JSON.stringify(result, null, 2));
+    } catch (err) { fail(err.message); }
     return;
   }
 

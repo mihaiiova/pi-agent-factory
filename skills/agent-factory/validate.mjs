@@ -35,7 +35,8 @@ const WORKFLOW_KEYS = [
   "inputs", "outputs", "approval", "verify",
 ];
 const TRIGGER_KEYS = ["kind"];
-const DOCUMENT_KEYS = ["name", "path", "writer", "purpose", "maxWords", "sections", "rules"];
+const DOCUMENT_KEYS = ["name", "path", "writer", "purpose", "maxWords", "sections", "rules", "deliver"];
+const DELIVER_KEYS = ["mcp", "tool", "with", "note"];
 const SECTION_KEYS = ["heading", "guide"];
 const POLICIES_KEYS = ["enforced", "advisory"];
 const ENFORCED_KEYS = ["agent", "tools", "mcp", "hide"];
@@ -254,7 +255,8 @@ export function validateSystem(doc) {
         if (skillSourceKind(skill.source) === null) {
           errors.push(
             `document.skills[${i}].source must be a pinned package ("npm:name@version" or ` +
-              `"git:repo@ref") or a directory path (./, ../, /, ~/) containing SKILL.md`,
+              `"git:repo@ref"), a directory path (./, ../, /, ~/) containing SKILL.md, or ` +
+              `"skills:<owner>/<repo>/<skill-dir>@<40-character commit>"`,
           );
         }
         if (skill.body !== undefined) {
@@ -534,6 +536,32 @@ export function validateSystem(doc) {
         if (Array.isArray(tools) && !tools.includes("write") && !tools.includes("edit")) {
           errors.push(`${path}.writer "${d.writer}" has no write or edit tool; omit path for a report it returns, or choose a writer that can write files`);
         }
+      }
+      if (d.deliver !== undefined) {
+        if (!Array.isArray(d.deliver)) errors.push(`${path}.deliver must be an array of { mcp, tool, with?, note? }`);
+        else d.deliver.forEach((target, j) => {
+          const dp = `${path}.deliver[${j}]`;
+          if (!isPlainObject(target)) { errors.push(`${dp} must be an object`); return; }
+          checkUnknownKeys(target, DELIVER_KEYS, dp, errors);
+          checkNonEmptyString(target.mcp, `${dp}.mcp`, errors);
+          checkNonEmptyString(target.tool, `${dp}.tool`, errors);
+          if (target.with !== undefined && !isPlainObject(target.with)) errors.push(`${dp}.with must be an object of tool arguments`);
+          if (target.note !== undefined) checkNonEmptyString(target.note, `${dp}.note`, errors);
+          if (!isNonEmptyString(target.mcp)) return;
+          if (!mcpNames.has(target.mcp)) {
+            errors.push(`${dp}.mcp references "${target.mcp}" which is not a declared MCP server`);
+            return;
+          }
+          // The writer must be able to call the tool it delivers with.
+          const tools = isNonEmptyString(d.writer) ? toolsOf(d.writer) : undefined;
+          if (!Array.isArray(tools)) return;
+          const reach = d.writer === orchestratorName
+            ? tools.includes("mcp")
+            : tools.includes(`mcp:${target.mcp}`) || tools.includes(`mcp:${target.mcp}/${target.tool}`);
+          if (!reach) {
+            errors.push(`${dp}: writer "${d.writer}" cannot call ${target.mcp}/${target.tool}; add ${d.writer === orchestratorName ? '"mcp"' : `"mcp:${target.mcp}/${target.tool}"`} to its tools`);
+          }
+        });
       }
       if (!Array.isArray(d.sections) || d.sections.length === 0) {
         errors.push(`${path}.sections must be a non-empty array of { heading, guide }`);

@@ -30,6 +30,15 @@ function renderDocument(d) {
   });
   const rules = (Array.isArray(d.rules) ? d.rules : []).filter(isNonEmptyString);
   if (rules.length) lines.push("", "Rules:", "", ...rules.map((r) => `- ${r}`));
+  const deliver = (Array.isArray(d.deliver) ? d.deliver : []).filter((t) => isPlainObject(t) && isNonEmptyString(t.mcp) && isNonEmptyString(t.tool));
+  if (deliver.length) {
+    lines.push("", isNonEmptyString(d.path) ? "When the file is written, also deliver it:" : "Deliver it:", "");
+    for (const t of deliver) {
+      const args = isPlainObject(t.with) && Object.keys(t.with).length ? ` with ${JSON.stringify(t.with)}` : "";
+      lines.push(`- MCP server \`${t.mcp}\`, tool \`${t.tool}\`${args}${isNonEmptyString(t.note) ? ` — ${t.note}` : ""}`);
+    }
+    lines.push("", "Report where each delivery landed (link or ID), or exactly why it failed.");
+  }
   return lines.join("\n");
 }
 

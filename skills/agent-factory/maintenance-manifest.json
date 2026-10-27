@@ -8,6 +8,8 @@
     "skills/agent-factory/validate.mjs",
     "skills/agent-factory/models.mjs",
     "skills/agent-factory/skill-sources.mjs",
+    "skills/agent-factory/registry-skills.mjs",
+    "skills/agent-factory/launch-check.mjs",
     "skills/agent-factory/yaml-loader.mjs",
     "skills/agent-factory/deps.mjs",
     "skills/agent-factory/diff.mjs",

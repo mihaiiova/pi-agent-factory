@@ -25,6 +25,8 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
    MCP servers and subagents. It knows no CLIs of its own: when the user names
    command-line tools the system will use, add `--cli <name>` for each to check
    they are installed. Resolve discoverable facts rather than asking.
+   Search the open skills registry with `factory search-skills <terms>`
+   (skills.sh: name, source repo, installs, page).
 3. **Design** — define the system from zero using the seven primitives
    (`orchestrator`, `agents`, `skills`, `integrations`, `workflows`, `policies`,
    `packages`).
@@ -33,19 +35,35 @@ SEO system", "set up a coding agent with a reviewer", …) and this skill routes
      line-up, and record it as `model: provider/id` (plus an optional
      `thinking:` level) on that agent. Agents may share a model or each use a
      different one. Any model can be changed later (step 7).
-   - **Skills:** the factory ships no skills and never recommends one unprompted.
-     Use only skills the user asks for or provides: an inline `body` they
-     describe, a pinned package (`source: npm:<name>@<version>` or
-     `git:<repo>@<ref>`), or a directory they point at (`source: ./path`,
-     `../path`, `/abs/path` or `~/path`), which is vendored into
-     `.pi/skills/<name>/`. Attach skills to the agents that need them with
-     `agents[].skills`.
+   - **Skills:** the factory ships no skills of its own; each agent gets the
+     skills the user chooses for it. Whenever you design, add or change an
+     agent, search skills.sh for its role (`factory search-skills <terms>`)
+     and suggest a few candidates per agent, with source repo, install count
+     and skills.sh page; install counts are information, not a filter. For
+     each one the user is interested in, run `factory preview-skill
+     <owner/repo>@<name>`: it pins the skill to the repository's current
+     commit and prints its `SKILL.md` and files, which you summarize (what it
+     instructs, any scripts) before the user decides. Record the user's picks
+     with the printed `source: skills:<owner>/<repo>/<dir>@<commit>`;
+     `factory generate` installs them into the project's `.agents/skills/<name>/`
+     with the `skills` CLI (project-local, never global) and `skills-lock.json`
+     records the commit. Skills can also be an inline `body`, a pinned package
+     (`source: npm:<name>@<version>` or `git:<repo>@<ref>`), or a directory the
+     user points at (`source: ./path`, `../path`, `/abs/path` or `~/path`),
+     vendored into `.pi/skills/<name>/`. Attach skills per agent with
+     `agents[].skills`. An agent the user wants to find and install skills
+     itself can be given the `vercel-labs/skills@find-skills` skill plus
+     `bash`; tell it, as a document rule or in its prompt, to install
+     project-locally (`--agent pi`, no `-g`).
    - **Documents:** any agent may write or return any number of documents.
      For each one, propose a structure — purpose, sections in order with a
      one-line guide each, and optionally a word limit and rules — and ask
      the user to add, remove or change sections before recording it in
      `documents[]` with its `writer`. Propose; never decide the format alone.
-     The agreed format is rendered into the writer's instructions.
+     A document can also be delivered anywhere an MCP tool reaches (Google
+     Drive, Notion, Slack, …): `deliver: [{ mcp, tool, with?, note? }]`, any
+     number per document; the writer needs that tool. The agreed format and
+     deliveries are rendered into the writer's instructions.
 4. **Generate** — write `system.yaml`, then **preview first**: run
    `factory generate <dir> --dry-run` and show the planned diff. Only apply after
    the user confirms. Generation also writes `.factory/capabilities.json` — the
