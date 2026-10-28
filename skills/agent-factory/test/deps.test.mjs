@@ -4,7 +4,7 @@ import { runtimePackages } from "../deps.mjs";
 
 const PI_PACKAGES = [
   "npm:pi-mcp-adapter@2.32.1",
-  "npm:pi-subagents@0.65.0",
+  "npm:pi-subagents@0.83.1",
   "npm:pi-web-access@0.27.0",
   "npm:yaml@2.8.3",
   "npm:@juicesharp/rpiv-ask-user-question@2.9.0",
@@ -13,14 +13,14 @@ const PI_PACKAGES = [
 
 test("runtimePackages emits only the two runtime primitives, in order", () => {
   const { packages, errors } = runtimePackages(PI_PACKAGES);
-  assert.deepEqual(packages, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"]);
+  assert.deepEqual(packages, ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"]);
   assert.deepEqual(errors, []);
 });
 
 test("runtimePackages appends declared npm:/git: specs after the primitives", () => {
   const { packages, errors } = runtimePackages(PI_PACKAGES, ["npm:foo@1.2.3", "git:github.com/x/y@v1"]);
   assert.deepEqual(packages, [
-    "npm:pi-subagents@0.65.0",
+    "npm:pi-subagents@0.83.1",
     "npm:pi-mcp-adapter@2.32.1",
     "npm:foo@1.2.3",
     "git:github.com/x/y@v1",
@@ -30,7 +30,7 @@ test("runtimePackages appends declared npm:/git: specs after the primitives", ()
 
 test("runtimePackages never emits dev-only, web, local-path, or secret-shaped entries", () => {
   const hostile = [
-    "npm:pi-subagents@0.65.0",
+    "npm:pi-subagents@0.83.1",
     "npm:pi-mcp-adapter@2.32.1",
     "npm:pi-web-access@0.27.0",       // web tools — dev/ambient, not a primitive
     "npm:yaml@2.8.3",                  // factory dev dep
@@ -43,12 +43,12 @@ test("runtimePackages never emits dev-only, web, local-path, or secret-shaped en
     "npm:@juicesharp/rpiv-ask-user-question@2.9.0",
   ];
   const { packages } = runtimePackages(hostile, []);
-  assert.deepEqual(packages, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"]);
+  assert.deepEqual(packages, ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"]);
 });
 
 test("a missing required primitive is an error, never silently omitted", () => {
-  const { packages, errors } = runtimePackages(["npm:pi-subagents@0.65.0"]);
-  assert.deepEqual(packages, ["npm:pi-subagents@0.65.0"]);
+  const { packages, errors } = runtimePackages(["npm:pi-subagents@0.83.1"]);
+  assert.deepEqual(packages, ["npm:pi-subagents@0.83.1"]);
   assert.ok(errors.some((e) => e.includes('"pi-mcp-adapter"')), "names the missing primitive");
 });
 

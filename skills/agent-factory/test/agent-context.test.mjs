@@ -111,3 +111,11 @@ test("the orchestrator's section is injected at session start from system.yaml",
   assert.match(prompt, /## What you can use\n[\s\S]*`cli_create_issue`/);
   assert.match(prompt, /## Memory/);
 });
+
+test("settings switch off Pi's built-in MCP and keep the user's other extension entries", () => {
+  const first = JSON.parse(generateProject(model, {}, { piPackages: pkg.pi.packages }).files.find((f) => f.path === '.pi/settings.json').content);
+  assert.deepEqual(first.extensions, ['-builtin:mcp']);
+  const existing = { '.pi/settings.json': JSON.stringify({ extensions: ['+builtin:mcp', './my-ext.ts'] }) };
+  const merged = JSON.parse(generateProject(model, existing, { piPackages: pkg.pi.packages }).files.find((f) => f.path === '.pi/settings.json').content);
+  assert.deepEqual(merged.extensions, ['./my-ext.ts', '-builtin:mcp']);
+});

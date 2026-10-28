@@ -70,7 +70,7 @@ cp -r "$fixtures/coding-agent/.pi" "$gen/.pi"
 node "$factory" generate "$gen" >/dev/null
 node -e '
 const s = require(process.argv[1]);
-const expect = ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"];
+const expect = ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"];
 if (JSON.stringify(s.packages) !== JSON.stringify(expect)) {
   console.error("packages = " + JSON.stringify(s.packages));
   process.exit(1);

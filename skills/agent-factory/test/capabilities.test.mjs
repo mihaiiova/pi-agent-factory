@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { effectiveCapabilities, checkCapabilities } from "../capabilities.mjs";
 
-const PI_PACKAGES = ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"];
+const PI_PACKAGES = ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"];
 
 const MODEL = {
   schema: 1,
@@ -35,7 +35,7 @@ test("effectiveCapabilities derives the full intended surface", () => {
   ]);
   assert.deepEqual(caps.mcpServers, [{ name: "openseo", excludeTools: ["publish_*"] }]);
   assert.deepEqual(caps.packages, [
-    "npm:pi-subagents@0.65.0",
+    "npm:pi-subagents@0.83.1",
     "npm:pi-mcp-adapter@2.32.1",
     "npm:extra@1.0.0",
     "npm:@acme/skills@2.0.0",
