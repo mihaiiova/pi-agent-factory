@@ -1,0 +1,113 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadYaml } from '../yaml-loader.mjs';
+import { generateProject } from '../generate.mjs';
+import { planChange } from '../maintenance.mjs';
+import { registerMaintenance } from '../maintenance-extension.mjs';
+import { capabilitySection, staleMentions } from '../agent-context.mjs';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(resolve(here, '../../../package.json'), 'utf8'));
+const yaml = loadYaml();
+const model = {
+  schema: 1, name: 'ctx-test',
+  orchestrator: { name: 'lead', model: 'fixture/large', tools: ['read', 'subagent', 'mcp', 'cli:create-issue'], prompt: 'Lead the growth work.\nBefore filing, check github-issues for duplicates with list_issues.\n' },
+  agents: [
+    { name: 'seo', description: 'Finds search opportunities', model: 'fixture/small', tools: ['read', 'mcp:openseo/get_report', 'web_search'], skills: ['audit'], prompt: 'Research.' },
+    { name: 'quiet', model: 'fixture/small', tools: [] },
+  ],
+  skills: [{ name: 'audit', description: 'Audit a site', body: '# Audit' }],
+  integrations: {
+    mcp: [
+      { name: 'openseo', config: { url: 'http://localhost:3002/mcp', description: 'SEO data', approveTools: ['run_*'] } },
+      { name: 'github-issues', config: { url: 'https://api.githubcopilot.com/mcp/x/issues', includeTools: ['list_issues', 'issue_write'], approveTools: ['issue_write'] } },
+    ],
+    cli: [{ name: 'create-issue', description: 'Open an issue', command: 'gh', args: ['issue', 'create', '--title', '{title}'] }],
+  },
+  workflows: [{ name: 'handoff', entry: 'lead', approval: 'Create the issue with issue_write only after approval.' }],
+};
+
+function project(t, doc = model) {
+  const root = mkdtempSync(join(tmpdir(), 'factory-ctx-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const generated = generateProject(doc, {}, { piPackages: pkg.pi.packages });
+  assert.deepEqual(generated.errors, []);
+  for (const f of generated.files) {
+    mkdirSync(dirname(join(root, f.path)), { recursive: true });
+    writeFileSync(join(root, f.path), f.content);
+    if (f.executable) chmodSync(join(root, f.path), 0o755);
+  }
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(doc));
+  mkdirSync(join(root, '.factory'), { recursive: true });
+  return root;
+}
+
+test("each agent's section lists exactly what it has", () => {
+  const lead = capabilitySection(model, 'lead');
+  assert.match(lead, /- \*\*Built-in tools:\*\* read\n/);
+  assert.match(lead, /`openseo` \(all tools\) — SEO data; asks the user before: run_\*/);
+  assert.match(lead, /`github-issues` \(all tools\) — asks the user before: issue_write/);
+  assert.match(lead, /`cli_create_issue` — Open an issue: `gh issue create --title \{title\}`; the user approves each run/);
+  assert.match(lead, /\*\*Specialists\*\* \(delegate with the subagent tool\):\n  - `seo` — Finds search opportunities\n  - `quiet`/);
+  assert.match(lead, /ask with request_permission/);
+  const seo = capabilitySection(model, 'seo');
+  assert.match(seo, /`openseo` \(only get_report\) — SEO data\n/, 'approval shown only for the selected tool');
+  assert.doesNotMatch(seo, /github-issues|cli_create_issue|Specialists/);
+  assert.match(seo, /- \*\*Other tools:\*\* web_search/);
+  assert.match(seo, /- \*\*Skills:\*\*\n  - `audit` — Audit a site/);
+  assert.match(seo, /report what is missing to the orchestrator/);
+  assert.match(capabilitySection(model, 'quiet'), /- \*\*Built-in tools:\*\* none\n\nIf a task/);
+  assert.equal(capabilitySection(model, 'nobody'), '');
+});
+
+test('subagent files carry their section; the orchestrator file stays the authored prompt', () => {
+  const { files } = generateProject(model, {}, { piPackages: pkg.pi.packages });
+  const seo = files.find((f) => f.path === '.pi/agents/seo.md').content;
+  assert.match(seo, /systemPrompt: \|\n  Research\.\n  \n  ## What you can use\n/);
+  const append = files.find((f) => f.path === '.pi/APPEND_SYSTEM.md').content;
+  assert.doesNotMatch(append, /What you can use/);
+});
+
+test('removing a capability lists the instructions that still mention it', () => {
+  const without = { ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'subagent', 'mcp'] }, integrations: { ...model.integrations, mcp: [model.integrations.mcp[0]], cli: [] } };
+  const stale = staleMentions(model, without);
+  assert.deepEqual(stale.map((s) => [s.removed, s.where]), [
+    ['MCP server github-issues', 'orchestrator (lead) prompt'],
+    ['MCP server github-issues', 'workflow handoff'],
+  ]);
+  assert.deepEqual(stale[0].lines, ['Before filing, check github-issues for duplicates with list_issues.']);
+  assert.deepEqual(staleMentions(model, model), []);
+  assert.deepEqual(staleMentions(model, { ...model, integrations: { ...model.integrations, mcp: [{ name: 'github', config: { url: 'x' } }, model.integrations.mcp[0]] } }).map((s) => s.removed), ['MCP server github-issues', 'MCP server github-issues'], 'a different name does not hide the removal');
+});
+
+test('the change preview carries stale mentions so the proposal can fix them', (t) => {
+  const root = project(t);
+  const plan = planChange(root, [
+    { op: 'remove', target: 'mcp', name: 'github-issues' },
+  ]);
+  assert.equal(plan.preview.staleMentions.mentions.length, 2);
+  assert.match(plan.preview.staleMentions.note, /Update them in the same proposal/);
+  const fixed = planChange(root, [
+    { op: 'remove', target: 'mcp', name: 'github-issues' },
+    { op: 'set', target: 'orchestrator', value: { ...model.orchestrator, prompt: 'Lead the growth work.\n' } },
+    { op: 'update', target: 'workflow', name: 'handoff', value: { approval: 'Create issues only after approval.' } },
+  ]);
+  assert.equal(fixed.preview.staleMentions, undefined);
+});
+
+test("the orchestrator's section is injected at session start from system.yaml", (t) => {
+  const root = project(t);
+  const events = {}, tools = {};
+  const pi = { registerTool: (tool) => { tools[tool.name] = tool; }, registerCommand: () => {}, on: (n, cb) => { (events[n] ??= []).push(cb); }, getActiveTools: () => [], setActiveTools: () => {}, getAllTools: () => [], sendUserMessage: () => {} };
+  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map((k) => [k, (v) => v]));
+  registerMaintenance(pi, Type, root);
+  events.session_start.forEach((cb) => cb({}, { hasUI: false, ui: {} }));
+  let prompt = 'BASE';
+  for (const cb of events.before_agent_start) prompt = cb({ systemPrompt: prompt })?.systemPrompt ?? prompt;
+  assert.match(prompt, /## What you can use\n[\s\S]*`cli_create_issue`/);
+  assert.match(prompt, /## Memory/);
+});

@@ -302,7 +302,7 @@ test("agreed document formats land in their writer's instructions", () => {
   assert.match(lead, /- Caveats only in the last section/);
   assert.doesNotMatch(lead, /evidence-packet/);
   const writer = byPath(files, ".pi/agents/writer.md").content;
-  assert.match(writer, /  Research\.\n  \n  ## Document formats/);
+  assert.match(writer, /  Research\.\n  \n  ## What you can use\n[\s\S]*## Document formats/);
   assert.match(writer, /### evidence-packet \(returned in your output\)/);
 });
 

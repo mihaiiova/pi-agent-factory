@@ -249,7 +249,7 @@ test('/factory-permission adds, lists, reviews and removes commands', async (t) 
   assert.match(readFileSync(join(root, '.pi/agents/writer.md'), 'utf8'), /cli_create_issue/);
 
   await command('list');
-  assert.match(mock.notices.at(-1).m, /create-issue: gh issue create --repo o\/r --title '\{title\}' --body-file '\{body:file\}'\n  agents: writer; asks before each run/);
+  assert.match(mock.notices.at(-1).m, /create-issue: gh issue create --repo o\/r --title \{title\} --body-file \{body:file\}\n  agents: writer; asks before each run/);
 
   const headless = adapter({ hasUI: false });
   registerPermissions(headless.pi, headless.Type, root);

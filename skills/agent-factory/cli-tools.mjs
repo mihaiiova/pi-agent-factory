@@ -55,7 +55,7 @@ export function cliAgents(model, name, enforcedTools) {
   return out;
 }
 
-const quote = (s) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+const quote = (s) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s) || PLACEHOLDER_RE.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 /** A command line for people to read and approve. */
 export function formatCommand(command, argv) {
   return [command, ...argv].map(quote).join(' ');

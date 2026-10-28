@@ -34,7 +34,9 @@ const checkValues = (args, values) => buildArgv(args, values, null);
 /** Preview a system.yaml change, ask, and apply it. Returns a message, or null when declined. */
 async function confirmChange(root, ctx, title, ops) {
   const plan = planChange(root, ops);
-  const summary = `${plan.preview.modelDiff}\n\nFiles: ${plan.preview.files.map((f) => `${f.action} ${f.path}`).join(', ') || 'none'}`;
+  const stale = plan.preview.staleMentions?.mentions ?? [];
+  const warning = stale.length ? `\n\nStill mentioned after this change (edit with /factory-update):\n${stale.map((m) => `- ${m.removed} in ${m.where}: ${m.lines[0]}${m.lines.length > 1 || m.more ? ` (+${m.lines.length - 1 + (m.more ?? 0)} more lines)` : ''}`).join('\n')}` : '';
+  const summary = `${plan.preview.modelDiff}\n\nFiles: ${plan.preview.files.map((f) => `${f.action} ${f.path}`).join(', ') || 'none'}${warning}`;
   if (!await ctx.ui.confirm(title, summary)) return null;
   return applyChange(root, plan, true);
 }

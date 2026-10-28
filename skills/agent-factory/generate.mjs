@@ -23,6 +23,7 @@ import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
 import { infrastructureFiles } from "./maintenance-infra.mjs";
 import { cliRef, cliToolName } from "./cli-tools.mjs";
+import { capabilitySection } from "./agent-context.mjs";
 import { documentInstructions } from "./documents.mjs";
 
 const MARKER = "agent-factory:generated v1";
@@ -254,6 +255,8 @@ function orchestratorBody(model) {
   const orchestrator = isPlainObject(model.orchestrator) ? model.orchestrator : {};
   const prompt = typeof orchestrator.prompt === "string" ? orchestrator.prompt : "";
   const background = backgroundAgents(model).map((agent) => `\`${agent.name}\``);
+  // The orchestrator's "What you can use" section is injected at session start
+  // by the Factory extension, so capability changes never rewrite this file.
   const parts = [prompt.replace(/\n$/, "")];
   if (background.length > 0) {
     parts.push([
@@ -366,8 +369,8 @@ function agentBody(agent, tools, model) {
   if (agent.inheritProjectContext === true) lines.push("inheritProjectContext: true");
   if (agent.inheritSkills === true) lines.push("inheritSkills: true");
   if (needsBackground(tools)) lines.push("async: true");
-  const prompt = [isNonEmptyString(agent.prompt) ? agent.prompt.replace(/\n$/, "") : "", documentInstructions(model, agent.name)]
-    .filter(Boolean).join("\n\n");
+  const prompt = [isNonEmptyString(agent.prompt) ? agent.prompt.replace(/\n$/, "") : "", capabilitySection(model, agent.name), documentInstructions(model, agent.name)]
+    .filter(Boolean).map((part) => part.replace(/\n+$/, "")).join("\n\n");
   if (prompt) {
     lines.push("systemPrompt: |");
     for (const line of prompt.replace(/\n$/, "").split("\n")) lines.push(`  ${line}`);
