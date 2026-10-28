@@ -9,7 +9,7 @@ import { envStatus, setEnvValue } from './maintenance-env.mjs';
 import { probeClis } from './discover.mjs';
 import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
-import { memoryConfig, memoryPrompt, updateMemory, failedTools, readEntries, MEMORY_FILE } from './memory.mjs';
+import { memoryConfig, memoryPrompt, updateMemory, failedTools, MEMORY_FILE } from './memory.mjs';
 
 export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } = {}) {
   let armed = false;
@@ -62,7 +62,6 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           // Execution evidence is deliberately summary-only: never include tool
           // outputs, prompts, credentials or unrelated session content.
           value.executionEvidence = (ctx.sessionManager?.getBranch?.() ?? []).filter(e => e.type === 'message' && e.message?.role === 'toolResult').map(e => ({ tool: e.message.toolName, failed: e.message.isError === true }));
-          value.memory = { file: MEMORY_FILE, entries: readEntries(root), note: "The orchestrator's own notes (orchestrator.memory). Lessons that should hold permanently are candidates for a proposed change to a prompt, skill, document or tool." };
         } else if (params.action === 'discover') {
           const query = String(params.query ?? '').trim();
           const clis = [...new Set(String(params.clis ?? '').trim().split(/\s+/).filter(Boolean))];
@@ -131,7 +130,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
     void startupCheck(root, message => { if (ctx.hasUI) ctx.ui.notify(message, 'info'); }, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4000)]) });
   });
   pi.on('session_shutdown', () => { controller?.abort(); armed = false; pending = null; });
-  registerMemory(pi, Type, root);
+  registerMemory(pi, Type, root, () => armed);
   pi.registerCommand('factory-update', {
     description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rollback | reconcile | recover | done',
     handler: async (args, ctx) => {
@@ -204,14 +203,21 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
  * session, written freely by the memory tool, and a nudge to record a lesson
  * after a task with failed tool calls. Subagent processes skip all of it.
  */
-function registerMemory(pi, Type, root) {
+function registerMemory(pi, Type, root, maintaining) {
   if (process.env.PI_SUBAGENT_CHILD === '1') return;
   let config = null;
   let snapshot = '';
   let failed = [];
+  let maintenanceTurn = false;
+  let registered = false;
   pi.on('session_start', () => {
     try { config = memoryConfig(parsedModel(readText(root, '.pi/system.yaml'))); } catch { config = null; }
-    if (!config) return;
+    if (!config) {
+      if (registered) pi.registerTool({ name: 'memory', label: 'Memory', description: 'Memory is off', parameters: Type.Object({}), exposure: 'hidden', async execute() { throw new Error('Memory is off for this system'); } });
+      registered = false;
+      return;
+    }
+    registered = true;
     // A snapshot keeps the prompt stable; writes take effect next session.
     snapshot = memoryPrompt(root, config);
     pi.registerTool({
@@ -224,15 +230,19 @@ function registerMemory(pi, Type, root) {
         match: Type.Optional(Type.String({ description: 'replace/remove: text from the existing entry' })),
       }),
       async execute(_id, params) {
+        if (!config) throw new Error('Memory is off for this system');
         return { content: [{ type: 'text', text: updateMemory(root, params, config) }], details: undefined };
       },
     });
   });
   pi.on('before_agent_start', (event) => {
     if (!config) return;
+    // A /factory-update turn can't use the memory tool; keep any nudge for later.
+    maintenanceTurn = maintaining();
+    if (maintenanceTurn) return { systemPrompt: `${event.systemPrompt}\n\n${snapshot}` };
     const nudge = failed.length ? `\n\nThe previous task had failed tool calls (${failed.join(', ')}). If you learned something that will matter next time, save it with memory.` : '';
     failed = [];
     return { systemPrompt: `${event.systemPrompt}\n\n${snapshot}${nudge}` };
   });
-  pi.on('agent_end', (event) => { if (config) failed = failedTools(event.messages); });
+  pi.on('agent_end', (event) => { if (config && !maintenanceTurn) failed = failedTools(event.messages); });
 }

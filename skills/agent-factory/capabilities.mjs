@@ -16,6 +16,7 @@ import { runtimePackages } from "./deps.mjs";
 import { declaredPackages, skillSourceKind } from "./skill-sources.mjs";
 import { splitModelRef } from "./models.mjs";
 import { needsBackground } from "./generate.mjs";
+import { memoryConfig, MEMORY_FILE } from "./memory.mjs";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -37,6 +38,7 @@ function arraysEqual(a, b) {
  * @returns {object} the intended capability surface.
  */
 export function effectiveCapabilities(model, opts = {}) {
+  const memory = memoryConfig(model);
   const orchestrator = isPlainObject(model.orchestrator) ? model.orchestrator : {};
   const integrations = isPlainObject(model.integrations) ? model.integrations : {};
   const mcpList = Array.isArray(integrations.mcp) ? integrations.mcp : [];
@@ -49,6 +51,8 @@ export function effectiveCapabilities(model, opts = {}) {
     name: model?.name,
     orchestratorModel: orchestrator.model,
     orchestratorTools: sortUnique(orchestrator.tools),
+    // The memory tool is extension-provided and writes only this file.
+    ...(memory ? { orchestratorMemory: { tool: "memory", file: MEMORY_FILE, ...memory } } : {}),
     agents: (Array.isArray(model.agents) ? model.agents : []).map((agent) => ({
       name: agent.name,
       tools: sortUnique(enforcedAgentTools(agent.name, model.policies, agent.tools)),

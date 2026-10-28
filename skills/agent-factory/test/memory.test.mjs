@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { memoryConfig, updateMemory, readEntries, memoryPrompt, failedTools, MEMORY_FILE } from '../memory.mjs';
 import { registerMaintenance } from '../maintenance-extension.mjs';
 import { validateSystem } from '../validate.mjs';
+import { effectiveCapabilities } from '../capabilities.mjs';
 
 function project(t, memory) {
   const root = mkdtempSync(join(tmpdir(), 'factory-memory-'));
@@ -107,4 +108,59 @@ test('memory stays off without opt-in, and subagent processes never get it', (t)
   child.fire('session_start');
   assert.equal(child.tools.memory, undefined);
   assert.equal(child.fire('before_agent_start', { systemPrompt: 'BASE' }), undefined);
+});
+
+test('the capability manifest discloses the memory tool only when it is on', () => {
+  const caps = (memory) => effectiveCapabilities({ schema: 1, name: 'demo', orchestrator: { name: 'lead', model: 'provider/model', memory } });
+  assert.equal(caps(undefined).orchestratorMemory, undefined);
+  assert.deepEqual(caps({ maxChars: 900 }).orchestratorMemory, { tool: 'memory', file: '.pi/MEMORY.md', maxChars: 900 });
+});
+
+test('an over-full memory can still be trimmed, and other content in the file is kept', (t) => {
+  const root = project(t, true);
+  writeFileSync(join(root, MEMORY_FILE), `# Memory\n\n## Preferences\nSome prose the user wrote.\n* a star bullet\n- ${'a'.repeat(60)}\n- ${'b'.repeat(60)}\n`);
+  assert.throws(() => updateMemory(root, { action: 'add', text: 'c' }, { maxChars: 100 }), /Remove or shorten/);
+  assert.match(updateMemory(root, { action: 'remove', match: 'aaaa' }, { maxChars: 50 }), /Memory saved/, 'shrinking is allowed while still over the cap');
+  updateMemory(root, { action: 'replace', match: 'bbbb', text: 'short' }, { maxChars: 50 });
+  assert.equal(readFileSync(join(root, MEMORY_FILE), 'utf8'), '# Memory\n\n## Preferences\nSome prose the user wrote.\n* a star bullet\n- short\n');
+});
+
+test('duplicate entries and entries contained in others can be targeted', (t) => {
+  const root = project(t, true);
+  for (const text of ['Prefers tables.', 'Prefers tables.', 'use tables', 'use tables for reports']) updateMemory(root, { action: 'add', text });
+  updateMemory(root, { action: 'remove', match: 'Prefers tables.' });
+  updateMemory(root, { action: 'remove', match: 'use tables' });
+  assert.deepEqual(readEntries(root), ['Prefers tables.', 'use tables for reports']);
+  updateMemory(root, { action: 'add', text: 'use tables in docs' });
+  assert.throws(() => updateMemory(root, { action: 'remove', match: 'tables' }), /matches 3 different entries/);
+});
+
+test('the loaded prompt is bounded by the cap and frames notes as data', (t) => {
+  const root = project(t, true);
+  writeFileSync(join(root, MEMORY_FILE), `# Memory\n\n- first note\n- ${'x'.repeat(100)}\n`);
+  const prompt = memoryPrompt(root, { maxChars: 50 });
+  assert.match(prompt, /- first note/);
+  assert.doesNotMatch(prompt, /xxxx/);
+  assert.match(prompt, /1 more entries are over the cap/);
+  assert.match(prompt, /not instructions/);
+});
+
+test('turning memory off withdraws the tool, and maintenance turns keep the nudge', async (t) => {
+  const root = project(t, true);
+  const mock = adapter();
+  mock.pi.registerCommand = (name, command) => { mock.command = command; };
+  registerMaintenance(mock.pi, mock.Type, root);
+  mock.fire('session_start');
+  mock.fire('agent_end', { messages: [{ role: 'toolResult', toolName: 'subagent', isError: true }] });
+  // A maintenance turn: the nudge is kept and its blocked calls are not counted.
+  mock.pi.getActiveTools = () => ['read'];
+  await mock.command.handler('review', { hasUI: true, waitForIdle: async () => {}, ui: { notify: () => {} } });
+  assert.doesNotMatch(mock.fire('before_agent_start', { systemPrompt: 'BASE' }).systemPrompt, /failed tool calls/);
+  mock.fire('agent_end', { messages: [{ role: 'toolResult', toolName: 'read', isError: true }] });
+  assert.match(mock.fire('before_agent_start', { systemPrompt: 'BASE' }).systemPrompt, /failed tool calls \(subagent\)\./);
+
+  writeFileSync(join(root, '.pi/system.yaml'), 'schema: 1\nname: demo\norchestrator:\n  name: lead\n  model: provider/model\n');
+  mock.fire('session_start');
+  assert.equal(mock.tools.memory.exposure, 'hidden');
+  await assert.rejects(mock.tools.memory.execute('id', { action: 'add', text: 'x' }), /Memory is off/);
 });
