@@ -67,6 +67,19 @@ and after a task with failed tool calls. Subagents neither see nor write them.
 skill or tool change) is a normal previewed change. The file is the user's to
 edit, and no generated file depends on it.
 
+### Prompts and the generated "What you can use" section
+
+`prompt` (orchestrator and agents) describes the role, goals, judgement, rules
+and boundaries. It should not list tools, MCP servers, commands or skills: the
+Factory renders a "What you can use" section from the declarations — built-in
+tools, MCP servers (with `config.description` and which tools ask first),
+commands, other tools, skills, and for the orchestrator its specialists. A
+subagent's section is written into its agent file after its prompt; the
+orchestrator's is added to its system prompt at session start by the Factory
+extension, so `.pi/APPEND_SYSTEM.md` stays exactly the authored prompt. A change
+that removes an MCP server, command or skill reports `staleMentions`: the
+prompts, workflows, documents and advisory policies that still name it.
+
 ### `agents[]`
 
 Allowed keys: `name` (required string), `description`, `tools` (array of

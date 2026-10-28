@@ -136,6 +136,14 @@ first; the user decides.
   be given the `vercel-labs/skills@find-skills` skill plus `bash`; tell it, as
   a document rule or in its prompt, to install project-locally (`--agent pi`,
   no `-g`).
+- **Prompts:** write each agent's prompt about its role — goals, judgement,
+  rules, boundaries — and keep it short. Never list its tools, MCP servers,
+  commands or skills, or explain how to call them: the Factory renders a
+  "What you can use" section from the declarations, so prompts stay right
+  when capabilities change. Keep a rule about an action as an outcome ("never
+  modify an existing issue"); approval belongs in `approve`/`approveTools`.
+  Give MCP servers a `config.description` and agents a `description`; those
+  appear in the section.
 - **Documents:** any agent may write or return any number of documents. For
   each one, propose a structure — purpose, sections in order with a one-line
   guide each, optionally a word limit and rules — e.g. "a short report with

@@ -11,6 +11,7 @@ import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
 import { memoryPrompt, updateMemory, failedTools, MEMORY_FILE } from './memory.mjs';
 import { registerPermissions } from './permissions-extension.mjs';
+import { capabilitySection } from './agent-context.mjs';
 
 export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } = {}) {
   let armed = false;
@@ -133,6 +134,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
   pi.on('session_shutdown', () => { controller?.abort(); armed = false; pending = null; });
   registerMemory(pi, Type, root, () => armed);
   registerPermissions(pi, Type, root);
+  registerAgentContext(pi, root);
   pi.registerCommand('factory-update', {
     description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rollback | reconcile | recover | done',
     handler: async (args, ctx) => {
@@ -235,4 +237,21 @@ function registerMemory(pi, Type, root, maintaining) {
     return { systemPrompt: `${event.systemPrompt}\n\n${snapshot}${nudge}` };
   });
   pi.on('agent_end', (event) => { if (!maintenanceTurn) failed = failedTools(event?.messages); });
+}
+
+/**
+ * The orchestrator's "What you can use" section, rendered from system.yaml at
+ * session start so it always matches the declarations. Subagents get theirs
+ * in their generated agent files.
+ */
+function registerAgentContext(pi, root) {
+  if (process.env.PI_SUBAGENT_CHILD === '1') return;
+  let section = '';
+  pi.on('session_start', () => {
+    try {
+      const model = parsedModel(readText(root, '.pi/system.yaml'));
+      section = capabilitySection(model, model.orchestrator?.name);
+    } catch { section = ''; }
+  });
+  pi.on('before_agent_start', (event) => (section ? { systemPrompt: `${event.systemPrompt}\n\n${section}` } : undefined));
 }

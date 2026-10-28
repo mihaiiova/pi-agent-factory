@@ -13,6 +13,7 @@
     "skills/agent-factory/yaml-loader.mjs",
     "skills/agent-factory/deps.mjs",
     "skills/agent-factory/diff.mjs",
+    "skills/agent-factory/agent-context.mjs",
     "skills/agent-factory/documents.mjs",
     "skills/agent-factory/generate.mjs",
     "skills/agent-factory/modify.mjs",

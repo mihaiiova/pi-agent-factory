@@ -107,6 +107,15 @@ don't see them. The file is plain Markdown you can edit. `/factory-update review
 reads it, so a lesson that should always hold can become a previewed change to a
 prompt, skill or tool.
 
+### Prompts: roles, not tool manuals
+
+Each agent's prompt describes its role, goals and rules. What it can use —
+tools, MCP servers, commands, skills, and for the orchestrator its specialists —
+is generated from `system.yaml` into a "What you can use" section, so removing
+an integration also removes it from what agents are told. A change that removes
+a capability lists any prompt, workflow or policy that still mentions it, and
+`/factory-update review` flags prompts that describe specific tools.
+
 ### Commands: CLI permissions per agent
 
 Agents can run command-line tools you already use (`gh`, `wrangler`, your own
