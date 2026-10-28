@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { infrastructureFiles } from './maintenance-infra.mjs';
 import { loadYaml } from './yaml-loader.mjs';
 import { assertValid } from './changes.mjs';
-import { launcherScript, envNames } from './runtime.mjs';
+import { launcherScript, previousLauncher, envNames } from './runtime.mjs';
 import { digest, json, readText, readJson, fingerprints, atomicWrite, transact } from './maintenance-store.mjs';
 import { effectiveCapabilities, checkCapabilities } from './capabilities.mjs';
 
@@ -129,7 +129,7 @@ export function bootstrapPlan(root, bundle = localBundle()) {
   const model = loadYaml().parse(text);
   const desiredLauncher = launcherScript(envNames(model));
   // Launchers from before declared .env loading carry no env block.
-  const baseLauncher = launcherScript();
+  const baseLauncher = previousLauncher(launcherScript());
   const oldLauncher = baseLauncher.replace('exec pi --no-context-files', 'exec pi');
   const historicalComment = text => text.replace('# context (`./run`, then `/login`)', '# context (`pi --login`)');
   const historicalTuiComment = text => text.replace(
@@ -138,7 +138,7 @@ export function bootstrapPlan(root, bundle = localBundle()) {
   );
   // Exact historical templates only: comment-only variants are recognized,
   // but customized environment exports, flags and commands remain conflicts.
-  const knownLaunchers = [desiredLauncher, baseLauncher, oldLauncher, historicalComment(baseLauncher), historicalComment(oldLauncher), historicalTuiComment(baseLauncher), historicalTuiComment(oldLauncher)];
+  const knownLaunchers = [desiredLauncher, launcherScript(), previousLauncher(desiredLauncher), baseLauncher, oldLauncher, historicalComment(baseLauncher), historicalComment(oldLauncher), historicalTuiComment(baseLauncher), historicalTuiComment(oldLauncher)];
   if (launcher !== null && !knownLaunchers.includes(launcher)) throw new Error('Authored launcher conflict: inspect run before bootstrapping');
   writes.run = desiredLauncher;
   const settings = readJson(root, '.pi/settings.json');

@@ -52,6 +52,23 @@ export function envNames(model) {
 }
 
 /** The generated `run` launcher script content. */
+/** The lead's prompt files: the authored instructions, then the generated
+ * "What you can use" section. Passing them explicitly (which replaces Pi's
+ * APPEND_SYSTEM.md discovery) puts build output in the prompt, not runtime code. */
+const PROMPT_FILES = [
+  "# The orchestrator's prompt: authored instructions, then what it can use.",
+  "prompts=()",
+  "for f in .pi/APPEND_SYSTEM.md .pi/CAPABILITIES.md; do",
+  '  if [[ -f "$f" ]]; then prompts+=(--append-system-prompt "$f"); fi',
+  "done",
+];
+const LAUNCH = 'pi --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"';
+
+/** The launcher as generated before the prompt files were passed explicitly. */
+export function previousLauncher(script) {
+  return script.replace(`${PROMPT_FILES.join("\n")}\nexec ${LAUNCH}`, 'exec pi --no-context-files "$@"');
+}
+
 export function launcherScript(names = []) {
   return [
     "#!/usr/bin/env bash",
@@ -84,7 +101,8 @@ export function launcherScript(names = []) {
     "# context (`./run`, then `/login`), or export PI_API_KEY / a provider-specific key.",
     // Pi's agent-dir does not suppress ancestor instruction discovery.
     // APPEND_SYSTEM.md still supplies the project's operational instructions.
-    'exec pi --no-context-files "$@"',
+    ...PROMPT_FILES,
+    `exec ${LAUNCH}`,
     "",
   ].join("\n");
 }

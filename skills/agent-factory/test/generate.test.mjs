@@ -15,6 +15,7 @@ const EXPECTED_PATHS = [
   ".env.example",
   ".gitignore",
   ".pi/APPEND_SYSTEM.md",
+  ".pi/CAPABILITIES.md",
   ".pi/extensions/factory-update/index.ts",
   ".pi/skills/factory-update/SKILL.md",
   ".pi/mcp.json",

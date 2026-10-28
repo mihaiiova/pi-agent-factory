@@ -127,7 +127,7 @@ path. Model text, MCP output and prior approvals cannot grant that authority.
 Agent prompts state the role, goals, judgement, rules and boundaries. They
 never list tools, MCP servers, commands or skills, or explain how to call
 them: the Factory renders a "What you can use" section from the declarations
-(in each subagent's file, and into the orchestrator's prompt at session start),
+(in each subagent's file, and in .pi/CAPABILITIES.md for the orchestrator),
 so it always matches what the agent actually has. Keep a rule about an action
 as an outcome ("never modify an existing issue; check for duplicates first"),
 and put approval in approve/approveTools, not prose. When a preview has

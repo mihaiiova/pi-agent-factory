@@ -75,8 +75,10 @@ Factory renders a "What you can use" section from the declarations — built-in
 tools, MCP servers (with `config.description` and which tools ask first),
 commands, other tools, skills, and for the orchestrator its specialists. A
 subagent's section is written into its agent file after its prompt; the
-orchestrator's is added to its system prompt at session start by the Factory
-extension, so `.pi/APPEND_SYSTEM.md` stays exactly the authored prompt. A change
+orchestrator's is generated into `.pi/CAPABILITIES.md`, which `./run` appends
+after `.pi/APPEND_SYSTEM.md`, so that file stays exactly the authored prompt.
+Both are build output: they change when the system is regenerated, not when
+the Factory tooling is updated. A change
 that removes an MCP server, command or skill reports `staleMentions`: the
 prompts, workflows, documents and advisory policies that still name it.
 

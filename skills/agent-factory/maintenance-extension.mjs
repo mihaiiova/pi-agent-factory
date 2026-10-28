@@ -240,15 +240,16 @@ function registerMemory(pi, Type, root, maintaining) {
 }
 
 /**
- * The orchestrator's "What you can use" section, rendered from system.yaml at
- * session start so it always matches the declarations. Subagents get theirs
- * in their generated agent files.
+ * The orchestrator's "What you can use" section for a project generated before
+ * it was build output. ./run passes .pi/CAPABILITIES.md once the project is
+ * rebuilt; until then it is rendered from system.yaml at session start.
  */
 function registerAgentContext(pi, root) {
   if (process.env.PI_SUBAGENT_CHILD === '1') return;
   let section = '';
   pi.on('session_start', () => {
     try {
+      if (readText(root, '.pi/CAPABILITIES.md') !== null) { section = ''; return; }
       const model = parsedModel(readText(root, '.pi/system.yaml'));
       section = capabilitySection(model, model.orchestrator?.name);
     } catch { section = ''; }
