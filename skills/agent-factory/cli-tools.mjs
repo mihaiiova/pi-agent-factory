@@ -9,13 +9,16 @@
  * as `cli_<name>`. Anything not declared can only run through an explicit
  * per-call permission request.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicWrite, readText } from './maintenance-store.mjs';
 
 export const PLACEHOLDER_RE = /^\{([a-z][a-z0-9_]*)(?::(file))?\}$/;
+/** Arguments that look like a placeholder but aren't one ("{Title}", "--title={title}").
+ * Any other braces are literal, e.g. a --jq or --template format string. */
+export const isMisplacedPlaceholder = (arg) => !PLACEHOLDER_RE.test(arg) && (/^\{[^{}\s]*\}$/.test(arg) || /=\{[a-z][a-z0-9_]*(?::file)?\}$/.test(arg));
 export const REQUESTS_FILE = '.factory/permission-requests.json';
 const TIMEOUT_MS = 5 * 60 * 1000;
 const OUTPUT_CHARS = 50000;
@@ -102,14 +105,14 @@ export function checkShape({ name, command, args }) {
   if (typeof name !== 'string' || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) throw new Error('name must be kebab-case, e.g. create-issue');
   if (typeof command !== 'string' || !command.trim() || /[\s\0]/.test(command)) throw new Error('command must be one program name or path, without spaces (put arguments in args)');
   if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) throw new Error('args must be an array of strings');
-  const bad = args.find((a) => /[{}]/.test(a) && !PLACEHOLDER_RE.test(a));
+  const bad = args.find(isMisplacedPlaceholder);
   if (bad !== undefined) throw new Error(`"${bad}": a placeholder must be a whole argument ("{name}" or "{name:file}", lowercase)`);
 }
 
 /**
  * The exact argv for one call. Every placeholder needs a string value; a value
  * for a plain placeholder may not start with "-", so it can't become an option.
- * File placeholders are written under `dir`.
+ * File placeholders are written under `dir`; without one, values are only checked.
  */
 export function buildArgv(args, values, dir) {
   const given = values && typeof values === 'object' ? values : {};
@@ -122,7 +125,7 @@ export function buildArgv(args, values, dir) {
     if (typeof value !== 'string') throw new Error(`Missing value for {${p.name}}`);
     if (value.includes('\0')) throw new Error(`{${p.name}} contains a NUL character`);
     if (!p.file && value.startsWith('-')) throw new Error(`{${p.name}} may not start with "-"`);
-    if (p.file) {
+    if (p.file && dir) {
       files[p.name] = join(dir, `${p.name}.txt`);
       writeFileSync(files[p.name], value, { mode: 0o600 });
     }
@@ -135,18 +138,37 @@ export function buildArgv(args, values, dir) {
 
 const clip = (s) => (s.length > OUTPUT_CHARS ? `${s.slice(0, OUTPUT_CHARS)}\n[… ${s.length - OUTPUT_CHARS} more characters]` : s);
 
-/** Run one call of a command shape in the project. Never uses a shell. */
-export function runCommand(root, { command, args }, values, { spawn = spawnSync } = {}) {
+/**
+ * Run one call of a command shape in the project. Never uses a shell, and
+ * doesn't block Pi while it runs: the abort signal and a timeout stop it.
+ * Output beyond the shown limit is counted, not kept.
+ */
+export async function runCommand(root, { command, args }, values, { signal, timeoutMs = TIMEOUT_MS } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'factory-cli-'));
   try {
     const argv = buildArgv(args, values, dir);
-    const result = spawn(command, argv, { cwd: root, encoding: 'utf8', shell: false, timeout: TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, env: process.env });
     const line = formatCommand(command, argv.map((a) => (a.startsWith(dir) ? `<${a.slice(dir.length + 1)}>` : a)));
+    const result = await new Promise((done) => {
+      const out = { stdout: '', stderr: '' };
+      let stopped = null;
+      const child = spawn(command, argv, { cwd: root, shell: false, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      for (const stream of ['stdout', 'stderr']) {
+        child[stream].setEncoding('utf8');
+        child[stream].on('data', (chunk) => { out[stream] = out[stream].length > OUTPUT_CHARS * 2 ? out[stream] : out[stream] + chunk; });
+      }
+      const stop = (why) => { if (!stopped) { stopped = why; child.kill('SIGTERM'); } };
+      const timer = setTimeout(() => stop(`timed out after ${Math.round(timeoutMs / 1000)}s`), timeoutMs);
+      const onAbort = () => stop('cancelled');
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+      child.on('error', (error) => { clearTimeout(timer); done({ error, ...out }); });
+      child.on('close', (code, sig) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); done({ code, signal: sig, stopped, ...out }); });
+    });
     if (result.error) return { ok: false, text: `${line}\nCould not run: ${result.error.code === 'ENOENT' ? `${command} is not installed or not on PATH` : result.error.message}` };
-    const parts = [`${line}\nexit ${result.status ?? result.signal}`];
+    const parts = [`${line}\n${result.stopped ? `stopped: ${result.stopped}. It had started, so it may have had effects; check before running it again.` : `exit ${result.code ?? result.signal}`}`];
     if (result.stdout) parts.push(clip(result.stdout.trimEnd()));
     if (result.stderr) parts.push(`stderr:\n${clip(result.stderr.trimEnd())}`);
-    return { ok: result.status === 0, text: parts.join('\n') };
+    return { ok: !result.stopped && result.code === 0, text: parts.join('\n') };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -161,9 +183,10 @@ export function writeRequests(root, list) {
 }
 
 /**
- * Change operations that declare a command and give it to agents. An agent
- * whose tools are omitted already has every command; an enforced policy rule
- * for an agent is its capability ceiling, so the rule is what gets extended.
+ * Change operations that declare a command and give it to agents. An
+ * orchestrator whose tools are omitted already has every command. A subagent's
+ * tools list and any enforced policy rule for it (its capability ceiling) are
+ * both updated, so they stay consistent.
  */
 export function grantOps(model, entry, agentNames) {
   const ref = `cli:${entry.name}`;
@@ -197,10 +220,12 @@ function toolOps(model, agentNames, edit) {
     return rule;
   });
   if (policiesChanged) ops.push({ op: 'set', target: 'policies', value: { ...model.policies, enforced: rules } });
+  // A subagent with no tools list has no tools at all, so a grant starts one.
   for (const agent of Array.isArray(model?.agents) ? model.agents : []) {
-    if (!names.has(agent.name) || !Array.isArray(agent.tools)) continue;
-    if (enforced.some((rule) => rule?.agent === agent.name && Array.isArray(rule.tools))) continue;
-    const tools = edit(agent.tools);
+    if (!names.has(agent.name)) continue;
+    const before = Array.isArray(agent.tools) ? agent.tools : [];
+    const tools = edit(before);
+    if (!Array.isArray(agent.tools) && tools.length === 0) continue;
     if (JSON.stringify(tools) !== JSON.stringify(agent.tools)) ops.push({ op: 'update', target: 'agent', name: agent.name, value: { tools } });
   }
   return ops;

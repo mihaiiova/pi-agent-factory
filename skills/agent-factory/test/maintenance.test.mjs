@@ -230,7 +230,7 @@ test('vendored skills must already be in the project and cannot be orphaned', t 
   mkdirSync(join(root, '.pi/skills/house-style'), { recursive: true });
   writeFileSync(join(root, '.pi/skills/house-style/SKILL.md'), '---\nname: house-style\n---\nWrite plainly.\n');
   applyChange(root, planChange(root, [local, { op: 'add', target: 'agent', name: 'writer', value: { model: 'fixture/small', skills: ['house-style'] } }]), true);
-  assert.match(readText(root, '.pi/agents/writer.md'), /skills: \[house-style\]/);
+  assert.match(readText(root, '.pi/agents/writer.md'), /skills:\n  - house-style\n/);
   assert.equal(readText(root, '.pi/skills/house-style/SKILL.md').includes('Write plainly.'), true, 'vendored copy is never rewritten');
   assert.throws(() => planChange(root, [{ op: 'update', target: 'agent', name: 'writer', value: { skills: [] } }, { op: 'remove', target: 'skill', name: 'house-style' }]), /Removed vendored skill still loads/);
 });

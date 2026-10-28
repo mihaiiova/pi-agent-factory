@@ -132,7 +132,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
   });
   pi.on('session_shutdown', () => { controller?.abort(); armed = false; pending = null; });
   registerMemory(pi, Type, root, () => armed);
-  registerPermissions(pi, Type, root, () => armed);
+  registerPermissions(pi, Type, root);
   pi.registerCommand('factory-update', {
     description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rollback | reconcile | recover | done',
     handler: async (args, ctx) => {

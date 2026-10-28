@@ -82,7 +82,7 @@ done
 [[ -f "$ma/.pi/skills/analyze-and-draft/SKILL.md" ]] || fail "workflow skill missing"
 [[ -f "$ma/.pi/skills/refresh-product-knowledge/SKILL.md" ]] || fail "skill missing"
 grep -q '^name: seo-analyst$' "$ma/.pi/agents/seo-analyst.md" || fail "agent frontmatter name wrong"
-grep -q 'tools: \[read, grep, find, ls\]' "$ma/.pi/agents/seo-analyst.md" || fail "agent tools allowlist wrong"
+grep -Pzq 'tools:\n  - read\n  - grep\n  - find\n  - ls\n' "$ma/.pi/agents/seo-analyst.md" || fail "agent tools allowlist wrong"
 grep -q '^model: provider-b/model-small$' "$ma/.pi/agents/seo-analyst.md" || fail "agent's own model not emitted"
 grep -q 'Approval boundary: publish' "$ma/.pi/skills/analyze-and-draft/SKILL.md" || fail "workflow approval boundary missing"
 tail -n1 "$ma/.pi/agents/seo-analyst.md" | grep -q 'agent-factory:generated v1 sha256=' || fail "agent missing trailing marker"
@@ -226,7 +226,7 @@ grep -q 'vendor    .pi/skills/house-style/ (2 files from ../shared/house-style)'
 node "$factory" generate "$vd/project" >/dev/null 2>&1
 cmp -s "$vd/shared/house-style/SKILL.md" "$vd/project/.pi/skills/house-style/SKILL.md" || fail "vendored SKILL.md differs from its source"
 [[ -x "$vd/project/.pi/skills/house-style/scripts/check.sh" ]] || fail "vendored script lost its executable bit"
-grep -q '^skills: \[house-style\]$' "$vd/project/.pi/agents/writer.md" || fail "agent skills not emitted"
+grep -Pzq 'skills:\n  - house-style\n' "$vd/project/.pi/agents/writer.md" || fail "agent skills not emitted"
 printf 'Local edit.\n' >> "$vd/project/.pi/skills/house-style/SKILL.md"
 node "$factory" generate "$vd/project" >/dev/null 2>&1
 grep -q 'Local edit.' "$vd/project/.pi/skills/house-style/SKILL.md" || fail "regeneration overwrote the vendored copy"

@@ -74,7 +74,7 @@ test("N agents materialize to N .pi/agents/*.md files with correct frontmatter",
   assert.equal(analyst.action, "create");
   assert.ok(analyst.content.includes("name: seo-analyst"));
   assert.ok(analyst.content.includes('description: "Analyzes SEO data and identifies opportunities"'));
-  assert.ok(analyst.content.includes("tools: [read, grep, find, ls]"));
+  assert.ok(analyst.content.includes("tools:\n  - read\n  - grep\n  - find\n  - ls\n"));
   assert.ok(analyst.content.includes("model: provider-b/model-small"), "the agent's own model ref");
   assert.ok(analyst.content.includes("thinking: low"), "the agent's own thinking level");
   assert.ok(analyst.content.includes("systemPrompt: |"));
@@ -160,7 +160,7 @@ test("SEO delegation structure: writer research, independent researcher, no anal
 
   const analyst = byPath(files, ".pi/agents/seo-analyst.md").content;
   assert.ok(analyst.includes("identify opportunities"), "analyst identifies opportunities");
-  assert.ok(analyst.includes("tools: [read, grep, find, ls]"), "analyst allowlist is read-only");
+  assert.ok(analyst.includes("tools:\n  - read\n  - grep\n  - find\n  - ls\n"), "analyst allowlist is read-only");
   assert.ok(!analyst.includes("write"), "analyst allowlist has no write tool → cannot auto-publish");
 
   const workflow = byPath(files, ".pi/skills/analyze-and-draft/SKILL.md").content;

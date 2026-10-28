@@ -10,7 +10,7 @@
 
 import { THINKING_LEVELS, isModelRef } from "./models.mjs";
 import { PACKAGE_SOURCE_RE, skillSourceKind } from "./skill-sources.mjs";
-import { PLACEHOLDER_RE } from "./cli-tools.mjs";
+import { isMisplacedPlaceholder } from "./cli-tools.mjs";
 
 const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -353,8 +353,8 @@ export function validateSystem(doc) {
             if (cli.args !== undefined) {
               checkStringArray(cli.args, `${path}.args`, errors);
               if (Array.isArray(cli.args)) cli.args.forEach((arg, j) => {
-                if (typeof arg === "string" && /[{}]/.test(arg) && !PLACEHOLDER_RE.test(arg)) {
-                  errors.push(`${path}.args[${j}] must be a whole placeholder ("{name}" or "{name:file}", lowercase) or contain no braces`);
+                if (typeof arg === "string" && isMisplacedPlaceholder(arg)) {
+                  errors.push(`${path}.args[${j}] looks like a placeholder but isn't one: a placeholder is a whole argument, "{name}" or "{name:file}" in lowercase`);
                 }
               });
             }

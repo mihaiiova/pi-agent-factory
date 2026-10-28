@@ -1,7 +1,11 @@
 ---
 name: seo-analyst
 description: "Analyzes SEO data and identifies opportunities"
-tools: [read, grep, find, ls]
+tools:
+  - read
+  - grep
+  - find
+  - ls
 model: provider-b/model-small
 thinking: low
 systemPrompt: |
@@ -9,4 +13,4 @@ systemPrompt: |
   access, so you never publish; publication requires the orchestrator.
 ---
 
-<!-- agent-factory:generated v1 sha256=79463bd7489a8d33bddd2d7cd8bb64afc1aaadcb7574d5824d497a3722a1ae45 -->
+<!-- agent-factory:generated v1 sha256=c0b1df85f36131192844261cbae383219d7b3eff0a626760e00a246d0cf40303 -->

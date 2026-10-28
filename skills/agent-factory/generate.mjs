@@ -342,17 +342,26 @@ function envBody(model) {
     .join("\n") + "\n";
 }
 
+/** A frontmatter list as YAML block items. pi-subagents splits a flow list
+ * ("[a, b]") on commas and keeps the brackets, so it is never emitted; an
+ * empty list is a bare key, which it reads as an empty allowlist. */
+function blockList(key, items) {
+  return [`${key}:`, ...items.map((item) => `  - ${item}`)];
+}
+
 function agentBody(agent, tools, model) {
   const lines = ["---"];
   lines.push(`name: ${agent.name}`);
-  if (isNonEmptyString(agent.description)) lines.push(`description: ${yamlString(agent.description)}`);
+  // pi-subagents skips an agent file without a description, so one is always written.
+  const fallback = (isNonEmptyString(agent.prompt) ? agent.prompt.trim().split("\n")[0].slice(0, 120) : "") || agent.name;
+  lines.push(`description: ${yamlString(isNonEmptyString(agent.description) ? agent.description : fallback)}`);
   if (Array.isArray(tools)) {
-    lines.push(`tools: [${tools.map((t) => (cliRef(t) ? cliToolName(cliRef(t)) : t)).join(", ")}]`);
+    lines.push(...blockList("tools", tools.map((t) => (cliRef(t) ? cliToolName(cliRef(t)) : t))));
   }
   if (isNonEmptyString(agent.model)) lines.push(`model: ${agent.model}`);
   if (isNonEmptyString(agent.thinking)) lines.push(`thinking: ${agent.thinking}`);
   if (Array.isArray(agent.skills) && agent.skills.length > 0) {
-    lines.push(`skills: [${agent.skills.join(", ")}]`);
+    lines.push(...blockList("skills", agent.skills));
   }
   if (agent.inheritProjectContext === true) lines.push("inheritProjectContext: true");
   if (agent.inheritSkills === true) lines.push("inheritSkills: true");

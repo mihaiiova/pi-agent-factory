@@ -49,11 +49,16 @@ export function launchCheck(root, model, { registeredTools, probe } = {}) {
   const forced = readJson(root, SUBAGENT_CONFIG)?.forceTopLevelAsync === true;
   const skills = new Map((Array.isArray(model?.skills) ? model.skills : []).map((s) => [s.name, s]));
   const commands = new Map(cliEntries(model).map((c) => [c.name, c]));
-  const installed = (command) => (command.includes('/') ? existsSync(resolve(root, command)) : probeClis([command], probe ? { probe } : {})[command] === true);
+  const probed = new Map();
+  const installed = (command) => {
+    if (!probed.has(command)) probed.set(command, command.includes('/') ? existsSync(resolve(root, command)) : probeClis([command], probe ? { probe } : {})[command] === true);
+    return probed.get(command);
+  };
   const checkCommands = (agentName, tools) => {
     for (const name of (Array.isArray(tools) ? tools : []).map(cliRef).filter(Boolean)) {
       const entry = commands.get(name);
       if (entry && !installed(entry.command)) problems.push({ agent: agentName, problem: `cli:${name}: "${entry.command}" is not installed or not on PATH` });
+      if (entry && entry.approve !== false && agentName !== model.orchestrator?.name) problems.push({ agent: agentName, problem: `cli:${name} asks before each run, but subagents run in the background without a UI, so every call would be refused; set approve: false or give it to the orchestrator` });
     }
   };
   if (model?.orchestrator) checkCommands(model.orchestrator.name, Array.isArray(model.orchestrator.tools) ? model.orchestrator.tools : cliEntries(model).map((c) => `cli:${c.name}`));
@@ -74,8 +79,11 @@ export function launchCheck(root, model, { registeredTools, probe } = {}) {
       }
       if (registered && !registered.has(tool)) report(`${tool}: no loaded extension registers this tool`);
     }
+    const file = existsSync(join(root, `.pi/agents/${agent.name}.md`)) ? readFileSync(join(root, `.pi/agents/${agent.name}.md`), 'utf8') : '';
+    // Files generated before v0.11 used "[a, b]" lists, which pi-subagents reads
+    // as the names "[a" and "b]", so none of those tools or skills resolve.
+    if (/^(tools|skills): \[/m.test(file.split('\n---')[0])) report('its agent file lists tools or skills as "[a, b]", which pi-subagents misreads (so they are missing); run /factory-update reconcile');
     if (needsBackground(tools)) {
-      const file = existsSync(join(root, `.pi/agents/${agent.name}.md`)) ? readFileSync(join(root, `.pi/agents/${agent.name}.md`), 'utf8') : '';
       if (!/\nasync: true\n/.test(file) || !forced) report('uses MCP or extension tools but is not set to run in the background, so they would be missing; run /factory-update reconcile');
     }
     for (const name of Array.isArray(agent.skills) ? agent.skills : []) {

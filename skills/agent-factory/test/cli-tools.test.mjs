@@ -68,7 +68,9 @@ test('integrations.cli validates shapes and cli: references', () => {
   assert.equal(validateSystem(model).ok, true);
   const errors = (cli, tools = ['cli:x']) => validateSystem({ ...model, orchestrator: { ...model.orchestrator, tools }, agents: [], integrations: { cli } }).errors;
   assert.ok(errors([{ name: 'x', command: 'gh issue' }]).some((e) => e.includes('one program name')));
-  assert.ok(errors([{ name: 'x', command: 'gh', args: ['--title={title}'] }]).some((e) => e.includes('whole placeholder')));
+  assert.ok(errors([{ name: 'x', command: 'gh', args: ['--title={title}'] }]).some((e) => e.includes("looks like a placeholder")));
+  assert.ok(errors([{ name: 'x', command: 'gh', args: ['{Title}'] }]).some((e) => e.includes("looks like a placeholder")));
+  assert.deepEqual(errors([{ name: 'x', command: 'gh', args: ['pr', 'list', '--jq', '.[] | {number}', '--template', '{{.title}}'] }]), [], 'other braces are literal');
   assert.ok(errors([{ name: 'x', command: 'gh', approve: 'yes' }]).some((e) => e.includes('approve must be a boolean')));
   assert.ok(errors([{ name: 'x', command: 'gh', shell: true }]).some((e) => e.includes('unknown key "shell"')));
   assert.ok(errors([{ name: 'x', command: 'gh' }, { name: 'x', command: 'gh' }]).some((e) => e.includes('duplicates name "x"')));
@@ -95,29 +97,45 @@ test('command lines split like a shell without expanding anything', () => {
   assert.throws(() => splitCommandLine('gh "open'), /Unclosed quote/);
 });
 
-test('commands run without a shell and report output and exit status', (t) => {
+test('commands run without a shell and report output and exit status', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'factory-run-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const ok = runCommand(root, { command: 'node', args: [...echoArg, '{title}'] }, { title: '$(touch pwned); `id`' });
+  const ok = await runCommand(root, { command: 'node', args: [...echoArg, '{title}'] }, { title: '$(touch pwned); `id`' });
   assert.equal(ok.ok, true);
   assert.match(ok.text, /exit 0\n\$\(touch pwned\); `id`$/);
   assert.equal(existsSync(join(root, 'pwned')), false);
-  const failed = runCommand(root, { command: 'node', args: ['-e', 'process.exit(3)'] }, {});
+  const failed = await runCommand(root, { command: 'node', args: ['-e', 'process.exit(3)'] }, {});
   assert.equal(failed.ok, false);
   assert.match(failed.text, /exit 3/);
-  assert.match(runCommand(root, { command: 'no-such-program-xyz', args: [] }, {}).text, /not installed or not on PATH/);
+  assert.match((await runCommand(root, { command: 'no-such-program-xyz', args: [] }, {})).text, /not installed or not on PATH/);
+  const slow = await runCommand(root, { command: 'node', args: ['-e', 'setTimeout(() => {}, 10000)'] }, {}, { timeoutMs: 200 });
+  assert.equal(slow.ok, false);
+  assert.match(slow.text, /stopped: timed out after 0s\. It had started, so it may have had effects/);
+  const controller = new AbortController();
+  const pending = runCommand(root, { command: 'node', args: ['-e', 'setTimeout(() => {}, 10000)'] }, {}, { signal: controller.signal });
+  controller.abort();
+  assert.match((await pending).text, /stopped: cancelled/);
 });
 
 test('generated agents get cli_ tools and run in the background; defaultTools keeps Pi tools only', () => {
   const generated = generateProject(model, {}, { piPackages: pkg.pi.packages });
   const agent = generated.files.find((f) => f.path === '.pi/agents/writer.md').content;
-  assert.match(agent, /tools: \[read, cli_show_body\]/);
+  assert.match(agent, /\ntools:\n  - read\n  - cli_show_body\n/);
+  assert.match(agent, /\ndescription: "?writer"?\n/, 'pi-subagents skips agents without a description');
+  const empty = generateProject({ ...model, agents: [{ name: 'quiet', model: 'fixture/small', tools: [] }] }, {}, { piPackages: pkg.pi.packages });
+  assert.match(empty.files.find((f) => f.path === '.pi/agents/quiet.md').content, /\ntools:\nmodel: /, 'an empty allowlist is a bare key, never "[]"');
   assert.match(agent, /\nasync: true\n/);
   const settings = JSON.parse(generated.files.find((f) => f.path === '.pi/settings.json').content);
   assert.deepEqual(settings.defaultTools, ['read']);
   const caps = effectiveCapabilities(model, { piPackages: pkg.pi.packages });
   assert.deepEqual(caps.commands.map((c) => [c.name, c.approve, c.agents]), [['echo-title', true, ['lead']], ['show-body', false, ['writer']], ['unused', true, []]]);
   assert.equal(checkCapabilities(model, { settings, mcpJson: JSON.parse(generated.files.find((f) => f.path === '.pi/mcp.json').content) }, { piPackages: pkg.pi.packages }).ok, true);
+});
+
+test('a grant to a subagent with no tools list starts one', () => {
+  const doc = { ...model, agents: [{ name: 'bare', model: 'fixture/small' }] };
+  const granted = changeModel(yaml.stringify(doc), grantOps(doc, { name: 'echo-two', command: 'node', args: ['--version'] }, ['bare'])).model;
+  assert.deepEqual(granted.agents[0].tools, ['cli:echo-two']);
 });
 
 test('grant and revoke edit the declaration, agent tools and enforced policies', () => {
@@ -127,16 +145,24 @@ test('grant and revoke edit the declaration, agent tools and enforced policies',
   assert.deepEqual(granted.integrations.cli.at(-1), { command: 'gh', args: ['issue', 'create', '--title', '{title}'], name: 'create-issue' });
   assert.ok(granted.orchestrator.tools.includes('cli:create-issue'));
   assert.ok(granted.policies.enforced[0].tools.includes('cli:create-issue'), 'the policy ceiling is extended');
+  assert.ok(granted.agents[0].tools.includes('cli:create-issue'), 'the agent list stays consistent');
   const revoked = changeModel(yaml.stringify(granted), revokeOps(granted, 'create-issue')).model;
   assert.equal(revoked.integrations.cli.some((c) => c.name === 'create-issue'), false);
   assert.equal(revoked.orchestrator.tools.includes('cli:create-issue'), false);
   assert.equal(revoked.policies.enforced[0].tools.includes('cli:create-issue'), false);
+  assert.equal(revoked.agents[0].tools.includes('cli:create-issue'), false);
 });
 
-test('launch check reports a command that is not installed', (t) => {
+test('launch check reports a missing command once per agent, and approval a subagent cannot give', (t) => {
   const root = project(t);
-  const check = launchCheck(root, model, { probe: (cli) => cli !== 'node' });
-  assert.deepEqual(check.problems.filter((p) => p.problem.startsWith('cli:')).map((p) => p.agent).sort(), ['lead', 'writer']);
+  let probes = 0;
+  const check = launchCheck(root, model, { probe: (cli) => { probes++; return cli !== 'node'; } });
+  assert.deepEqual(check.problems.filter((p) => /not installed/.test(p.problem)).map((p) => p.agent).sort(), ['lead', 'writer']);
+  assert.equal(probes, 1, 'each command is probed once');
+  const asking = { ...model, agents: [{ name: 'writer', model: 'fixture/small', tools: ['cli:echo-title'] }] };
+  assert.ok(launchCheck(root, asking, { probe: () => true }).problems.some((p) => p.agent === 'writer' && /subagents run in the background without a UI/.test(p.problem)));
+  writeFileSync(join(root, '.pi/agents/writer.md'), '---\nname: writer\ntools: [read, cli_show_body]\nasync: true\n---\n');
+  assert.ok(launchCheck(root, model, { probe: () => true }).problems.some((p) => p.agent === 'writer' && /misreads/.test(p.problem)));
 });
 
 test('the orchestrator gets only its commands; a subagent process gets all, bounded by its allowlist', (t) => {
@@ -228,10 +254,13 @@ test('/factory-permission adds, lists, reviews and removes commands', async (t) 
   const headless = adapter({ hasUI: false });
   registerPermissions(headless.pi, headless.Type, root);
   await headless.tools.request_permission.execute('id', { name: 'list-files', command: 'ls', args: ['-la'], reason: 'Look around' }, undefined, undefined, headless.ctx);
-  const reviewer = adapter({ choices: [0] });
+  // A request that can't be saved stays pending; the review keeps going.
+  await headless.tools.request_permission.execute('id', { name: 'echo-title', command: 'node', args: ['-p', '1'], reason: 'Name clash' }, undefined, undefined, headless.ctx);
+  const reviewer = adapter({ choices: [0, 0] });
   registerPermissions(reviewer.pi, reviewer.Type, root);
   await reviewer.commands['factory-permission'].handler('review', reviewer.ctx);
-  assert.deepEqual(readRequests(root), []);
+  assert.deepEqual(readRequests(root).map((r) => r.name), ['echo-title']);
+  assert.match(reviewer.notices.find((n) => n.level === 'error').m, /echo-title: .*already exists; kept for later/);
   doc = yaml.parse(readFileSync(join(root, '.pi/system.yaml'), 'utf8'));
   assert.ok(doc.integrations.cli.some((c) => c.name === 'list-files'));
   assert.ok(doc.orchestrator.tools.includes('cli:list-files'));

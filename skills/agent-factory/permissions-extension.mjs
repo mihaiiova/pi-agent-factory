@@ -20,9 +20,6 @@ import {
   formatCommand, runCommand, splitCommandLine, grantOps, revokeOps, readRequests, writeRequests,
 } from './cli-tools.mjs';
 import { enforcedAgentTools } from './policy.mjs';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 const text = (value, isError = false) => ({ content: [{ type: 'text', text: value }], details: undefined, ...(isError ? { isError: true } : {}) });
 const shape = (entry) => formatCommand(entry.command, entry.args ?? []);
@@ -31,11 +28,8 @@ function loadModel(root) {
   try { return parsedModel(readText(root, '.pi/system.yaml')); } catch { return null; }
 }
 
-/** Throws unless the values fit the command shape (no files are kept). */
-function checkValues(args, values) {
-  const dir = mkdtempSync(join(tmpdir(), 'factory-cli-check-'));
-  try { buildArgv(args, values, dir); } finally { rmSync(dir, { recursive: true, force: true }); }
-}
+/** Throws unless the values fit the command shape. */
+const checkValues = (args, values) => buildArgv(args, values, null);
 
 /** Preview a system.yaml change, ask, and apply it. Returns a message, or null when declined. */
 async function confirmChange(root, ctx, title, ops) {
@@ -45,7 +39,7 @@ async function confirmChange(root, ctx, title, ops) {
   return applyChange(root, plan, true);
 }
 
-export function registerPermissions(pi, Type, root, maintaining = () => false) {
+export function registerPermissions(pi, Type, root) {
   const child = process.env.PI_SUBAGENT_CHILD === '1';
   const model = loadModel(root);
   const allowedForSession = new Set();
@@ -62,7 +56,7 @@ export function registerPermissions(pi, Type, root, maintaining = () => false) {
       parameters: Type.Object(Object.fromEntries(params.map((p) => [p.name, Type.String({
         description: p.file ? `{${p.name}:file}: the text is written to a temporary file and its path is passed` : `{${p.name}}: one argument; may not start with "-"`,
       })]))),
-      async execute(_id, values, _signal, _onUpdate, ctx) {
+      async execute(_id, values, signal, _onUpdate, ctx) {
         try { checkValues(entry.args, values); } catch (error) { return text(error.message, true); }
         if (entry.approve !== false && !allowedForSession.has(entry.name)) {
           if (!ctx?.hasUI) return text(`${entry.name} needs the user's approval for each run, which this session can't ask for${child ? '. Report back what you need run, so the orchestrator can run it' : '. Run it from an interactive ./run session'}.`, true);
@@ -70,7 +64,7 @@ export function registerPermissions(pi, Type, root, maintaining = () => false) {
           if (!choice || choice === 'Deny') return text('The user denied this run.', true);
           if (choice !== 'Allow once') allowedForSession.add(entry.name);
         }
-        const result = runCommand(root, entry, values);
+        const result = await runCommand(root, entry, values, { signal });
         return text(result.text, !result.ok);
       },
     });
@@ -90,7 +84,7 @@ export function registerPermissions(pi, Type, root, maintaining = () => false) {
       values: Type.Optional(Type.Record(Type.String(), Type.String(), { description: 'values for the placeholders in this call' })),
       reason: Type.String({ description: 'why you need it, in one sentence' }),
     }),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
+    async execute(_id, params, signal, _onUpdate, ctx) {
       const entry = { name: params.name, command: params.command, args: params.args, description: params.reason };
       try { checkShape(entry); } catch (error) { return text(error.message, true); }
       const current = loadModel(root);
@@ -98,7 +92,7 @@ export function registerPermissions(pi, Type, root, maintaining = () => false) {
       const declared = cliEntries(current).find((c) => c.command === entry.command && JSON.stringify(c.args ?? []) === JSON.stringify(entry.args));
       if (declared) return text(`This command is already declared as ${cliToolName(declared.name)}${cliAgents(current, declared.name).includes(current.orchestrator?.name) ? '; call that tool' : ', but not for you; restart ./run if it was just added'}.`, true);
       try { checkValues(entry.args, params.values); } catch (error) { return text(error.message, true); }
-      if (!ctx?.hasUI || maintaining()) {
+      if (!ctx?.hasUI) {
         const requests = readRequests(root).filter((r) => !(r.command === entry.command && JSON.stringify(r.args) === JSON.stringify(entry.args)));
         writeRequests(root, [...requests, { name: entry.name, command: entry.command, args: entry.args, reason: params.reason, requestedAt: new Date().toISOString() }]);
         return text('Saved as a pending request; nothing ran. Tell the user what is blocked. They can approve it with /factory-permission review.', true);
@@ -112,7 +106,7 @@ export function registerPermissions(pi, Type, root, maintaining = () => false) {
           saved = applied === null ? '\nNot saved (declined); it ran once.' : `\nSaved as ${cliToolName(entry.name)}; it is available after restarting ./run. ${applied}`;
         } catch (error) { saved = `\nNot saved: ${error.message}. It ran once.`; }
       }
-      const result = runCommand(root, entry, params.values ?? {});
+      const result = await runCommand(root, entry, params.values ?? {}, { signal });
       return text(result.text + saved, !result.ok);
     },
   });
@@ -147,6 +141,8 @@ export function registerPermissions(pi, Type, root, maintaining = () => false) {
           if (unknown.length) throw new Error(`Unknown agent(s): ${unknown.join(', ')}`);
           const ask = await ctx.ui.select('Approval', ['Ask before every run (recommended)', 'Run without asking']);
           if (!ask) return tell('Cancelled.');
+          const subagents = agents.filter((a) => a !== current.orchestrator.name);
+          if (ask.startsWith('Ask') && subagents.length && !await ctx.ui.confirm('Subagents cannot ask', `${subagents.join(', ')} run in the background without a UI, so they can't ask you first: every call they make would be refused. Give it to the orchestrator, or choose "Run without asking". Continue anyway?`)) return tell('Cancelled.');
           const entry = { name, command, args: cmdArgs, approve: ask.startsWith('Ask') };
           checkShape(entry);
           const applied = await confirmChange(root, ctx, `Add the command "${name}"?`, grantOps(current, entry, agents));
@@ -162,16 +158,22 @@ export function registerPermissions(pi, Type, root, maintaining = () => false) {
           const requests = readRequests(root);
           if (!requests.length) return tell('No pending requests.');
           const left = [];
-          for (const request of requests) {
-            const choice = await ctx.ui.select(`Pending request (${request.requestedAt}):\n\n${shape(request)}\n\nWhy: ${request.reason}`, [`Save as "${request.name}" for ${current.orchestrator.name}`, 'Discard', 'Keep for later']);
-            if (choice?.startsWith('Save')) {
-              const model = parsedModel(readText(root, '.pi/system.yaml'));
-              const applied = await confirmChange(root, ctx, `Save the command "${request.name}"?`, grantOps(model, { ...request, description: request.reason, approve: true }, [model.orchestrator.name]));
-              if (applied === null) left.push(request); else tell(applied);
-            } else if (choice !== 'Discard') left.push(request);
-          }
-          writeRequests(root, left);
-          return tell(`${requests.length - left.length} handled, ${left.length} pending.`);
+          let seen = 0;
+          try {
+            for (const request of requests) {
+              const choice = await ctx.ui.select(`Pending request (${request.requestedAt}):\n\n${shape(request)}\n\nWhy: ${request.reason}`, [`Save as "${request.name}" for ${current.orchestrator.name}`, 'Discard', 'Keep for later', 'Stop reviewing']);
+              if (!choice || choice === 'Stop reviewing') break;
+              seen++;
+              if (choice.startsWith('Save')) {
+                try {
+                  const model = parsedModel(readText(root, '.pi/system.yaml'));
+                  const applied = await confirmChange(root, ctx, `Save the command "${request.name}"?`, grantOps(model, { ...request, description: request.reason, approve: true }, [model.orchestrator.name]));
+                  if (applied === null) left.push(request); else tell(applied);
+                } catch (error) { left.push(request); tell(`${request.name}: ${error.message}; kept for later`, 'error'); }
+              } else if (choice !== 'Discard') left.push(request);
+            }
+          } finally { writeRequests(root, [...left, ...requests.slice(seen)]); }
+          return tell(`${seen - left.length} handled, ${requests.length - seen + left.length} pending.`);
         }
         throw new Error('Use: /factory-permission [list | add | remove <name> | review]');
       } catch (error) { tell(error.message, 'error'); }
