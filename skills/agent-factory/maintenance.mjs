@@ -2,6 +2,7 @@
 import { changeModel, parsedModel } from './changes.mjs';
 import { readEntries, MEMORY_FILE } from './memory.mjs';
 import { staleMentions } from './agent-context.mjs';
+import { backgroundAskingIssues } from './asking.mjs';
 import { loadYaml } from './yaml-loader.mjs';
 import { managedPaths, generateProject } from './generate.mjs';
 import { modifyPlan } from './modify.mjs';
@@ -145,6 +146,8 @@ export function planChange(root, operations) {
   // Prompts describe roles; a removed capability they still mention keeps
   // steering agents toward something they no longer have.
   const stale = staleMentions(oldModel, model);
+  // Kept from before the rule existed; the change may fix them with `fix`.
+  const asking = backgroundAskingIssues(model);
   return {
     kind: 'configuration', writes, skills,
     expected: fingerprints(root, [...paths, ...Object.keys(writes), '.factory/installation.json']),
@@ -157,6 +160,7 @@ export function planChange(root, operations) {
         warning: 'Packages and stdio MCP servers execute code at next launch. MCP URLs expose data to their operators. Approval authorizes this declared execution surface.',
       },
       modelDiff: diffLines(oldText, text),
+      ...(asking.length ? { askingInBackground: { note: 'These subagents run in the background, where nobody can answer an approval prompt, so these calls always fail. Propose each fix (the orchestrator then makes the approved calls), or explain why not.', issues: asking.map(({ agent, message, fix }) => ({ agent, message, fix })) } } : {}),
       ...(stale.length ? { staleMentions: { note: 'These instructions still mention a capability this change removes, so agents would keep reaching for it. Update them in the same proposal.', mentions: stale } } : {}),
       files: files.map(f => ({ path: f.path, action: f.action, diff: diffLines(existing[f.path] ?? '', f.content) })),
       capabilitiesDiff: diffLines(json(beforeCapabilities), json(afterCapabilities)),

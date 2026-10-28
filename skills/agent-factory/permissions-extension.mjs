@@ -144,8 +144,16 @@ export function registerPermissions(pi, Type, root) {
           const ask = await ctx.ui.select('Approval', ['Ask before every run (recommended)', 'Run without asking']);
           if (!ask) return tell('Cancelled.');
           const subagents = agents.filter((a) => a !== current.orchestrator.name);
-          if (ask.startsWith('Ask') && subagents.length && !await ctx.ui.confirm('Subagents cannot ask', `${subagents.join(', ')} run in the background without a UI, so they can't ask you first: every call they make would be refused. Give it to the orchestrator, or choose "Run without asking". Continue anyway?`)) return tell('Cancelled.');
-          const entry = { name, command, args: cmdArgs, approve: ask.startsWith('Ask') };
+          let approve = ask.startsWith('Ask');
+          if (approve && subagents.length) {
+            // A command that asks can't run in a background subagent; the orchestrator runs it for them.
+            const lead = `Only ${current.orchestrator.name}, which runs it when a subagent asks`;
+            const route = await ctx.ui.select(`${subagents.join(', ')} run in the background, where nobody can answer the approval prompt, so every run would be refused.`, [lead, 'Run without asking', 'Cancel']);
+            if (!route || route === 'Cancel') return tell('Cancelled.');
+            if (route === lead) agents.splice(0, agents.length, current.orchestrator.name);
+            else approve = false;
+          }
+          const entry = { name, command, args: cmdArgs, approve };
           checkShape(entry);
           const applied = await confirmChange(root, ctx, `Add the command "${name}"?`, grantOps(current, entry, agents));
           return tell(applied === null ? 'Cancelled; nothing changed.' : applied);

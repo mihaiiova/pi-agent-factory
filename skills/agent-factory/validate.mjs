@@ -11,6 +11,7 @@
 import { THINKING_LEVELS, isModelRef } from "./models.mjs";
 import { PACKAGE_SOURCE_RE, skillSourceKind } from "./skill-sources.mjs";
 import { isMisplacedPlaceholder } from "./cli-tools.mjs";
+import { backgroundAskingIssues } from "./asking.mjs";
 
 const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -146,7 +147,7 @@ function collectNames(list, path, errors) {
  * @returns {{ ok: boolean, errors: string[] }} result; `ok` is true when there
  *   are no errors.
  */
-export function validateSystem(doc) {
+export function validateSystem(doc, { tolerate = [] } = {}) {
   const errors = [];
 
   if (!isPlainObject(doc)) {
@@ -628,6 +629,15 @@ export function validateSystem(doc) {
       if (typeof tool === "string" && tool.startsWith("cli:") && !cliNames.has(tool.slice(4))) {
         errors.push(`${path} references "${tool}" but integrations.cli declares no "${tool.slice(4)}"`);
       }
+    }
+  }
+
+  // A subagent that can reach a tool that asks the user. `tolerate` lists
+  // issues already in the file being changed, so a project can still be
+  // revised (and repaired) after the rule was introduced.
+  if (isPlainObject(doc) && errors.length === 0) {
+    for (const issue of backgroundAskingIssues(doc)) {
+      if (!tolerate.includes(issue.message)) errors.push(`document.agents[${issue.index}] ${issue.message}`);
     }
   }
 

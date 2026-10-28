@@ -91,7 +91,16 @@ tools include anything beyond Pi's builtins (`read`, `bash`, `edit`, `write`,
 `web_search` — or that omits `tools`, gets `async: true`: foreground children
 never load extensions, so those tools would be missing. Such systems also get
 `.factory/pi-home/extensions/subagent/config.json` with
-`forceTopLevelAsync: true` so a caller cannot launch them in the foreground. `skills:` selects the
+`forceTopLevelAsync: true` so a caller cannot launch them in the foreground.
+Nobody can answer an approval prompt in the background, so a subagent that
+can reach a call that asks the user — an MCP tool matching its server's
+`approveTools` (through `mcp:<server>`, `mcp:<server>/<tool>` or `mcp`), or a
+`cli:` command without `approve: false` — is rejected: give it only tools that
+don't ask and let the orchestrator, which runs in the user's chat, make the
+approved calls. A project that already has such a subagent stays revisable:
+changes may keep the issue but not add one, and the change preview
+(`askingInBackground`) and launch check list it with a ready fix.
+`skills:` selects the
 skills the subagent receives. Duplicate `name`s are rejected.
 
 ### `skills[]`

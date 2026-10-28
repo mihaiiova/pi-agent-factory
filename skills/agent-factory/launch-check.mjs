@@ -14,6 +14,7 @@ import { needsBackground, SUBAGENT_CONFIG } from './generate.mjs';
 import { skillSourceKind } from './skill-sources.mjs';
 import { cliEntries, cliRef } from './cli-tools.mjs';
 import { probeClis } from './discover.mjs';
+import { backgroundAskingIssues } from './asking.mjs';
 
 const BUILTIN = new Set(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
 
@@ -58,7 +59,6 @@ export function launchCheck(root, model, { registeredTools, probe } = {}) {
     for (const name of (Array.isArray(tools) ? tools : []).map(cliRef).filter(Boolean)) {
       const entry = commands.get(name);
       if (entry && !installed(entry.command)) problems.push({ agent: agentName, problem: `cli:${name}: "${entry.command}" is not installed or not on PATH` });
-      if (entry && entry.approve !== false && agentName !== model.orchestrator?.name) problems.push({ agent: agentName, problem: `cli:${name} asks before each run, but subagents run in the background without a UI, so every call would be refused; set approve: false or give it to the orchestrator` });
     }
   };
   if (model?.orchestrator) checkCommands(model.orchestrator.name, Array.isArray(model.orchestrator.tools) ? model.orchestrator.tools : cliEntries(model).map((c) => `cli:${c.name}`));
@@ -91,6 +91,9 @@ export function launchCheck(root, model, { registeredTools, probe } = {}) {
       const dir = kind === 'registry' ? `.agents/skills/${name}` : kind === 'package' ? null : `.pi/skills/${name}`;
       if (dir && !existsSync(join(root, dir, 'SKILL.md'))) report(`skill "${name}" is not installed at ${dir}/`);
     }
+  }
+  for (const issue of backgroundAskingIssues(model)) {
+    problems.push({ agent: issue.agent, problem: `${issue.message}${issue.fix ? ` Ask /factory-update to apply the suggested fix: tools ${JSON.stringify(issue.fix.value.tools)}.` : ''}` });
   }
   return { ok: problems.length === 0, problems };
 }
