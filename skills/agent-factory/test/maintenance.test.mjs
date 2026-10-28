@@ -790,3 +790,21 @@ test('inspect summarizes subagent launches and the latest failure diagnostic onl
   assert.deepEqual(runs.writer, { runs: 1, failed: 1, last: 'failed', lastError: 'ran as a foreground child' });
   assert.doesNotMatch(JSON.stringify(runs), /secret task text/);
 });
+
+test('the upgrade check reports configuration to reconcile and existing issues instead of blocking', t => {
+  const root = project(t);
+  const smoke = () => execFileSync(process.execPath, [join(repo, 'skills/agent-factory/maintenance-smoke.mjs'), root], { encoding: 'utf8' });
+  assert.doesNotMatch(smoke(), /After restarting/);
+  // What an older version generated: the new generator derives settings differently.
+  const settings = JSON.parse(readText(root, '.pi/settings.json'));
+  delete settings.extensions;
+  writeFileSync(join(root, '.pi/settings.json'), json(settings));
+  const asking = { ...model, agents: [{ name: 'filer', model: 'fixture/small', tools: ['cli:file-issue'] }], integrations: { cli: [{ name: 'file-issue', description: 'File', command: 'gh', args: ['issue', 'create'] }] } };
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(asking));
+  const out = smoke();
+  assert.match(out, /checks passed/);
+  assert.match(out, /run \/factory-update reconcile: this version generates \.pi\/settings\.json differently/);
+  assert.match(out, /fix the subagents that can reach calls that ask the user \(filer\)/);
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...asking, agents: [{ name: 'filer', tools: ['read'] }] }));
+  assert.throws(smoke, /Command failed/, 'invalid models still block');
+});

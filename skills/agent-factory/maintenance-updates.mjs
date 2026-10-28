@@ -244,15 +244,17 @@ export async function activateUpdate(root, plan, approved = false) {
   // Run credential-free syntax and consistency checks only after source verification
   // AND approval. A failing check never changes the active installation pointer.
   const checkHome = mkdtempSync(join(tmpdir(), 'factory-check-'));
+  let smoke;
   try {
     for (const p of Object.keys(plan.bundle.files).filter(p => p.endsWith('.mjs') && !p.includes('node_modules/'))) await exec(process.execPath, ['--check', join(base, p)], { timeout: 10000, env: cleanEnv(checkHome) });
-    await exec(process.execPath, [join(base, 'skills/agent-factory/maintenance-smoke.mjs'), root], { timeout: 15000, env: cleanEnv(checkHome) });
+    ({ stdout: smoke } = await exec(process.execPath, [join(base, 'skills/agent-factory/maintenance-smoke.mjs'), root], { timeout: 15000, env: cleanEnv(checkHome) }));
   } finally { rmSync(checkHome, { recursive: true, force: true }); }
   transact(root, {
     '.factory/previous-installation.json': json(plan.installed),
     '.factory/installation.json': json(plan.bundle.installation),
   }, plan.expected, true);
-  return plan.preview.restart;
+  const next = String(smoke ?? '').split('\n').filter(line => line.startsWith('After restarting'));
+  return [plan.preview.restart, ...next].join(' ');
 }
 export function rollbackPlan(root) {
   const installed = validateIdentity(readJson(root, '.factory/installation.json'));
