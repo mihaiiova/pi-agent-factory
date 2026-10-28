@@ -154,11 +154,12 @@ first; the user decides.
   human confirms each action. Don't infer this or bury it in a default. Explain
   what each credential and tool can reach (an MCP server with a scoped token,
   or `bash` with the user's own CLI logins) and let the user choose per agent.
-- **Memory:** for a system used repeatedly, recommend `orchestrator.memory`:
-  the orchestrator keeps short notes across sessions in `.pi/MEMORY.md`
-  (corrections, preferences, tools or specialists that failed and what
-  worked), writes them itself, and loads them at session start.
-  `/factory-update review` turns lasting lessons into proposed changes.
+- **Memory** is built in, not a decision: every orchestrator keeps short
+  notes across sessions in `.pi/MEMORY.md` (corrections, preferences, tools
+  or specialists that failed and what worked), writes them itself, and loads
+  them at session start. Mention it when it matters, e.g. a read-only system
+  still writes this one file. `/factory-update review` turns lasting lessons
+  into proposed changes.
 - **Generated files:** generation also writes `.factory/capabilities.json` —
   the deterministic effective-capability manifest (orchestrator/subagent tools,
   skills, MCP servers + exclusions, packages) derived from `system.yaml`, used

@@ -9,7 +9,7 @@ import { envStatus, setEnvValue } from './maintenance-env.mjs';
 import { probeClis } from './discover.mjs';
 import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
-import { memoryConfig, memoryPrompt, updateMemory, failedTools, MEMORY_FILE } from './memory.mjs';
+import { memoryPrompt, updateMemory, failedTools, MEMORY_FILE } from './memory.mjs';
 
 export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } = {}) {
   let armed = false;
@@ -199,44 +199,32 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
 }
 
 /**
- * Orchestrator memory (opt-in with orchestrator.memory): notes loaded once per
- * session, written freely by the memory tool, and a nudge to record a lesson
- * after a task with failed tool calls. Subagent processes skip all of it.
+ * Orchestrator memory: notes loaded once per session, written freely by the
+ * memory tool, and a nudge to record a lesson after a task with failed tool
+ * calls. Subagent processes skip all of it.
  */
 function registerMemory(pi, Type, root, maintaining) {
   if (process.env.PI_SUBAGENT_CHILD === '1') return;
-  let config = null;
   let snapshot = '';
   let failed = [];
   let maintenanceTurn = false;
-  let registered = false;
-  pi.on('session_start', () => {
-    try { config = memoryConfig(parsedModel(readText(root, '.pi/system.yaml'))); } catch { config = null; }
-    if (!config) {
-      if (registered) pi.registerTool({ name: 'memory', label: 'Memory', description: 'Memory is off', parameters: Type.Object({}), exposure: 'hidden', async execute() { throw new Error('Memory is off for this system'); } });
-      registered = false;
-      return;
-    }
-    registered = true;
-    // A snapshot keeps the prompt stable; writes take effect next session.
-    snapshot = memoryPrompt(root, config);
-    pi.registerTool({
-      name: 'memory', label: 'Memory',
-      description: `Keep durable notes across sessions in ${MEMORY_FILE}: add an entry, or replace/remove the one entry containing "match". Notes load at the start of the next session.`,
-      promptSnippet: 'Save, update or remove a durable note for future sessions',
-      parameters: Type.Object({
-        action: Type.Union([Type.Literal('add'), Type.Literal('replace'), Type.Literal('remove')]),
-        text: Type.Optional(Type.String({ description: 'add/replace: the entry, one short line' })),
-        match: Type.Optional(Type.String({ description: 'replace/remove: text from the existing entry' })),
-      }),
-      async execute(_id, params) {
-        if (!config) throw new Error('Memory is off for this system');
-        return { content: [{ type: 'text', text: updateMemory(root, params, config) }], details: undefined };
-      },
-    });
+  pi.registerTool({
+    name: 'memory', label: 'Memory',
+    description: `Keep durable notes across sessions in ${MEMORY_FILE}: add an entry, or replace/remove the one entry containing "match". Notes load at the start of the next session.`,
+    promptSnippet: 'Save, update or remove a durable note for future sessions',
+    parameters: Type.Object({
+      action: Type.Union([Type.Literal('add'), Type.Literal('replace'), Type.Literal('remove')]),
+      text: Type.Optional(Type.String({ description: 'add/replace: the entry, one short line' })),
+      match: Type.Optional(Type.String({ description: 'replace/remove: text from the existing entry' })),
+    }),
+    async execute(_id, params) {
+      return { content: [{ type: 'text', text: updateMemory(root, params) }], details: undefined };
+    },
   });
+  // A snapshot keeps the prompt stable; writes take effect next session.
+  pi.on('session_start', () => { try { snapshot = memoryPrompt(root); } catch { snapshot = ''; } });
   pi.on('before_agent_start', (event) => {
-    if (!config) return;
+    if (!snapshot) return;
     // A /factory-update turn can't use the memory tool; keep any nudge for later.
     maintenanceTurn = maintaining();
     if (maintenanceTurn) return { systemPrompt: `${event.systemPrompt}\n\n${snapshot}` };
@@ -244,5 +232,5 @@ function registerMemory(pi, Type, root, maintaining) {
     failed = [];
     return { systemPrompt: `${event.systemPrompt}\n\n${snapshot}${nudge}` };
   });
-  pi.on('agent_end', (event) => { if (config && !maintenanceTurn) failed = failedTools(event.messages); });
+  pi.on('agent_end', (event) => { if (!maintenanceTurn) failed = failedTools(event?.messages); });
 }

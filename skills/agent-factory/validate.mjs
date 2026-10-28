@@ -17,8 +17,7 @@ const TOP_LEVEL_KEYS = [
   "schema", "name", "description", "orchestrator",
   "agents", "skills", "integrations", "workflows", "documents", "policies", "packages",
 ];
-const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "thinking", "tools", "memory"];
-const MEMORY_KEYS = ["maxChars"];
+const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "thinking", "tools"];
 const AGENT_KEYS = [
   "name", "description", "tools", "model", "thinking", "skills", "prompt",
   "inheritProjectContext", "inheritSkills",
@@ -203,17 +202,6 @@ export function validateSystem(doc) {
       }
       if (doc.orchestrator.tools !== undefined) {
         checkStringArray(doc.orchestrator.tools, "document.orchestrator.tools", errors);
-      }
-      const memory = doc.orchestrator.memory;
-      if (memory !== undefined && typeof memory !== "boolean") {
-        if (!isPlainObject(memory)) {
-          errors.push("document.orchestrator.memory must be true, false or an object with maxChars");
-        } else {
-          checkUnknownKeys(memory, MEMORY_KEYS, "document.orchestrator.memory", errors);
-          if (memory.maxChars !== undefined && !(Number.isInteger(memory.maxChars) && memory.maxChars > 0)) {
-            errors.push("document.orchestrator.memory.maxChars must be a positive integer");
-          }
-        }
       }
     }
   }
