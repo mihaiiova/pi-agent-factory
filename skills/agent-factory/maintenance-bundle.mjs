@@ -1,7 +1,7 @@
 /** Minimal standalone engine packaging; no operational packages or credentials. */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
@@ -93,13 +93,58 @@ export function localBundle(repo = REPO) {
 }
 export function verifyBundle(root, installation) {
   validateIdentity(installation);
+  return verifyRuntime(root, installation);
+}
+/** Checks a runtime directory against its recorded integrity. */
+export function verifyRuntime(root, { runtime, integrity }) {
+  if (!/^runtime\/[a-f0-9-]+$/.test(runtime ?? '')) throw new Error('Invalid runtime path');
+  const installation = { runtime };
   const hashes = readJson(root, `.factory/${installation.runtime}/bundle.json`);
-  if (digest(json(hashes)) !== installation.integrity) throw new Error('Maintenance manifest integrity mismatch');
+  if (digest(json(hashes)) !== integrity) throw new Error('Maintenance manifest integrity mismatch');
   for (const [p, hash] of Object.entries(hashes)) {
     const content = readText(root, `.factory/${installation.runtime}/${p}`);
     if (content === null || digest(content) !== hash) throw new Error(`Maintenance integrity mismatch: ${p}`);
   }
   return true;
+}
+export const BUILD_PIN = '.factory/build.json';
+/** The installed bundle this code runs from: { root, runtime }, or null when it runs from a Factory checkout. */
+export function selfRuntime(url = import.meta.url) {
+  const match = fileURLToPath(url).match(/^(.*)\/\.factory\/(runtime\/[a-f0-9-]+)\/skills\/agent-factory\/[^/]+$/);
+  return match ? { root: match[1], runtime: match[2] } : null;
+}
+/** The pin a build writes: the installed bundle running it. Nothing when run from a checkout. */
+export function pinWrites(root, self = selfRuntime()) {
+  return self && resolve(self.root) === resolve(root) ? { [BUILD_PIN]: json(buildPin(root, self.runtime)) } : {};
+}
+/** The record that a build used this runtime: written with every build, read when agents start. */
+export function buildPin(root, runtime) {
+  const integrity = digest(readText(root, `.factory/${runtime}/bundle.json`) ?? '');
+  const pin = { runtime, integrity, version: readJson(root, `.factory/${runtime}/package.json`).version };
+  verifyRuntime(root, pin);
+  return pin;
+}
+/**
+ * The agent runtime pinned by the last build. Falls back to `own` (this
+ * bundle's registerAgent) when nothing is pinned yet, the pin is this bundle,
+ * or the pinned bundle fails verification (reported as `problem`).
+ */
+export async function loadPinnedAgent(root, self, own, importer = (href) => import(href)) {
+  const result = { root, registerAgent: own, pin: null, problem: null };
+  let pin;
+  try { pin = readText(root, BUILD_PIN) === null ? null : readJson(root, BUILD_PIN); } catch (error) { return { ...result, problem: `${BUILD_PIN} is unreadable: ${error.message}` }; }
+  if (!pin) return result;
+  result.pin = pin;
+  if (pin.runtime === self) return result;
+  try {
+    verifyRuntime(root, pin);
+    const entry = join(root, '.factory', pin.runtime, 'skills/agent-factory/agent-extension.mjs');
+    const module = await importer(pathToFileURL(entry).href);
+    if (typeof module.registerAgent !== 'function') throw new Error('it has no registerAgent');
+    return { ...result, registerAgent: module.registerAgent };
+  } catch (error) {
+    return { ...result, problem: `the agent runtime from Factory ${pin.version ?? pin.runtime} could not be loaded (${error.message}); agents use this version's until the project is rebuilt` };
+  }
 }
 export function stageBundle(root, bundle) {
   for (const [p, content] of Object.entries(bundle.files)) {
@@ -150,6 +195,7 @@ export function bootstrapPlan(root, bundle = localBundle()) {
   writes['.factory/capabilities.json'] = json(effectiveCapabilities(model, opts));
   const installation = { ...bundle.installation, entrypoints: Object.fromEntries(Object.entries(infrastructureFiles()).map(([path, content]) => [path, digest(content)])) };
   writes['.factory/installation.json'] = json(installation);
+  writes[BUILD_PIN] = json({ runtime: installation.runtime, integrity: installation.integrity, version: installation.version });
   const expected = fingerprints(root, [...Object.keys(writes), '.pi/system.yaml', '.pi/settings.json', '.pi/mcp.json', 'run']);
   return { kind: 'bootstrap', bundle, writes, expected, preview: { files: [...Object.keys(writes), `.factory/${bundle.installation.runtime}/…`], consistency, installation, restart: 'Restart ./run to load /factory-update. Existing operational configuration is unchanged.' } };
 }

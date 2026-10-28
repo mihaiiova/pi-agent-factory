@@ -115,7 +115,9 @@ is generated from `system.yaml` into a "What you can use" section, so removing
 an integration also removes it from what agents are told. The section is part of
 the generated project (each agent file, and `.pi/CAPABILITIES.md` for the
 orchestrator), so it changes when the system is regenerated, never because the
-Factory tooling was updated. A change that removes
+Factory tooling was updated. The same holds for the runtime agents use (memory,
+command tools, `request_permission`): it comes from the Factory version that
+last built the project, recorded in `.factory/build.json`. A change that removes
 a capability lists any prompt, workflow or policy that still mentions it, and
 `/factory-update review` flags prompts that describe specific tools.
 
