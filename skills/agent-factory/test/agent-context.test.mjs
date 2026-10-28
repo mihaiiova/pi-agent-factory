@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { loadYaml } from '../yaml-loader.mjs';
 import { generateProject } from '../generate.mjs';
 import { planChange } from '../maintenance.mjs';
-import { registerMaintenance } from '../maintenance-extension.mjs';
+import { registerAgent } from '../agent-extension.mjs';
 import { capabilitySection, staleMentions } from '../agent-context.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -102,26 +102,28 @@ test('the change preview carries stale mentions so the proposal can fix them', (
   assert.equal(fixed.preview.staleMentions, undefined);
 });
 
-test("the orchestrator's section is build output; a project not yet rebuilt gets it at session start", (t) => {
+test("the orchestrator's section is build output, added at session start only when Pi was not launched with it", (t) => {
   const root = project(t);
   const capabilities = readFileSync(join(root, '.pi/CAPABILITIES.md'), 'utf8');
   assert.equal(capabilities, capabilitySection(model, 'lead'));
   assert.match(readFileSync(join(root, 'run'), 'utf8'), /for f in \.pi\/APPEND_SYSTEM\.md \.pi\/CAPABILITIES\.md; do/);
-  const start = () => {
+  const start = (argv) => {
     const events = {};
     const pi = { registerTool: () => {}, registerCommand: () => {}, on: (n, cb) => { (events[n] ??= []).push(cb); }, getActiveTools: () => [], setActiveTools: () => {}, getAllTools: () => [], sendUserMessage: () => {} };
     const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map((k) => [k, (v) => v]));
-    registerMaintenance(pi, Type, root);
+    registerAgent(pi, Type, root, { argv });
     events.session_start.forEach((cb) => cb({}, { hasUI: false, ui: {} }));
     let prompt = 'BASE';
     for (const cb of events.before_agent_start) prompt = cb({ systemPrompt: prompt })?.systemPrompt ?? prompt;
     return prompt;
   };
-  const built = start();
-  assert.doesNotMatch(built, /What you can use/, './run appends the generated file; the runtime adds nothing');
-  assert.match(built, /## Memory/);
+  const launched = start(['node', 'pi', '--append-system-prompt', '.pi/CAPABILITIES.md']);
+  assert.doesNotMatch(launched, /What you can use/, './run appends the generated file; the runtime adds nothing');
+  assert.match(launched, /## Memory/);
+  writeFileSync(join(root, '.pi/CAPABILITIES.md'), '## What you can use\n\nFROM THE BUILD\n');
+  assert.match(start(['node', 'pi']), /FROM THE BUILD/, 'an old launcher or plain pi: the built file is added');
   rmSync(join(root, '.pi/CAPABILITIES.md'));
-  assert.match(start(), /## What you can use\n[\s\S]*`cli_create_issue`/);
+  assert.match(start(['node', 'pi']), /## What you can use\n[\s\S]*`cli_create_issue`/, 'a project from before the file: rendered');
 });
 
 test("settings switch off Pi's built-in MCP and keep the user's other extension entries", () => {

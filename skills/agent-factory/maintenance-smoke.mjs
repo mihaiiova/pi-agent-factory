@@ -23,11 +23,9 @@ if (!check.ok) throw new Error(check.errors.join('\n'));
 const existing = Object.fromEntries(managedPaths(model).map(p => [p, readText(root, p)]).filter(([,v]) => v !== null));
 const plan = generateProject(model, existing, opts);
 if (plan.errors.length) throw new Error(plan.errors.join('\n'));
-// An upgrade never rewrites operational files. Configuration the new generator
-// would derive differently is reconciled afterwards, as its own preview: the
-// old version can only reproduce its own output, so requiring it first would
-// block every release that changes generated configuration.
-const drift = plan.files.filter(f => ['.pi/settings.json', '.pi/mcp.json'].includes(f.path) && f.action !== 'none').map(f => f.path);
+// An upgrade never rewrites operational files: agents keep the previous build
+// until /factory-update rebuild regenerates the project with this version.
+const changed = plan.files.filter(f => ['write', 'create'].includes(f.action)).map(f => f.path);
 console.log('Factory maintenance compatibility checks passed (no model/network)');
-if (drift.length) console.log(`After restarting, run /factory-update reconcile: this version generates ${drift.join(' and ')} differently.`);
+if (changed.length) console.log(`After restarting, run /factory-update rebuild: agents keep the previous build until then (this version changes ${changed.join(', ')}).`);
 if (asking.length) console.log(`After restarting, fix the subagents that can reach calls that ask the user (${asking.map(i => i.agent).join(', ')}); /factory-update review shows a ready fix.`);

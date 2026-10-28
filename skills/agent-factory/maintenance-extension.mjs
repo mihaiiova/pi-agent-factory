@@ -1,16 +1,17 @@
 /** Thin Pi adapter: command-owned authority, model-owned proposals only. */
 import { readFileSync } from 'node:fs';
-import { inspectProject, planChange, applyChange, publicChangePreview, withSkillPreviews } from './maintenance.mjs';
+import { resolve } from 'node:path';
+import { inspectProject, planChange, applyChange, publicChangePreview, withSkillPreviews, rebuildPlan } from './maintenance.mjs';
 import { searchSkills, resolveRegistrySkill } from './registry-skills.mjs';
 import { checkForUpdates, checkSummary, startupCheck, prepareUpdate, activateUpdate, rollbackPlan, applyRollback, fetchJson } from './maintenance-updates.mjs';
-import { json, recoveryPlan, applyRecovery, readText } from './maintenance-store.mjs';
+import { json, recoveryPlan, applyRecovery, readText, readJson } from './maintenance-store.mjs';
 import { fetchDocument, documentSlice, checkUrl } from './maintenance-fetch.mjs';
 import { envStatus, setEnvValue } from './maintenance-env.mjs';
 import { probeClis } from './discover.mjs';
 import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
 import { registerAgent } from './agent-extension.mjs';
-import { selfRuntime, loadPinnedAgent } from './maintenance-bundle.mjs';
+import { selfRuntime, loadPinnedAgent, BUILD_PIN } from './maintenance-bundle.mjs';
 
 // Installed tooling runs from .factory/runtime/<id>/; the agent runtime it
 // loads is pinned in .factory/build.json and is imported here, at module load,
@@ -20,7 +21,23 @@ const PINNED = SELF ? await loadPinnedAgent(SELF.root, SELF.runtime, registerAge
 
 /** The agent runtime for root: the pinned one, or this bundle's own. */
 function pinnedAgent(root) {
-  return PINNED && PINNED.root === root ? PINNED : { registerAgent, pin: null, problem: null };
+  const own = { registerAgent, pin: null, problem: null };
+  if (!SELF || resolve(SELF.root) !== resolve(root)) return own;
+  let pin = null;
+  try { pin = readText(root, BUILD_PIN) === null ? null : readJson(root, BUILD_PIN); } catch { /* reported by loadPinnedAgent */ }
+  if (!pin || pin.runtime === SELF.runtime) return { ...own, problem: PINNED?.problem && !pin ? PINNED.problem : null };
+  // A rebuild during this process pinned a bundle not loaded at startup.
+  if (PINNED?.pin?.runtime !== pin.runtime) return { ...own, problem: `agents switch to the runtime of Factory ${pin.version ?? pin.runtime} at the next start` };
+  return PINNED;
+}
+
+/** A notice when the build is older than the installed tooling. */
+function buildNotice(root) {
+  let installation, pin;
+  try { installation = readJson(root, '.factory/installation.json'); } catch { return null; }
+  try { pin = readText(root, BUILD_PIN) === null ? null : readJson(root, BUILD_PIN); } catch { pin = null; }
+  if (pin?.runtime === installation.runtime) return null;
+  return `This project was built with ${pin?.version ? `Factory ${pin.version}` : 'an earlier Factory version'}; /factory-update is ${installation.version}. Run /factory-update rebuild to bring agents up to date.`;
 }
 
 export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } = {}) {
@@ -107,7 +124,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           if (review) throw new Error('Review mode is read-only. Request a specific change with /factory-update before proposing edits.');
           pending = null;
           const ops = JSON.parse(params.operations ?? 'null');
-          if (ops?.some(o => o.op === 'reconcile')) throw new Error('Use the direct /factory-update reconcile command to repair existing generated drift');
+          if (ops?.some(o => o.op === 'reconcile')) throw new Error('Use the direct /factory-update rebuild command to regenerate the project');
           pending = await withSkillPreviews(planChange(root, ops), { fetcher: href => approvedFetch(ctx, href) });
           value = { ...publicChangePreview(root, pending), next: 'Nothing applied. The human must invoke /factory-update apply and approve the preview.' };
         }
@@ -137,6 +154,8 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
       const check = launchCheck(root, parsedModel(readText(root, '.pi/system.yaml')), { registeredTools: pi.getAllTools?.().map(t => t.name) });
       if (!check.ok) tell(ctx, `Some agents would start without what they need:\n${check.problems.map(p => `- ${p.agent}: ${p.problem}`).join('\n')}`, 'warning');
     } catch { /* an invalid model is reported by the commands that use it */ }
+    const behind = buildNotice(root);
+    if (behind) tell(ctx, behind, 'info');
     controller?.abort();
     controller = new AbortController();
     void startupCheck(root, message => { if (ctx.hasUI) ctx.ui.notify(message, 'info'); }, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4000)]) });
@@ -147,8 +166,24 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
   const agent = pinnedAgent(root);
   agent.registerAgent(pi, Type, root, { maintaining: () => armed });
   if (agent.problem) pi.on('session_start', (_event, ctx) => tell(ctx, `Factory: ${agent.problem}.`, 'warning'));
+  /**
+   * Regenerate from system.yaml with this version. Text agents read is
+   * rewritten without asking; anything that changes what they can run or
+   * reach is shown and confirmed first.
+   */
+  const rebuild = async (ctx) => {
+    const plan = rebuildPlan(root);
+    const name = plan.rebuild.version ? `Factory ${plan.rebuild.version}` : 'this Factory version';
+    if (plan.rebuild.unchanged) return `Already built with ${name}; nothing to rebuild.`;
+    if (!plan.rebuild.automatic) {
+      if (!ctx.hasUI) throw new Error(`This rebuild changes what agents can run or reach (${plan.rebuild.reach.join(', ')}) and needs your confirmation; nothing applied`);
+      if (!await ctx.ui.confirm('Rebuild this project?', json(plan.preview))) return 'Cancelled; nothing rebuilt.';
+    }
+    const message = applyChange(root, plan, true);
+    return `Rebuilt with ${name}${plan.rebuild.changed.length ? `: ${plan.rebuild.changed.join(', ')}` : ''}. ${message}`;
+  };
   pi.registerCommand('factory-update', {
-    description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rollback | reconcile | recover | done',
+    description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rebuild | rollback | recover | done',
     handler: async (args, ctx) => {
       try {
         const request = args.trim();
@@ -176,11 +211,11 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           tell(ctx, checkSummary(result), result.status === 'checked' ? 'info' : 'warning');
           return;
         }
-        if (request === 'reconcile') {
+        if (request === 'rebuild' || request === 'reconcile') {
           await ctx.waitForIdle();
           hide();
-          pending = planChange(root, [{ op: 'reconcile' }]);
-          tell(ctx, `${json(pending.preview)}\nRun /factory-update apply to confirm this separate reconciliation.`, 'warning');
+          pending = null;
+          tell(ctx, await rebuild(ctx));
           return;
         }
         if (['update', 'rollback', 'apply', 'recover'].includes(request)) {

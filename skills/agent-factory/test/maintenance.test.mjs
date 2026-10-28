@@ -9,7 +9,7 @@ import { loadYaml } from '../yaml-loader.mjs';
 import { generateProject } from '../generate.mjs';
 import { previousLauncher } from '../runtime.mjs';
 import { changeModel } from '../changes.mjs';
-import { planChange, applyChange, inspectProject } from '../maintenance.mjs';
+import { planChange, applyChange, inspectProject, rebuildPlan, changesReach } from '../maintenance.mjs';
 import { localBundle, bootstrapPlan, applyBootstrap, buildBundle, validateIdentity, validateManifest, installedYamlDir, verifyBundle } from '../maintenance-bundle.mjs';
 import { checkForUpdates, checkSummary, startupCheck, updateNotice, prepareUpdate, activateUpdate, rollbackPlan, applyRollback, verifiedSource } from '../maintenance-updates.mjs';
 import { readJson, readText, json, recoverTransaction, atomicWrite, transact, fingerprints } from '../maintenance-store.mjs';
@@ -245,15 +245,35 @@ test('unmarked instructions and unrelated derived drift never get silently recon
   const tools = generateProject({ ...model, orchestrator: { ...model.orchestrator, tools: [] } }, {}, { piPackages: pkg.pi.packages }).files.find(f => f.path === '.pi/settings.json');
   assert.deepEqual(JSON.parse(tools.content).defaultTools, []);
   writeFileSync(join(root, 'run'), readText(root, 'run') + '# custom launcher\n');
-  assert.throws(() => planChange(root, [{ op: 'assign', name: 'lead', model: 'fixture/small' }]), /generated configuration drift/);
-  const mock = adapter();
-  registerMaintenance(mock.pi, mock.Type, root);
-  // Reconciliation is a distinct direct-user action, never an incidental
-  // side effect of a different request.
-  const plan = planChange(root, [{ op: 'reconcile' }]);
+  // A change rebuilds what this version generates differently, and says so.
+  const change = planChange(root, [{ op: 'assign', name: 'lead', model: 'fixture/small' }]);
+  assert.deepEqual(change.preview.reconciliation, ['run']);
+  assert.match(change.preview.rebuilt, /generates run differently .*hand edit, which would be lost/);
+  assert.ok(change.preview.files.some(f => f.path === 'run'));
+  const plan = rebuildPlan(root);
   assert.deepEqual(plan.preview.reconciliation, ['run']);
+  assert.deepEqual(plan.rebuild.reach, ['run'], 'a launcher change asks first');
+  assert.equal(plan.rebuild.automatic, false);
   applyChange(root, plan, true);
   assert.ok(!readText(root, 'run').includes('custom launcher'));
+  assert.equal(rebuildPlan(root).rebuild.unchanged, true);
+});
+
+test('a rebuild that only changes text agents read is automatic', t => {
+  const root = project(t);
+  writeFileSync(join(root, '.pi/CAPABILITIES.md'), '## What you can use\n\nOlder wording.\n');
+  const plan = rebuildPlan(root);
+  assert.deepEqual(plan.rebuild.changed, ['.pi/CAPABILITIES.md']);
+  assert.deepEqual(plan.rebuild.reach, []);
+  assert.equal(plan.rebuild.automatic, true);
+  writeFileSync(join(root, '.factory/capabilities.json'), '{}\n');
+  assert.deepEqual(rebuildPlan(root).rebuild.reach, ['.factory/capabilities.json']);
+  const agent = (tools, prompt) => `---\nname: a\ntools:\n${tools.map(x => `  - ${x}`).join('\n')}\nsystemPrompt: |\n  ${prompt}\n---\n`;
+  assert.equal(changesReach('.pi/agents/a.md', agent(['read'], 'Old.'), agent(['read'], 'New.')), false, 'prompt text only');
+  assert.equal(changesReach('.pi/agents/a.md', agent(['read'], 'Old.'), agent(['read', 'bash'], 'Old.')), true, 'tools are reach');
+  assert.equal(changesReach('.pi/agents/a.md', undefined, agent(['read'], 'New.')), true, 'a new agent file is reach');
+  assert.equal(changesReach('.pi/mcp.json', '{}', '{"a":1}'), true);
+  assert.equal(changesReach('README.md', 'a', 'b'), false);
 });
 
 test('credential redaction protects inspection and model-facing diffs; new literals are rejected', async t => {
@@ -805,7 +825,7 @@ test('the upgrade check reports configuration to reconcile and existing issues i
   writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(asking));
   const out = smoke();
   assert.match(out, /checks passed/);
-  assert.match(out, /run \/factory-update reconcile: this version generates \.pi\/settings\.json differently/);
+  assert.match(out, /run \/factory-update rebuild: agents keep the previous build until then \(this version changes [^)]*\.pi\/settings\.json/);
   assert.match(out, /fix the subagents that can reach calls that ask the user \(filer\)/);
   writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...asking, agents: [{ name: 'filer', tools: ['read'] }] }));
   assert.throws(smoke, /Command failed/, 'invalid models still block');
@@ -852,4 +872,41 @@ test('installed tooling registers the agent runtime from the pin', async t => {
   const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
   engine.registerMaintenance(pi, Type, root);
   assert.ok(tools.memory && tools.factory_plan && tools.request_permission);
+});
+
+test('/factory-update rebuild applies text-only rebuilds directly and confirms reach changes', async t => {
+  const root = project(t);
+  const mock = adapter();
+  registerMaintenance(mock.pi, mock.Type, root);
+  const run = async (request, ctx = mock.ctx) => { mock.notices.length = 0; await mock.commands['factory-update'].handler(request, ctx); return mock.notices.map(n => n[0]).join('\n'); };
+  assert.match(await run('rebuild'), /Already built with this Factory version; nothing to rebuild\./);
+  writeFileSync(join(root, '.pi/CAPABILITIES.md'), 'Older wording.\n');
+  assert.match(await run('rebuild'), /Rebuilt with this Factory version: \.pi\/CAPABILITIES\.md\./, 'no confirmation for text');
+  assert.notEqual(readText(root, '.pi/CAPABILITIES.md'), 'Older wording.\n');
+  writeFileSync(join(root, 'run'), readText(root, 'run') + '# custom launcher\n');
+  const write = process.stderr.write;
+  let stderr = '';
+  process.stderr.write = text => { stderr += text; return true; };
+  try { await run('rebuild', { ...mock.ctx, hasUI: false }); } finally { process.stderr.write = write; }
+  assert.match(stderr, /changes what agents can run or reach \(run\) and needs your confirmation; nothing applied/);
+  assert.match(await run('reconcile'), /Cancelled; nothing rebuilt\./, 'reconcile is the same command; declined');
+  assert.match(readText(root, 'run'), /custom launcher/);
+  mock.approve();
+  assert.match(await run('rebuild'), /Rebuilt with this Factory version: run\./);
+  assert.doesNotMatch(readText(root, 'run'), /custom launcher/);
+});
+
+test('session start says when the build is older than the installed tooling', t => {
+  const root = project(t);
+  const start = () => {
+    const mock = adapter();
+    registerMaintenance(mock.pi, mock.Type, root);
+    mock.events.session_start({}, { ...mock.ctx, hasUI: true });
+    return mock.notices.map(n => n[0]).join('\n');
+  };
+  assert.doesNotMatch(start(), /built with/);
+  writeFileSync(join(root, '.factory/build.json'), json({ runtime: 'runtime/0000000000000000000000000000000000000000-0000000000000000', integrity: 'x', version: '0.1.0' }));
+  assert.match(start(), new RegExp(`built with Factory 0\\.1\\.0; /factory-update is ${pkg.version.replace(/\./g, '\\.')}\\. Run /factory-update rebuild`));
+  rmSync(join(root, '.factory/build.json'));
+  assert.match(start(), /built with an earlier Factory version/);
 });

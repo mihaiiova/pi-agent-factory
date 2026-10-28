@@ -151,7 +151,7 @@ without a shell, with your own CLI logins. In a running system:
 `tools`/`skills` lists as `[a, b]`, which pi-subagents reads as the names `[a`
 and `b]`, so specialists started without those tools or skills. Agents without
 a `description` were skipped entirely. Run `/factory-update update`, restart,
-then `/factory-update reconcile` and `/factory-update apply`; the startup check
+then `/factory-update rebuild`; the startup check
 lists every affected agent until then.
 
 A generated project starts with `./run`, which isolates it from your global Pi

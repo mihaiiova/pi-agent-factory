@@ -97,8 +97,8 @@ export function planChange(root, operations) {
   }
   const baseline = generateProject(oldModel, existing, opts);
   const drift = baseline.files.filter(f => ['run', '.pi/settings.json', '.pi/mcp.json'].includes(f.path) && f.action !== 'none').map(f => f.path);
-  const reconcile = operations.length === 1 && operations[0].op === 'reconcile';
-  if (drift.length && !reconcile) throw new Error(`Existing generated configuration drift: ${drift.join(', ')}; use /factory-update reconcile for a separate explicit preview`);
+  // Configuration this version generates differently (a newer Factory, or a
+  // hand edit) is rebuilt with the change and shown in its preview.
   const plan = modifyPlan(model, existing, opts);
   // Protocol-1 front doors are stable. Their versioned workflow/engine updates
   // behind the installation pointer; future scaffold copy changes are not
@@ -155,7 +155,8 @@ export function planChange(root, operations) {
     kind: 'configuration', writes, skills,
     expected: fingerprints(root, [...paths, ...Object.keys(writes), '.factory/installation.json']),
     preview: {
-      reconciliation: reconcile ? drift : [],
+      reconciliation: drift,
+      ...(drift.length ? { rebuilt: `This Factory version generates ${drift.join(', ')} differently from the files on disk (a newer version, or a hand edit, which would be lost). Applying also rebuilds them.` } : {}),
       executionSurface: {
         addedPackages: afterCapabilities.packages.filter(p => !beforeCapabilities.packages.includes(p)),
         changedMcp: (model.integrations?.mcp ?? []).filter(m => JSON.stringify(oldModel.integrations?.mcp?.find(o => o.name === m.name)) !== JSON.stringify(m)),
@@ -175,6 +176,48 @@ export function planChange(root, operations) {
       restart: 'Restart ./run after applying: tool, package, MCP and resource changes are not hot-activated.',
     },
   };
+}
+/** Generated files whose content can change without changing what agents can run or reach. */
+const TEXT_FILES = new Set(['.pi/APPEND_SYSTEM.md', '.pi/CAPABILITIES.md', 'README.md', '.gitignore', '.env.example', 'data/knowledge/.gitkeep']);
+function frontmatter(text, ignore) {
+  const match = /^---\n([\s\S]*?)\n---\n/.exec(text ?? '');
+  if (!match) return null;
+  const fields = loadYaml().parse(match[1]) ?? {};
+  delete fields[ignore];
+  return json(fields);
+}
+/** Whether rewriting `path` from `before` to `after` can change what agents can run or reach. */
+export function changesReach(path, before, after) {
+  if (TEXT_FILES.has(path)) return false;
+  if (before === null || before === undefined || after === null || after === undefined) return true;
+  // Agent files: tools, model and launch settings are reach; the prompt is text.
+  if (/^\.pi\/agents\/[^/]+\.md$/.test(path)) return frontmatter(before, 'systemPrompt') !== frontmatter(after, 'systemPrompt') || frontmatter(before) === null;
+  if (/^\.pi\/skills\/[^/]+\/SKILL\.md$/.test(path)) return frontmatter(before) !== frontmatter(after) || frontmatter(before) === null;
+  return true;
+}
+/**
+ * Regenerate the project from system.yaml with this Factory version.
+ * `automatic` is true when nothing that changes what agents can run or reach
+ * is rewritten (launcher, settings, MCP configuration, agents' tools and
+ * models, capabilities, skill installs): only the text they read changes.
+ */
+export function rebuildPlan(root) {
+  const plan = planChange(root, [{ op: 'reconcile' }]);
+  const changed = plan.preview.files.map(f => f.path);
+  const reach = plan.preview.files.filter(f => changesReach(f.path, readText(root, f.path), plan.writes[f.path])).map(f => f.path);
+  if (readText(root, '.factory/capabilities.json') !== plan.writes['.factory/capabilities.json']) reach.push('.factory/capabilities.json');
+  if (plan.skills.install.length || plan.skills.remove.length) reach.push('skills');
+  const pin = plan.writes['.factory/build.json'];
+  const repinned = pin !== undefined && readText(root, '.factory/build.json') !== pin;
+  const version = pin ? JSON.parse(pin).version : null;
+  plan.rebuild = { changed, reach, repinned, version, unchanged: !changed.length && !reach.length && !repinned, automatic: !reach.length };
+  plan.preview.rebuild = {
+    ...(version ? { version } : {}),
+    files: changed,
+    ...(repinned ? { agentRuntime: `Agents switch to the runtime of Factory ${version} (memory, command tools, request_permission).` } : {}),
+    ...(reach.length ? { changesReach: reach, note: 'These change what agents can run or reach, so the rebuild asks first.' } : {}),
+  };
+  return plan;
 }
 /** The model gets a credential-redacted structural diff; the human's local
  * confirmation retains the exact original formatting/content diff. */

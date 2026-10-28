@@ -82,9 +82,9 @@ export function launchCheck(root, model, { registeredTools, probe } = {}) {
     const file = existsSync(join(root, `.pi/agents/${agent.name}.md`)) ? readFileSync(join(root, `.pi/agents/${agent.name}.md`), 'utf8') : '';
     // Files generated before v0.11 used "[a, b]" lists, which pi-subagents reads
     // as the names "[a" and "b]", so none of those tools or skills resolve.
-    if (/^(tools|skills): \[/m.test(file.split('\n---')[0])) report('its agent file lists tools or skills as "[a, b]", which pi-subagents misreads (so they are missing); run /factory-update reconcile');
+    if (/^(tools|skills): \[/m.test(file.split('\n---')[0])) report('its agent file lists tools or skills as "[a, b]", which pi-subagents misreads (so they are missing); run /factory-update rebuild');
     if (needsBackground(tools)) {
-      if (!/\nasync: true\n/.test(file) || !forced) report('uses MCP or extension tools but is not set to run in the background, so they would be missing; run /factory-update reconcile');
+      if (!/\nasync: true\n/.test(file) || !forced) report('uses MCP or extension tools but is not set to run in the background, so they would be missing; run /factory-update rebuild');
     }
     for (const name of Array.isArray(agent.skills) ? agent.skills : []) {
       const kind = skillSourceKind(skills.get(name)?.source);
