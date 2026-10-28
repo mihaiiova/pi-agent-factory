@@ -16,10 +16,10 @@ import { memoryPrompt, updateMemory, failedTools, MEMORY_FILE } from './memory.m
 import { registerPermissions } from './permissions-extension.mjs';
 import { capabilitySection } from './agent-context.mjs';
 
-export function registerAgent(pi, Type, root, { maintaining = () => false } = {}) {
+export function registerAgent(pi, Type, root, { maintaining = () => false, argv } = {}) {
   registerMemory(pi, Type, root, maintaining);
   registerPermissions(pi, Type, root);
-  registerAgentContext(pi, root);
+  registerAgentContext(pi, root, argv);
 }
 
 /**
@@ -60,16 +60,19 @@ function registerMemory(pi, Type, root, maintaining) {
 }
 
 /**
- * The orchestrator's "What you can use" section for a project generated before
- * it was build output. ./run passes .pi/CAPABILITIES.md once the project is
- * rebuilt; until then it is rendered from system.yaml at session start.
+ * The orchestrator's "What you can use" section when Pi was not started with
+ * it: a launcher from before it was build output, or plain `pi`. ./run passes
+ * .pi/CAPABILITIES.md; otherwise that file is added at session start, or the
+ * section is rendered from system.yaml when the project predates the file.
  */
-function registerAgentContext(pi, root) {
+function registerAgentContext(pi, root, argv = process.argv) {
   if (process.env.PI_SUBAGENT_CHILD === '1') return;
   let section = '';
   pi.on('session_start', () => {
     try {
-      if (readText(root, '.pi/CAPABILITIES.md') !== null) { section = ''; return; }
+      if (argv.some((a) => a.endsWith('.pi/CAPABILITIES.md'))) { section = ''; return; }
+      const built = readText(root, '.pi/CAPABILITIES.md');
+      if (built !== null) { section = built; return; }
       const model = parsedModel(readText(root, '.pi/system.yaml'));
       section = capabilitySection(model, model.orchestrator?.name);
     } catch { section = ''; }

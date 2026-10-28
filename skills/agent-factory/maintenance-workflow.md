@@ -168,9 +168,14 @@ user wants to pursue through a new /factory-update request.
 /factory-update check reports installed/source/channel/latest, unavailable versus
 up-to-date, schema migration needs and compatibility uncertainty. /factory-update
 update stages trusted exact-revision maintenance code, shows changes and asks for
-confirmation. It never changes the operational model or secrets. /factory-update
-recover previews and safely repairs interrupted transactions; reconcile previews
-existing generated drift separately from functional changes. rollback restores the previous local maintenance bundle and dependency pins
+confirmation. It never changes the operational model or secrets. Agents keep the
+build (generated files and agent runtime, pinned in .factory/build.json) until
+/factory-update rebuild regenerates it with the installed version: text agents
+read is rewritten directly; changes to what they can run or reach are shown and
+confirmed. A proposed change also rebuilds whatever this version generates
+differently, and its preview lists those files under reconciliation.
+/factory-update recover previews and safely repairs interrupted transactions.
+rollback restores the previous local maintenance bundle and dependency pins
 without GitHub. Restart ./run after an apply, update or rollback. Updates needing
 a new schema require a separate previewed model migration; never silently reverse
 later user edits. /factory-update done discards proposals and exits maintenance.
