@@ -53,7 +53,9 @@ tools/policies: packages and stdio MCP servers execute code at the next launch.
 Declining, missing UI, validation failure, authored-file conflicts, and edits
 made since the preview prevent application. `done` discards the pending proposal.
 Pending proposals are session-local and never survive a restart. Use the slash
-command again for follow-up maintenance turns. Restart `./run` after applying.
+command again for follow-up maintenance turns. After applying, Pi reloads by
+itself; a restart of `./run` is asked for only when the launcher or the package
+list changes (for example a newly declared environment variable).
 
 Review is read-only: its only active tool is the maintenance inspector/planner,
 which rejects proposals in review mode. Recommendations distinguish execution-
@@ -270,10 +272,19 @@ Downloaded Factory code is not executed before source verification and approval.
 The confirmation includes versions/revisions, changed maintenance files,
 bounded tooling diffs, dependency changes and staged full-source location.
 After approval, syntax and credential-free consistency checks run against the
-current model using a scrubbed environment and temporary HOME/Pi home. Only
-installation metadata/pointers change on activation. All operational files,
-user content and secret values stay byte-identical. A failed stage/check leaves
-the active pointer untouched. Installation writes use atomic rename plus a
+current model using a scrubbed environment and temporary HOME/Pi home.
+Activation changes only installation metadata/pointers. A failed stage/check
+leaves the active pointer untouched.
+
+Right after activation, the new version rebuilds the project in the same
+scrubbed environment (see [Rebuild](#rebuild)), so one command updates both the
+tooling and the build. When only text agents read changes, nothing more is
+asked. When the rebuild would change what agents can run or reach, its preview
+is shown for a second confirmation; declining keeps the previous build (agents
+keep its runtime) until `/factory-update rebuild`. Pi then reloads, or asks for
+a restart when the launcher or package list changed. User content and secret
+values are never touched. Updates started from Factory versions before 0.18
+activate only the tooling: restart, then run `/factory-update rebuild`. Installation writes use atomic rename plus a
 recoverable transaction journal. Versioned directories are retained (including
 at least the previous working version); no automatic deletion of old versions
 or operational data is performed.
@@ -282,7 +293,7 @@ Schema changes are never implicit. Incompatible protocol/schema candidates are
 reported, not installed. Current migrations use a separately previewed/approved
 model proposal. Future schemas requiring newer migration code must be handled
 with a compatible main Factory revision; do not replace declarations with guessed
-fields. Restart is required after activation.
+fields.
 
 `rollback` verifies the previous local bundle, validates the **current** model
 with the previous engine, previews and confirms, then restores the previous

@@ -176,6 +176,9 @@ confirmed. A proposed change also rebuilds whatever this version generates
 differently, and its preview lists those files under reconciliation.
 /factory-update recover previews and safely repairs interrupted transactions.
 rollback restores the previous local maintenance bundle and dependency pins
-without GitHub. Restart ./run after an apply, update or rollback. Updates needing
+without GitHub. An update rebuilds the project with the new version right
+after activation (a second confirmation only when what agents can run or reach
+changes). Pi reloads after an apply, rebuild or update; a restart of ./run is
+needed only when the launcher or packages change, and after a rollback. Updates needing
 a new schema require a separate previewed model migration; never silently reverse
 later user edits. /factory-update done discards proposals and exits maintenance.

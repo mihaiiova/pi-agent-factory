@@ -150,8 +150,8 @@ without a shell, with your own CLI logins. In a running system:
 **Upgrading a project generated before v0.11:** older generators wrote agent
 `tools`/`skills` lists as `[a, b]`, which pi-subagents reads as the names `[a`
 and `b]`, so specialists started without those tools or skills. Agents without
-a `description` were skipped entirely. Run `/factory-update update`, restart,
-then `/factory-update rebuild`; the startup check
+a `description` were skipped entirely. Run `/factory-update update` (from a
+version before 0.18, restart and then run `/factory-update rebuild`); the startup check
 lists every affected agent until then.
 
 A generated project starts with `./run`, which isolates it from your global Pi

@@ -232,7 +232,7 @@ export async function prepareUpdate(root, opts = {}) {
       const diff = diffLines(readText(root, `.factory/${result.installed.runtime}/${path}`) ?? '', bundle.files[path] ?? '');
       return { path, diff: diff.slice(0, 3000), truncated: diff.length > 3000 };
     });
-    return { kind: 'upgrade', bundle, installed: result.installed, expected, preview: { from: result.installed, to: bundle.installation, channelHead: result.latest, changes, toolingDiffs, fullSource: `.factory/${bundle.installation.runtime}/`, schemaMigration: 'None. system.yaml and all operational files remain byte-for-byte unchanged.', dependencies: bundle.installation.dependencies, restart: 'Restart ./run to use the new maintenance implementation.' } };
+    return { kind: 'upgrade', bundle, installed: result.installed, expected, preview: { from: result.installed, to: bundle.installation, channelHead: result.latest, changes, toolingDiffs, fullSource: `.factory/${bundle.installation.runtime}/`, schemaMigration: 'None. system.yaml is unchanged.', dependencies: bundle.installation.dependencies, then: 'The new version then rebuilds this project. Text agents read is updated directly; a change to what agents can run or reach is shown for a second confirmation (decline it to keep the previous build). Pi then reloads; it asks for a restart only when the launcher or settings change.', restart: 'Restart ./run to use the new maintenance implementation.' } };
   } finally { rmSync(temp, { recursive: true, force: true }); }
 }
 export async function activateUpdate(root, plan, approved = false) {
@@ -253,8 +253,47 @@ export async function activateUpdate(root, plan, approved = false) {
     '.factory/previous-installation.json': json(plan.installed),
     '.factory/installation.json': json(plan.bundle.installation),
   }, plan.expected, true);
-  const next = String(smoke ?? '').split('\n').filter(line => line.startsWith('After restarting'));
-  return [plan.preview.restart, ...next].join(' ');
+  // Notes for after the switch, without the rebuild reminder the caller acts on.
+  const notes = String(smoke ?? '').split('\n').filter(line => line.startsWith('After restarting') && !line.includes('/factory-update rebuild'));
+  return { restart: plan.preview.restart, notes };
+}
+/** Runs an installed bundle's rebuild entry. Null when that version has none. */
+export async function rebuildWith(root, installation, mode, expected) {
+  const entry = `.factory/${installation.runtime}/skills/agent-factory/maintenance-rebuild.mjs`;
+  if (readText(root, entry) === null) return null;
+  verifyBundle(root, installation);
+  const home = mkdtempSync(join(tmpdir(), 'factory-rebuild-'));
+  try {
+    const { stdout } = await exec(process.execPath, [safePath(root, entry), root, mode, ...(expected ? [expected] : [])], { timeout: 120000, maxBuffer: 16 * 1024 * 1024, env: cleanEnv(home) });
+    return JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(String(error.stderr ?? '').trim().split('\n').pop() || error.message);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+}
+/**
+ * After an approved update: rebuild with the new version. Text-only rebuilds
+ * apply directly; reach changes go through `confirm(title, body)`.
+ * @returns {Promise<{ text: string, restart: boolean }>}
+ */
+export async function finishUpdate(root, plan, activated, { confirm }) {
+  const to = plan.bundle.installation;
+  const lines = [`Updated to Factory ${to.version}.`];
+  let restart = false;
+  try {
+    const built = await rebuildWith(root, to, 'plan');
+    if (!built) return { text: [activated.restart, ...activated.notes].join(' '), restart: true };
+    if (built.unchanged) lines.push('The build was already current.');
+    else if (!built.automatic && !await confirm(`Rebuild with Factory ${to.version}?`, json(built.preview))) lines.push('Agents keep the previous build; run /factory-update rebuild when ready.');
+    else {
+      const applied = await rebuildWith(root, to, 'apply', built.digest);
+      restart = applied.restart;
+      lines.push(applied.changed.length ? `Rebuilt: ${applied.changed.join(', ')}.` : 'Rebuilt; agents now use its runtime.');
+    }
+  } catch (error) {
+    lines.push(`The rebuild did not complete (${error.message}); agents keep the previous build. Run /factory-update rebuild.`);
+  }
+  lines.push(...activated.notes.map(note => note.replace(/^After restarting, /, '').replace(/^./, c => c.toUpperCase())));
+  return { text: lines.join(' '), restart };
 }
 export function rollbackPlan(root) {
   const installed = validateIdentity(readJson(root, '.factory/installation.json'));
