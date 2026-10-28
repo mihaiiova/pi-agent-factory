@@ -1,12 +1,15 @@
 /** Small schema-aware change layer. No filesystem or installation authority. */
 import { loadYaml } from './yaml-loader.mjs';
 import { validateSystem } from './validate.mjs';
+import { backgroundAskingIssues } from './asking.mjs';
 
 const collections = { agent: ['agents'], skill: ['skills'], mcp: ['integrations', 'mcp'], env: ['integrations', 'env'], cli: ['integrations', 'cli'], workflow: ['workflows'], document: ['documents'] };
 const blocks = { orchestrator: ['orchestrator'], policies: ['policies'], integrations: ['integrations'], packages: ['packages'] };
 const safeName = (s) => typeof s === 'string' && /^[a-zA-Z0-9_-]+$/.test(s) && !['__proto__', 'constructor', 'prototype'].includes(s);
-export function assertValid(model) {
-  const result = validateSystem(model);
+/** Issues a project may already have; a change may keep them but not add new ones. */
+const askingMessages = (model) => { try { return backgroundAskingIssues(model).map(i => i.message); } catch { return []; } };
+export function assertValid(model, { tolerate = [] } = {}) {
+  const result = validateSystem(model, { tolerate });
   if (!result.ok) throw new Error(result.errors.join('\n'));
   if (model.skills?.some(s => s.name === 'factory-update')) throw new Error('factory-update is reserved maintenance infrastructure');
   return model;
@@ -22,6 +25,7 @@ export function changeModel(text, operations) {
   let doc = yaml.parseDocument(text);
   if (doc.errors.length) throw new Error(doc.errors.map(e => e.message).join('\n'));
   if (doc.toJS()?.schema !== 1 && !operations.some(o => o.op === 'replace')) throw new Error('Unsupported schema; preview an explicit replace operation first');
+  const tolerate = askingMessages(doc.toJS());
   const put = (path, value) => doc.setIn(path, doc.createNode(value));
   for (const o of operations) {
     if (!o || typeof o !== 'object') throw new Error('Invalid operation');
@@ -30,7 +34,7 @@ export function changeModel(text, operations) {
       continue;
     }
     if (o.op === 'replace') {
-      doc = new yaml.Document(assertValid(o.model));
+      doc = new yaml.Document(assertValid(o.model, { tolerate }));
       continue;
     }
     if (o.op === 'set' && Object.hasOwn(blocks, o.target)) {
@@ -70,7 +74,8 @@ export function changeModel(text, operations) {
       }
     } else throw new Error(`Unknown target ${o.target}`);
   }
-  const model = assertValid(doc.toJS());
+  const model = assertValid(doc.toJS(), { tolerate });
   return { model, text: doc.toString() };
 }
-export function parsedModel(text) { return assertValid(loadYaml().parse(text)); }
+/** The project's current model. Issues it already has are reported elsewhere (launch check, change preview), not fatal, so it stays revisable. */
+export function parsedModel(text) { const model = loadYaml().parse(text); return assertValid(model, { tolerate: askingMessages(model) }); }

@@ -134,15 +134,16 @@ test('generated agents get cli_ tools and run in the background; defaultTools ke
 
 test('a grant to a subagent with no tools list starts one', () => {
   const doc = { ...model, agents: [{ name: 'bare', model: 'fixture/small' }] };
-  const granted = changeModel(yaml.stringify(doc), grantOps(doc, { name: 'echo-two', command: 'node', args: ['--version'] }, ['bare'])).model;
+  const granted = changeModel(yaml.stringify(doc), grantOps(doc, { name: 'echo-two', command: 'node', args: ['--version'], approve: false }, ['bare'])).model;
   assert.deepEqual(granted.agents[0].tools, ['cli:echo-two']);
+  assert.throws(() => changeModel(yaml.stringify(doc), grantOps(doc, { name: 'echo-two', command: 'node', args: ['--version'] }, ['bare'])), /"bare" runs in the background, .*command echo-two/, 'a command that asks cannot go to a subagent');
 });
 
 test('grant and revoke edit the declaration, agent tools and enforced policies', () => {
   const text = yaml.stringify({ ...model, policies: { enforced: [{ agent: 'writer', tools: ['read', 'cli:show-body'] }] } });
   const base = changeModel(text, [{ op: 'set', target: 'packages', value: [] }]).model;
-  const granted = changeModel(text, grantOps(base, { name: 'create-issue', command: 'gh', args: ['issue', 'create', '--title', '{title}'], approve: true }, ['lead', 'writer'])).model;
-  assert.deepEqual(granted.integrations.cli.at(-1), { command: 'gh', args: ['issue', 'create', '--title', '{title}'], name: 'create-issue' });
+  const granted = changeModel(text, grantOps(base, { name: 'create-issue', command: 'gh', args: ['issue', 'create', '--title', '{title}'], approve: false }, ['lead', 'writer'])).model;
+  assert.deepEqual(granted.integrations.cli.at(-1), { command: 'gh', args: ['issue', 'create', '--title', '{title}'], approve: false, name: 'create-issue' });
   assert.ok(granted.orchestrator.tools.includes('cli:create-issue'));
   assert.ok(granted.policies.enforced[0].tools.includes('cli:create-issue'), 'the policy ceiling is extended');
   assert.ok(granted.agents[0].tools.includes('cli:create-issue'), 'the agent list stays consistent');
@@ -160,7 +161,7 @@ test('launch check reports a missing command once per agent, and approval a suba
   assert.deepEqual(check.problems.filter((p) => /not installed/.test(p.problem)).map((p) => p.agent).sort(), ['lead', 'writer']);
   assert.equal(probes, 1, 'each command is probed once');
   const asking = { ...model, agents: [{ name: 'writer', model: 'fixture/small', tools: ['cli:echo-title'] }] };
-  assert.ok(launchCheck(root, asking, { probe: () => true }).problems.some((p) => p.agent === 'writer' && /subagents run in the background without a UI/.test(p.problem)));
+  assert.ok(launchCheck(root, asking, { probe: () => true }).problems.some((p) => p.agent === 'writer' && /"writer" runs in the background, .*command echo-title.*suggested fix: tools \[\]/.test(p.problem)));
   writeFileSync(join(root, '.pi/agents/writer.md'), '---\nname: writer\ntools: [read, cli_show_body]\nasync: true\n---\n');
   assert.ok(launchCheck(root, model, { probe: () => true }).problems.some((p) => p.agent === 'writer' && /misreads/.test(p.problem)));
 });
@@ -238,18 +239,30 @@ test('an interactive request can run once, or be saved through the preview and r
 
 test('/factory-permission adds, lists, reviews and removes commands', async (t) => {
   const root = project(t);
-  const mock = adapter({ choices: [0] });
+  // Asking before each run, for a subagent: routed to the orchestrator.
+  const mock = adapter({ choices: [0, 0] });
   registerPermissions(mock.pi, mock.Type, root);
   const command = (args) => mock.commands['factory-permission'].handler(args, mock.ctx);
   mock.inputs.push('create-issue', 'gh issue create --repo o/r --title {title} --body-file {body:file}', 'writer');
   await command('add');
+  assert.match(mock.asked[1].title, /writer run in the background, where nobody can answer/);
   let doc = yaml.parse(readFileSync(join(root, '.pi/system.yaml'), 'utf8'));
   assert.deepEqual(doc.integrations.cli.find((c) => c.name === 'create-issue').args, ['issue', 'create', '--repo', 'o/r', '--title', '{title}', '--body-file', '{body:file}']);
-  assert.ok(doc.agents[0].tools.includes('cli:create-issue'));
-  assert.match(readFileSync(join(root, '.pi/agents/writer.md'), 'utf8'), /cli_create_issue/);
+  assert.ok(doc.orchestrator.tools.includes('cli:create-issue'));
+  assert.equal(doc.agents[0].tools.includes('cli:create-issue'), false);
 
   await command('list');
-  assert.match(mock.notices.at(-1).m, /create-issue: gh issue create --repo o\/r --title \{title\} --body-file \{body:file\}\n  agents: writer; asks before each run/);
+  assert.match(mock.notices.at(-1).m, /create-issue: gh issue create --repo o\/r --title \{title\} --body-file \{body:file\}\n  agents: lead; asks before each run/);
+
+  // Or kept for the subagent, without asking.
+  const quiet = adapter({ choices: [0, 1] });
+  registerPermissions(quiet.pi, quiet.Type, root);
+  quiet.inputs.push('list-issues', 'gh issue list --repo o/r', 'writer');
+  await quiet.commands['factory-permission'].handler('add', quiet.ctx);
+  doc = yaml.parse(readFileSync(join(root, '.pi/system.yaml'), 'utf8'));
+  assert.equal(doc.integrations.cli.find((c) => c.name === 'list-issues').approve, false);
+  assert.ok(doc.agents[0].tools.includes('cli:list-issues'));
+  assert.match(readFileSync(join(root, '.pi/agents/writer.md'), 'utf8'), /cli_list_issues/);
 
   const headless = adapter({ hasUI: false });
   registerPermissions(headless.pi, headless.Type, root);
@@ -272,5 +285,5 @@ test('/factory-permission adds, lists, reviews and removes commands', async (t) 
   await command('remove create-issue');
   doc = yaml.parse(readFileSync(join(root, '.pi/system.yaml'), 'utf8'));
   assert.equal(doc.integrations.cli.some((c) => c.name === 'create-issue'), false);
-  assert.equal(doc.agents[0].tools.includes('cli:create-issue'), false);
+  assert.equal(doc.orchestrator.tools.includes('cli:create-issue'), false);
 });

@@ -160,8 +160,7 @@ first; the user decides.
   `gh issue create --repo <owner/repo> --title {title} --body-file {body:file}`,
   given to that agent as `cli:<name>`. The agent fills in only the
   placeholders, nothing runs through a shell, and by default the user
-  approves each run. Commands that need approval belong with the
-  orchestrator, since background subagents can't ask. Check the CLI is
+  approves each run. Check the CLI is
   installed with `factory discover --cli <name>`. After generation,
   `/factory-permission` manages these, and the orchestrator can ask for a
   missing one with `request_permission`.
@@ -173,6 +172,15 @@ first; the user decides.
   human confirms each action. Don't infer this or bury it in a default. Explain
   what each credential and tool can reach (an MCP server with a scoped token,
   or `bash` with the user's own CLI logins) and let the user choose per agent.
+- **Calls that ask the user** (MCP tools in `approveTools`, commands without
+  `approve: false`) only work for the orchestrator: specialists run in the
+  background, where nobody can answer. When a specialist's work needs such a
+  call, propose the split in the design: the specialist gets the tools that
+  don't ask (`mcp:<server>/<tool>`) and asks for the call; the orchestrator
+  gets approval, makes it and passes the result on. The generated "What you
+  can use" sections tell both sides, so prompts don't need to. Validation
+  rejects a subagent that can reach a call that asks; in an existing project
+  the change preview lists each one with a ready fix.
 - **Memory** is built in, not a decision: every orchestrator keeps short
   notes across sessions in `.pi/MEMORY.md` (corrections, preferences, tools
   or specialists that failed and what worked), writes them itself, and loads
