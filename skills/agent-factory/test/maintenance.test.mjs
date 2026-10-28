@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, symlinkSync, existsSync, chmodSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, symlinkSync, existsSync, chmodSync, realpathSync, cpSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -809,4 +809,47 @@ test('the upgrade check reports configuration to reconcile and existing issues i
   assert.match(out, /fix the subagents that can reach calls that ask the user \(filer\)/);
   writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...asking, agents: [{ name: 'filer', tools: ['read'] }] }));
   assert.throws(smoke, /Command failed/, 'invalid models still block');
+});
+
+test('a build pins the agent runtime; the tooling loads the pinned one and falls back when it fails verification', async t => {
+  const root = project(t);
+  const { loadPinnedAgent, pinWrites, verifyRuntime } = await import('../maintenance-bundle.mjs');
+  const runtime = bundle.installation.runtime;
+  const pin = readJson(root, '.factory/build.json');
+  assert.deepEqual(pin, { runtime, integrity: bundle.installation.integrity, version: pkg.version }, 'bootstrap pins its bundle');
+  assert.deepEqual(pinWrites(root), {}, 'a Factory checkout builds without pinning');
+  // The installed tooling pins itself when it builds.
+  const installed = await import(pathToFileURL(join(root, '.factory', runtime, 'skills/agent-factory/maintenance-bundle.mjs')).href);
+  assert.deepEqual(JSON.parse(installed.pinWrites(root)['.factory/build.json']), pin);
+  const own = () => {};
+  assert.equal((await loadPinnedAgent(root, runtime, own)).registerAgent, own, 'pinned to the running bundle: its own code');
+  // Pinned to another bundle: that bundle's registerAgent, after verification.
+  const other = 'runtime/0000000000000000000000000000000000000000-0000000000000000';
+  cpSync(join(root, '.factory', runtime), join(root, '.factory', other), { recursive: true });
+  writeFileSync(join(root, '.factory/build.json'), json({ ...pin, runtime: other }));
+  const real = await loadPinnedAgent(root, runtime, own);
+  assert.equal(real.problem, null);
+  assert.ok(typeof real.registerAgent === 'function' && real.registerAgent !== own, 'the copy is imported from its own directory');
+  const imported = [];
+  const fromPin = () => {};
+  const pinned = await loadPinnedAgent(root, runtime, own, href => { imported.push(href); return { registerAgent: fromPin }; });
+  assert.equal(pinned.problem, null);
+  assert.equal(pinned.registerAgent, fromPin);
+  assert.match(imported[0], /runtime\/0{40}-0{16}\/skills\/agent-factory\/agent-extension\.mjs$/);
+  writeFileSync(join(root, '.factory', other, 'skills/agent-factory/memory.mjs'), 'export {};\n');
+  assert.throws(() => verifyRuntime(root, { runtime: other, integrity: pin.integrity }), /integrity mismatch: skills\/agent-factory\/memory\.mjs/);
+  const tampered = await loadPinnedAgent(root, runtime, own, () => assert.fail('a tampered bundle is never imported'));
+  assert.equal(tampered.registerAgent, own);
+  assert.match(tampered.problem, /could not be loaded .*integrity mismatch/);
+});
+
+test('installed tooling registers the agent runtime from the pin', async t => {
+  const root = project(t);
+  const runtime = bundle.installation.runtime;
+  const engine = await import(pathToFileURL(join(root, '.factory', runtime, 'skills/agent-factory/maintenance-extension.mjs')).href);
+  const tools = {}, events = {};
+  const pi = { registerTool: tool => { tools[tool.name] = tool; }, registerCommand: () => {}, on: (n, cb) => { (events[n] ??= []).push(cb); }, getActiveTools: () => [], setActiveTools: () => {}, getAllTools: () => [], sendUserMessage: () => {} };
+  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
+  engine.registerMaintenance(pi, Type, root);
+  assert.ok(tools.memory && tools.factory_plan && tools.request_permission);
 });

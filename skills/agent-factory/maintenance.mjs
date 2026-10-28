@@ -9,6 +9,7 @@ import { modifyPlan } from './modify.mjs';
 import { effectiveCapabilities, checkCapabilities } from './capabilities.mjs';
 import { diffLines } from './diff.mjs';
 import { infrastructureFiles } from './maintenance-infra.mjs';
+import { pinWrites } from './maintenance-bundle.mjs';
 import { redacted, redactForModel, assertNoNewSecrets } from './maintenance-secrets.mjs';
 import { vendoredSkills } from './skill-sources.mjs';
 import { registrySkills, installedDir, installRegistrySkill, removeRegistrySkill, previewRegistrySkill, SKILLS_CLI } from './registry-skills.mjs';
@@ -143,6 +144,8 @@ export function planChange(root, operations) {
   const beforeCapabilities = effectiveCapabilities(oldModel, opts);
   const afterCapabilities = effectiveCapabilities(model, opts);
   writes['.factory/capabilities.json'] = json(afterCapabilities);
+  // Agents keep using the runtime of the bundle that built these files.
+  Object.assign(writes, pinWrites(root));
   // Prompts describe roles; a removed capability they still mention keeps
   // steering agents toward something they no longer have.
   const stale = staleMentions(oldModel, model);
