@@ -25,4 +25,9 @@ mkdir -p "$PI_CODING_AGENT_DIR"
 
 # Credentials are NOT inherited from the host. Log in once for this isolated
 # context (`./run`, then `/login`), or export PI_API_KEY / a provider-specific key.
-exec pi --no-context-files "$@"
+# The orchestrator's prompt: authored instructions, then what it can use.
+prompts=()
+for f in .pi/APPEND_SYSTEM.md .pi/CAPABILITIES.md; do
+  if [[ -f "$f" ]]; then prompts+=(--append-system-prompt "$f"); fi
+done
+exec pi --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"

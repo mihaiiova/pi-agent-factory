@@ -8,8 +8,8 @@
  * the CLI reads disk, calls this, and applies the result.
  *
  * Ownership (see schema.md §4 / docs §C.6):
- *   - Derived files (`.pi/settings.json`, `.pi/mcp.json`) regenerate every run,
- *     merge-preserving unknown keys.
+ *   - Derived files (`.pi/settings.json`, `.pi/mcp.json`, `.pi/CAPABILITIES.md`)
+ *     regenerate every run, merge-preserving unknown keys.
  *   - Authored files (`.pi/APPEND_SYSTEM.md`, `README.md`, `.gitignore`,
  *     `.env.example`) scaffold once and are fingerprint-protected with a
  *     header marker; a user edit is never silently overwritten.
@@ -70,6 +70,7 @@ export const GENERATED_PATHS = [
   ".pi/settings.json",
   ".pi/mcp.json",
   ".pi/APPEND_SYSTEM.md",
+  ".pi/CAPABILITIES.md",
   "README.md",
   ".gitignore",
   ".env.example",
@@ -263,8 +264,8 @@ function orchestratorBody(model) {
   const orchestrator = isPlainObject(model.orchestrator) ? model.orchestrator : {};
   const prompt = typeof orchestrator.prompt === "string" ? orchestrator.prompt : "";
   const background = backgroundAgents(model).map((agent) => `\`${agent.name}\``);
-  // The orchestrator's "What you can use" section is injected at session start
-  // by the Factory extension, so capability changes never rewrite this file.
+  // The orchestrator's "What you can use" section is its own derived file
+  // (.pi/CAPABILITIES.md), so capability changes never rewrite this one.
   const parts = [prompt.replace(/\n$/, "")];
   if (background.length > 0) {
     parts.push([
@@ -476,6 +477,7 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
     derivedFile(".pi/settings.json", buildSettings(model, existing[".pi/settings.json"], plan.packages), existing[".pi/settings.json"]),
     derivedFile(".pi/mcp.json", buildMcpJson(model, existing[".pi/mcp.json"]), existing[".pi/mcp.json"]),
     authoredFile(".pi/APPEND_SYSTEM.md", "html", prompt, existing[".pi/APPEND_SYSTEM.md"]),
+    derivedFile(".pi/CAPABILITIES.md", capabilitySection(model, model.orchestrator?.name), existing[".pi/CAPABILITIES.md"]),
     authoredFile("README.md", "html", readmeBody(model), existing["README.md"]),
     authoredFile(".gitignore", "plain", GITIGNORE_BODY, existing[".gitignore"]),
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),

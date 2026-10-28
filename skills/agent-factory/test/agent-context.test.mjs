@@ -102,17 +102,26 @@ test('the change preview carries stale mentions so the proposal can fix them', (
   assert.equal(fixed.preview.staleMentions, undefined);
 });
 
-test("the orchestrator's section is injected at session start from system.yaml", (t) => {
+test("the orchestrator's section is build output; a project not yet rebuilt gets it at session start", (t) => {
   const root = project(t);
-  const events = {}, tools = {};
-  const pi = { registerTool: (tool) => { tools[tool.name] = tool; }, registerCommand: () => {}, on: (n, cb) => { (events[n] ??= []).push(cb); }, getActiveTools: () => [], setActiveTools: () => {}, getAllTools: () => [], sendUserMessage: () => {} };
-  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map((k) => [k, (v) => v]));
-  registerMaintenance(pi, Type, root);
-  events.session_start.forEach((cb) => cb({}, { hasUI: false, ui: {} }));
-  let prompt = 'BASE';
-  for (const cb of events.before_agent_start) prompt = cb({ systemPrompt: prompt })?.systemPrompt ?? prompt;
-  assert.match(prompt, /## What you can use\n[\s\S]*`cli_create_issue`/);
-  assert.match(prompt, /## Memory/);
+  const capabilities = readFileSync(join(root, '.pi/CAPABILITIES.md'), 'utf8');
+  assert.equal(capabilities, capabilitySection(model, 'lead'));
+  assert.match(readFileSync(join(root, 'run'), 'utf8'), /for f in \.pi\/APPEND_SYSTEM\.md \.pi\/CAPABILITIES\.md; do/);
+  const start = () => {
+    const events = {};
+    const pi = { registerTool: () => {}, registerCommand: () => {}, on: (n, cb) => { (events[n] ??= []).push(cb); }, getActiveTools: () => [], setActiveTools: () => {}, getAllTools: () => [], sendUserMessage: () => {} };
+    const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map((k) => [k, (v) => v]));
+    registerMaintenance(pi, Type, root);
+    events.session_start.forEach((cb) => cb({}, { hasUI: false, ui: {} }));
+    let prompt = 'BASE';
+    for (const cb of events.before_agent_start) prompt = cb({ systemPrompt: prompt })?.systemPrompt ?? prompt;
+    return prompt;
+  };
+  const built = start();
+  assert.doesNotMatch(built, /What you can use/, './run appends the generated file; the runtime adds nothing');
+  assert.match(built, /## Memory/);
+  rmSync(join(root, '.pi/CAPABILITIES.md'));
+  assert.match(start(), /## What you can use\n[\s\S]*`cli_create_issue`/);
 });
 
 test("settings switch off Pi's built-in MCP and keep the user's other extension entries", () => {

@@ -318,7 +318,7 @@ generated-project/
 | Kind | Files | Ownership | Persisted |
 |---|---|---|---|
 | Source model | `.pi/system.yaml` | factory (user-editable, reconciled) | committed |
-| Derived config | `.pi/settings.json` (model fragment), `.pi/mcp.json` | factory | committed |
+| Derived config | `.pi/settings.json` (model fragment), `.pi/mcp.json`, `.pi/CAPABILITIES.md` | factory | committed |
 | Authored content | `.pi/agents/*.md`, `.pi/skills/**`, `.pi/prompts/**`, `.pi/APPEND_SYSTEM.md`, `README.md`, `.gitignore`, `.env.example` | user (factory scaffolds + proposes edits) | committed |
 | Mutable data | `data/**`, `.env`, `.pi/state.json`, `.pi/sessions/`, `.pi/artifacts/` | runtime | gitignored |
 
@@ -412,7 +412,8 @@ policies:
 
 The generator maps this 1:1:
 
-- `orchestrator` → `.pi/APPEND_SYSTEM.md` (prompt) + `.pi/settings.json`
+- `orchestrator` → `.pi/APPEND_SYSTEM.md` (prompt) + `.pi/CAPABILITIES.md`
+  (its "What you can use" section; `./run` appends both) + `.pi/settings.json`
   (`defaultProvider`/`defaultModel`/`defaultThinkingLevel` from the `model` tier,
   `defaultTools` from `tools`).
 - `models` → `.pi/settings.json` (reusing the `generate-settings.mjs` logic).

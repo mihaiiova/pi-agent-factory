@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { loadYaml } from '../yaml-loader.mjs';
 import { generateProject } from '../generate.mjs';
+import { previousLauncher } from '../runtime.mjs';
 import { changeModel } from '../changes.mjs';
 import { planChange, applyChange, inspectProject } from '../maintenance.mjs';
 import { localBundle, bootstrapPlan, applyBootstrap, buildBundle, validateIdentity, validateManifest, installedYamlDir, verifyBundle } from '../maintenance-bundle.mjs';
@@ -39,7 +40,7 @@ function project(t, { legacy = false } = {}) {
   if (legacy) {
     rmSync(join(root, '.pi/extensions'), { recursive: true });
     rmSync(join(root, '.pi/skills/factory-update'), { recursive: true });
-    writeFileSync(join(root, 'run'), readText(root, 'run').replace('exec pi --no-context-files', 'exec pi'));
+    writeFileSync(join(root, 'run'), previousLauncher(readText(root, 'run')).replace('exec pi --no-context-files', 'exec pi'));
   } else applyBootstrap(root, bootstrapPlan(root, bundle), true);
   return root;
 }
