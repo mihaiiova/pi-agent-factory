@@ -560,6 +560,7 @@ test('slash adapter preserves operational allowlist, read-only review and indepe
   await command('how can we improve this agent?');
   assert.deepEqual(mock.pi.getActiveTools(), ['factory_plan']);
   assert.match(mock.messages[0], /READ-ONLY REVIEW/);
+  assert.match(mock.messages[0], /Discover and fetch only when the request adds or changes something outside\s+this system[\s\S]*need only\s+the inspection from step 1: go straight to the proposal/, 'prompt-only changes skip registry search');
   await tool({ action: 'inspect' });
   await assert.rejects(tool({ action: 'propose', operations: '[]' }), /read-only/);
   mock.events.agent_end();
