@@ -910,3 +910,55 @@ test('session start says when the build is older than the installed tooling', t 
   rmSync(join(root, '.factory/build.json'));
   assert.match(start(), /built with an earlier Factory version/);
 });
+
+test('an approved update rebuilds with the new version: text directly, reach changes after a second confirmation', async t => {
+  const { finishUpdate } = await import('../maintenance-updates.mjs');
+  const root = project(t);
+  const asked = [];
+  const confirm = answer => async (title, body) => { asked.push([title, JSON.parse(body)]); return answer; };
+  // Built by the old version: only text differs, so nothing is asked.
+  writeFileSync(join(root, '.pi/CAPABILITIES.md'), 'Older wording.\n');
+  let plan = await prepareUpdate(root, updateOptions());
+  assert.match(plan.preview.then, /second confirmation/);
+  let result = await finishUpdate(root, plan, await activateUpdate(root, plan, true), { confirm: confirm(true) });
+  assert.deepEqual(asked, []);
+  assert.equal(result.restart, false);
+  assert.match(result.text, /^Updated to Factory .*\. Rebuilt: \.pi\/CAPABILITIES\.md\.$/);
+  assert.equal(readJson(root, '.factory/build.json').runtime, plan.bundle.installation.runtime, 'agents move to the new runtime');
+  // A launcher change asks; declining keeps the previous build.
+  applyRollback(root, rollbackPlan(root), true);
+  writeFileSync(join(root, 'run'), readText(root, 'run') + '# custom launcher\n');
+  const pinned = readText(root, '.factory/build.json');
+  plan = await prepareUpdate(root, updateOptions());
+  result = await finishUpdate(root, plan, await activateUpdate(root, plan, true), { confirm: confirm(false) });
+  assert.equal(asked.length, 1);
+  assert.match(asked[0][0], /^Rebuild with Factory /);
+  assert.deepEqual(asked[0][1].rebuild.changesReach, ['run']);
+  assert.match(result.text, /Agents keep the previous build; run \/factory-update rebuild when ready\./);
+  assert.equal(readText(root, '.factory/build.json'), pinned);
+  assert.match(readText(root, 'run'), /custom launcher/);
+  // Approving applies it, and a new launcher needs a restart.
+  applyRollback(root, rollbackPlan(root), true);
+  plan = await prepareUpdate(root, updateOptions());
+  result = await finishUpdate(root, plan, await activateUpdate(root, plan, true), { confirm: confirm(true) });
+  assert.equal(result.restart, true);
+  assert.match(result.text, /Rebuilt: run\./);
+  assert.doesNotMatch(readText(root, 'run'), /custom launcher/);
+});
+
+test('applied changes and rebuilds reload Pi unless the launcher or packages change', async t => {
+  const root = project(t);
+  const quiet = planChange(root, [{ op: 'assign', name: 'lead', model: 'fixture/small' }]);
+  assert.equal(quiet.restart, false);
+  assert.match(quiet.preview.restart, /after \/reload; no restart needed/);
+  assert.equal(planChange(root, [{ op: 'add', target: 'env', name: 'API_TOKEN', value: { secret: true } }]).restart, true, 'a new launcher');
+  assert.equal(planChange(root, [{ op: 'set', target: 'packages', value: ['npm:example-package@1.0.0'] }]).restart, true, 'packages to install');
+  const mock = adapter();
+  const reloads = [];
+  mock.ctx.reload = async () => { reloads.push('reload'); };
+  registerMaintenance(mock.pi, mock.Type, root);
+  writeFileSync(join(root, '.pi/CAPABILITIES.md'), 'Older wording.\n');
+  await mock.commands['factory-update'].handler('rebuild', mock.ctx);
+  assert.deepEqual(reloads, ['reload']);
+  assert.match(mock.notices.at(-1)[0], /^Rebuilt with this Factory version: \.pi\/CAPABILITIES\.md\. Reloading\.$/);
+});

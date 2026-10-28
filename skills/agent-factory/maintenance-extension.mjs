@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { inspectProject, planChange, applyChange, publicChangePreview, withSkillPreviews, rebuildPlan } from './maintenance.mjs';
 import { searchSkills, resolveRegistrySkill } from './registry-skills.mjs';
-import { checkForUpdates, checkSummary, startupCheck, prepareUpdate, activateUpdate, rollbackPlan, applyRollback, fetchJson } from './maintenance-updates.mjs';
+import { checkForUpdates, checkSummary, startupCheck, prepareUpdate, activateUpdate, finishUpdate, rollbackPlan, applyRollback, fetchJson } from './maintenance-updates.mjs';
 import { json, recoveryPlan, applyRecovery, readText, readJson } from './maintenance-store.mjs';
 import { fetchDocument, documentSlice, checkUrl } from './maintenance-fetch.mjs';
 import { envStatus, setEnvValue } from './maintenance-env.mjs';
@@ -174,13 +174,20 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
   const rebuild = async (ctx) => {
     const plan = rebuildPlan(root);
     const name = plan.rebuild.version ? `Factory ${plan.rebuild.version}` : 'this Factory version';
-    if (plan.rebuild.unchanged) return `Already built with ${name}; nothing to rebuild.`;
+    if (plan.rebuild.unchanged) return { message: `Already built with ${name}; nothing to rebuild.` };
     if (!plan.rebuild.automatic) {
       if (!ctx.hasUI) throw new Error(`This rebuild changes what agents can run or reach (${plan.rebuild.reach.join(', ')}) and needs your confirmation; nothing applied`);
-      if (!await ctx.ui.confirm('Rebuild this project?', json(plan.preview))) return 'Cancelled; nothing rebuilt.';
+      if (!await ctx.ui.confirm('Rebuild this project?', json(plan.preview))) return { message: 'Cancelled; nothing rebuilt.' };
     }
     const message = applyChange(root, plan, true);
-    return `Rebuilt with ${name}${plan.rebuild.changed.length ? `: ${plan.rebuild.changed.join(', ')}` : ''}. ${message}`;
+    plan.applied = true;
+    return { plan, message: `Rebuilt with ${name}${plan.rebuild.changed.length ? `: ${plan.rebuild.changed.join(', ')}` : ''}. ${message}` };
+  };
+  /** Report, then reload Pi so changes apply without a restart. Ends the command. */
+  const reload = async (ctx, message) => {
+    if (typeof ctx.reload !== 'function') { tell(ctx, message); return; }
+    tell(ctx, `${message.replace(/ ?Takes effect after \/reload; no restart needed\./, '')} Reloading.`.trim());
+    await ctx.reload();
   };
   pi.registerCommand('factory-update', {
     description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rebuild | rollback | recover | done',
@@ -215,7 +222,9 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           await ctx.waitForIdle();
           hide();
           pending = null;
-          tell(ctx, await rebuild(ctx));
+          const { message, plan } = await rebuild(ctx);
+          if (plan?.applied && !plan.restart) { await reload(ctx, message); return; }
+          tell(ctx, message);
           return;
         }
         if (['update', 'rollback', 'apply', 'recover'].includes(request)) {
@@ -226,9 +235,20 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           if (!plan) throw new Error('No pending proposal; request a change first');
           if (plan.kind === 'current') { tell(ctx, plan.preview.latest.revision === plan.preview.installed.revision ? 'Factory is up to date.' : 'No newer compatible Factory revision found in the bounded channel search; use check for details.'); return; }
           if (!await ctx.ui.confirm('Approve Factory maintenance?', json(plan.preview))) { tell(ctx, 'Cancelled; nothing activated or applied.'); return; }
-          const message = plan.kind === 'configuration' ? applyChange(root, plan, true) : plan.kind === 'upgrade' ? await activateUpdate(root, plan, true) : plan.kind === 'recovery' ? applyRecovery(root, plan, true) : applyRollback(root, plan, true);
+          if (plan.kind === 'upgrade') {
+            const activated = await activateUpdate(root, plan, true);
+            pending = null;
+            hide();
+            const { text, restart } = await finishUpdate(root, plan, activated, { confirm: (title, body) => ctx.ui.confirm(title, body) });
+            if (restart || typeof ctx.reload !== 'function') { tell(ctx, `${text} Restart ./run to load ${restart ? 'the new launcher and packages' : 'the new version'}.`); return; }
+            // Loads the new tooling and the rebuilt project; nothing runs here afterwards.
+            await reload(ctx, text);
+            return;
+          }
+          const message = plan.kind === 'configuration' ? applyChange(root, plan, true) : plan.kind === 'recovery' ? applyRecovery(root, plan, true) : applyRollback(root, plan, true);
           pending = null;
           hide();
+          if (plan.kind === 'configuration' && !plan.restart) { await reload(ctx, message); return; }
           tell(ctx, message);
           return;
         }

@@ -92,7 +92,7 @@ export function registerPermissions(pi, Type, root) {
       const current = loadModel(root);
       if (!current) return text('.pi/system.yaml is invalid; nothing ran.', true);
       const declared = cliEntries(current).find((c) => c.command === entry.command && JSON.stringify(c.args ?? []) === JSON.stringify(entry.args));
-      if (declared) return text(`This command is already declared as ${cliToolName(declared.name)}${cliAgents(current, declared.name).includes(current.orchestrator?.name) ? '; call that tool' : ', but not for you; restart ./run if it was just added'}.`, true);
+      if (declared) return text(`This command is already declared as ${cliToolName(declared.name)}${cliAgents(current, declared.name).includes(current.orchestrator?.name) ? '; call that tool' : ', but not for you; run /reload if it was just added'}.`, true);
       try { checkValues(entry.args, params.values); } catch (error) { return text(error.message, true); }
       if (!ctx?.hasUI) {
         const requests = readRequests(root).filter((r) => !(r.command === entry.command && JSON.stringify(r.args) === JSON.stringify(entry.args)));
@@ -105,7 +105,7 @@ export function registerPermissions(pi, Type, root) {
       if (choice !== 'Allow once') {
         try {
           const applied = await confirmChange(root, ctx, `Save the command "${entry.name}" for ${current.orchestrator.name}?`, grantOps(current, { ...entry, approve: true }, [current.orchestrator.name]));
-          saved = applied === null ? '\nNot saved (declined); it ran once.' : `\nSaved as ${cliToolName(entry.name)}; it is available after restarting ./run. ${applied}`;
+          saved = applied === null ? '\nNot saved (declined); it ran once.' : `\nSaved as ${cliToolName(entry.name)}. ${applied}`;
         } catch (error) { saved = `\nNot saved: ${error.message}. It ran once.`; }
       }
       const result = await runCommand(root, entry, params.values ?? {}, { signal });

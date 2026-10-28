@@ -72,6 +72,13 @@ export function inspectProject(root) {
     evidence: 'subagentRuns summarizes recent launches (agent, outcome, first diagnostic line) from .factory/pi-home; repeated failures are a configuration problem to propose a fix for. No other execution evidence inferred from configuration. Only cite execution evidence the user supplies or explicitly authorizes reading; never read auth files or environment secrets. Credential redaction is best-effort, not a general secret scanner.',
   });
 }
+/** Whether applying `writes` needs a new process: a new launcher, or packages to install. */
+export function restartNeeded(root, writes) {
+  if (writes.run !== undefined) return true;
+  if (writes['.pi/settings.json'] === undefined) return false;
+  const packages = text => { try { return json(JSON.parse(text ?? '{}').packages ?? []); } catch { return null; } };
+  return packages(readText(root, '.pi/settings.json')) !== packages(writes['.pi/settings.json']);
+}
 export function planChange(root, operations) {
   const oldText = readText(root, '.pi/system.yaml');
   // Legacy schemas can only enter through an explicit, separately previewed replacement.
@@ -151,8 +158,9 @@ export function planChange(root, operations) {
   const stale = staleMentions(oldModel, model);
   // Kept from before the rule existed; the change may fix them with `fix`.
   const asking = backgroundAskingIssues(model);
+  const restart = restartNeeded(root, writes);
   return {
-    kind: 'configuration', writes, skills,
+    kind: 'configuration', writes, skills, restart,
     expected: fingerprints(root, [...paths, ...Object.keys(writes), '.factory/installation.json']),
     preview: {
       reconciliation: drift,
@@ -173,7 +181,7 @@ export function planChange(root, operations) {
         remove: skills.remove.map(name => `${installedDir(name)}/`),
         how: `On apply, npx ${SKILLS_CLI} add <source> --agent pi --copy -y runs in this project (project-local, never global) and records the commit in skills-lock.json. Installed SKILL.md must match the preview. Skills can instruct agents to run programs; read them before approving.`,
       } } : {}),
-      restart: 'Restart ./run after applying: tool, package, MCP and resource changes are not hot-activated.',
+      restart: restart ? 'Restart ./run after applying: the launcher or packages change.' : 'Takes effect after /reload; no restart needed.',
     },
   };
 }

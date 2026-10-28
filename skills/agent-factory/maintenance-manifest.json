@@ -39,6 +39,7 @@
     "skills/agent-factory/agent-extension.mjs",
     "skills/agent-factory/maintenance-extension.mjs",
     "skills/agent-factory/maintenance-smoke.mjs",
+    "skills/agent-factory/maintenance-rebuild.mjs",
     "skills/agent-factory/maintenance-cli.mjs",
     "skills/agent-factory/maintenance-workflow.md",
     "skills/agent-factory/schema.md"
