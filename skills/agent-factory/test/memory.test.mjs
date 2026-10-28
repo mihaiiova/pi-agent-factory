@@ -23,7 +23,7 @@ function adapter() {
     on: (name, cb) => { (events[name] ??= []).push(cb); },
     getActiveTools: () => [], setActiveTools: () => {}, getAllTools: () => [], sendUserMessage: () => {},
   };
-  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number'].map((k) => [k, (v) => v]));
+  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map((k) => [k, (v) => v]));
   const fire = (name, event = {}) => events[name]?.map((cb) => cb(event, { hasUI: false, ui: {} })).find((r) => r !== undefined);
   return { pi, Type, tools, fire };
 }

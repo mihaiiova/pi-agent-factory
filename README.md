@@ -107,6 +107,30 @@ don't see them. The file is plain Markdown you can edit. `/factory-update review
 reads it, so a lesson that should always hold can become a previewed change to a
 prompt, skill or tool.
 
+### Commands: CLI permissions per agent
+
+Agents can run command-line tools you already use (`gh`, `wrangler`, your own
+scripts) through declared commands instead of a full shell. Each is a fixed
+shape in `system.yaml` where the agent fills in only the `{placeholders}`:
+
+```yaml
+integrations:
+  cli:
+    - name: create-issue
+      command: gh
+      args: [issue, create, --repo, mihaiiova/owlie-app, --title, "{title}", --body-file, "{body:file}"]
+      approve: true   # the default: you approve each run
+```
+
+Give it to an agent with `cli:create-issue` in its `tools`. Commands run
+without a shell, with your own CLI logins. In a running system:
+
+- `/factory-permission` lists commands and who may run them; `add`, `remove
+  <name>` and `review` change them through a preview you confirm.
+- When the orchestrator needs a command it has no tool for, it asks with
+  `request_permission`: allow once, always (saved to `system.yaml`), or deny.
+  In a headless run the request waits for `/factory-permission review`.
+
 ### Running and maintaining a generated system
 
 A generated project starts with `./run`, which isolates it from your global Pi

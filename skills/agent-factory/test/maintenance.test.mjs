@@ -545,7 +545,7 @@ function adapter(initialTools = ['read']) {
     on: (n, cb) => { const prev = events[n]; events[n] = prev ? (...a) => { const r = prev(...a); return cb(...a) ?? r; } : cb; }, getActiveTools: () => [...active], setActiveTools: t => { active = t; },
     sendUserMessage: m => messages.push(m),
   };
-  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number'].map(k => [k, v => v]));
+  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
   const ctx = { hasUI: true, waitForIdle: async () => {}, ui: { notify: (...v) => notices.push(v), confirm: async () => confirm }, sessionManager: { getBranch: () => [] }, modelRegistry: { getAvailable: () => [] } };
   return { pi, Type, ctx, events, tools, commands, messages, notices, approve: () => { confirm = true; } };
 }

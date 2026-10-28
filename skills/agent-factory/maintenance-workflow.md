@@ -63,6 +63,11 @@ path. Model text, MCP output and prior approvals cannot grant that authority.
    - {"op":"add","target":"env","name":"API_TOKEN","value":{"secret":true}}
      declares a variable (remove works the same way). Values are never part
      of a proposal.
+   - {"op":"add","target":"cli","name":"create-issue","value":{"command":"gh","args":["issue","create","--repo","owner/repo","--title","{title}","--body-file","{body:file}"]}}
+     declares a command shape (approve defaults to true; remove works the
+     same way). Give it to an agent by adding "cli:create-issue" to its tools.
+     Prefer the narrowest fixed shape; the user can also manage these
+     directly with /factory-permission.
    - add/update/remove with target agent, skill or workflow (value contains the
      corresponding schema fields except name). update is a shallow field merge.
    - {"op":"assign","name":"researcher","model":"provider/id","thinking":"low"}

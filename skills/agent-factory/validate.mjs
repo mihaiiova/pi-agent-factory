@@ -10,6 +10,7 @@
 
 import { THINKING_LEVELS, isModelRef } from "./models.mjs";
 import { PACKAGE_SOURCE_RE, skillSourceKind } from "./skill-sources.mjs";
+import { PLACEHOLDER_RE } from "./cli-tools.mjs";
 
 const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -23,7 +24,8 @@ const AGENT_KEYS = [
   "inheritProjectContext", "inheritSkills",
 ];
 const SKILL_KEYS = ["name", "description", "body", "source"];
-const INTEGRATIONS_KEYS = ["mcp", "env"];
+const INTEGRATIONS_KEYS = ["mcp", "env", "cli"];
+const CLI_KEYS = ["name", "description", "command", "args", "approve"];
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // ./run loads declared names from .env; these would let a .env value change
 // what code runs or where traffic goes, so they cannot be declared.
@@ -268,6 +270,7 @@ export function validateSystem(doc) {
 
   // ── integrations ────────────────────────────────────────────
   const mcpNames = new Set();
+  const cliNames = new Set();
   if (doc.integrations !== undefined) {
     if (!isPlainObject(doc.integrations)) {
       errors.push("document.integrations must be an object");
@@ -322,6 +325,41 @@ export function validateSystem(doc) {
             }
             if (env.secret !== undefined && typeof env.secret !== "boolean") {
               errors.push(`document.integrations.env[${i}].secret must be a boolean`);
+            }
+          });
+        }
+      }
+
+      if (doc.integrations.cli !== undefined) {
+        if (!Array.isArray(doc.integrations.cli)) {
+          errors.push("document.integrations.cli must be an array");
+        } else {
+          doc.integrations.cli.forEach((cli, i) => {
+            const path = `document.integrations.cli[${i}]`;
+            if (!isPlainObject(cli)) { errors.push(`${path} must be an object`); return; }
+            checkUnknownKeys(cli, CLI_KEYS, path, errors);
+            checkNonEmptyString(cli.name, `${path}.name`, errors);
+            checkKebabCase(cli.name, `${path}.name`, errors);
+            if (isNonEmptyString(cli.name)) {
+              if (cliNames.has(cli.name)) errors.push(`${path} duplicates name "${cli.name}"`);
+              cliNames.add(cli.name);
+            }
+            if (cli.description !== undefined && !isNonEmptyString(cli.description)) {
+              errors.push(`${path}.description must be a non-empty string`);
+            }
+            if (!isNonEmptyString(cli.command) || /[\s\0]/.test(cli.command)) {
+              errors.push(`${path}.command must be one program name or path, without spaces (put arguments in args)`);
+            }
+            if (cli.args !== undefined) {
+              checkStringArray(cli.args, `${path}.args`, errors);
+              if (Array.isArray(cli.args)) cli.args.forEach((arg, j) => {
+                if (typeof arg === "string" && /[{}]/.test(arg) && !PLACEHOLDER_RE.test(arg)) {
+                  errors.push(`${path}.args[${j}] must be a whole placeholder ("{name}" or "{name:file}", lowercase) or contain no braces`);
+                }
+              });
+            }
+            if (cli.approve !== undefined && typeof cli.approve !== "boolean") {
+              errors.push(`${path}.approve must be a boolean`);
             }
           });
         }
@@ -575,6 +613,22 @@ export function validateSystem(doc) {
         });
       }
     });
+  }
+
+  // cli:<name> tool references must name a declared command.
+  const cliRefs = [
+    ["document.orchestrator.tools", isPlainObject(doc.orchestrator) ? doc.orchestrator.tools : undefined],
+    ...(Array.isArray(doc.agents) ? doc.agents.map((a, i) => [`document.agents[${i}].tools`, isPlainObject(a) ? a.tools : undefined]) : []),
+    ...(isPlainObject(doc.policies) && Array.isArray(doc.policies.enforced)
+      ? doc.policies.enforced.map((r, i) => [`document.policies.enforced[${i}].tools`, isPlainObject(r) ? r.tools : undefined]) : []),
+  ];
+  for (const [path, tools] of cliRefs) {
+    if (!Array.isArray(tools)) continue;
+    for (const tool of tools) {
+      if (typeof tool === "string" && tool.startsWith("cli:") && !cliNames.has(tool.slice(4))) {
+        errors.push(`${path} references "${tool}" but integrations.cli declares no "${tool.slice(4)}"`);
+      }
+    }
   }
 
   return { ok: errors.length === 0, errors };

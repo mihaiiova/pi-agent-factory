@@ -22,6 +22,7 @@ import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
 import { infrastructureFiles } from "./maintenance-infra.mjs";
+import { cliRef, cliToolName } from "./cli-tools.mjs";
 import { documentInstructions } from "./documents.mjs";
 
 const MARKER = "agent-factory:generated v1";
@@ -200,8 +201,10 @@ function buildSettings(model, existingText, packages) {
     else delete out.subagents;
   }
 
+  // Commands reach the orchestrator through the Factory extension, which
+  // registers only the ones it lists; defaultTools bounds Pi's own tools.
   const tools = Array.isArray(orchestrator.tools)
-    ? orchestrator.tools
+    ? orchestrator.tools.filter((tool) => !cliRef(tool))
     : undefined;
   if (tools !== undefined) out.defaultTools = tools;
   else delete out.defaultTools;
@@ -320,6 +323,8 @@ function readmeBody(model) {
     'Use `/factory-update <request>` to propose a declarative change, then',
     '`/factory-update apply` to preview and approve it. `/factory-update review`',
     'is read-only. Tooling lifecycle: `/factory-update check`, `update`, `rollback`.',
+    '`/factory-permission` lists the commands agents may run and adds, removes or',
+    'reviews them; agents ask for a command they need with `request_permission`.',
     'Startup checks never install updates. Restart `./run` after applying changes.',
     '',
     policySection(model),
@@ -342,7 +347,7 @@ function agentBody(agent, tools, model) {
   lines.push(`name: ${agent.name}`);
   if (isNonEmptyString(agent.description)) lines.push(`description: ${yamlString(agent.description)}`);
   if (Array.isArray(tools)) {
-    lines.push(`tools: [${tools.join(", ")}]`);
+    lines.push(`tools: [${tools.map((t) => (cliRef(t) ? cliToolName(cliRef(t)) : t)).join(", ")}]`);
   }
   if (isNonEmptyString(agent.model)) lines.push(`model: ${agent.model}`);
   if (isNonEmptyString(agent.thinking)) lines.push(`thinking: ${agent.thinking}`);

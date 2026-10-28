@@ -111,7 +111,7 @@ Duplicate `name`s are rejected.
 
 ### `integrations`
 
-Allowed keys: `mcp` (array) and `env` (array).
+Allowed keys: `mcp` (array), `env` (array) and `cli` (array).
 
 - `mcp[]` entries: `name` (required string) and `config` (required non-empty
   object — `{url: …}` or `{command, args}`; the config shape is opaque and
@@ -122,6 +122,41 @@ Allowed keys: `mcp` (array) and `env` (array).
   caller's environment wins). Names that change how the shell, Node, Pi or the
   network stack run (`PATH`, `NODE_OPTIONS`, `LD_*`, `DYLD_*`, proxy variables,
   `PI_CODING_AGENT_DIR`, `FACTORY_*`, …) are rejected.
+- `cli[]` entries declare command-line tools: `name` (required kebab-case),
+  `description`, `command` (required: one program name or path, no spaces),
+  `args` (array of strings) and `approve` (boolean, default `true`). An
+  argument that is exactly `{name}` is a value the agent supplies for each
+  call (it may not start with `-`); `{name:file}` writes the agent's text to
+  a temporary file and passes its path. Every other argument is fixed. The
+  command runs directly, without a shell, from the project directory, with
+  the user's own CLI logins and the `.env` variables `./run` loaded.
+  `approve: true` asks the user before each run (Allow once / Allow for this
+  session / Deny); without a UI (a headless run, or a background subagent)
+  such a call fails instead of running. Duplicate `name`s are rejected.
+
+  An agent gets a command by listing `cli:<name>` in its `tools` (or an
+  enforced policy rule's `tools`); every `cli:` reference must name a declared
+  entry. In Pi the tool is `cli_<name>` (hyphens become underscores). The
+  orchestrator gets the commands its `tools` list, or all of them when its
+  `tools` is omitted; a subagent gets exactly the ones in its allowlist, and
+  runs in the background. `/factory-permission` (list, add, remove, review)
+  edits these declarations through the normal preview. The orchestrator can
+  also ask for a command it has no tool for with `request_permission`: the
+  user allows it once, saves it here, or denies it; in a headless run the
+  request waits in `.factory/permission-requests.json` for
+  `/factory-permission review`.
+
+  ```yaml
+  integrations:
+    cli:
+      - name: create-issue
+        description: Open an issue in owlie-app
+        command: gh
+        args: [issue, create, --repo, mihaiiova/owlie-app, --title, "{title}", --body-file, "{body:file}"]
+  agents:
+    - name: marketing-lead
+      tools: [read, write, "cli:create-issue"]
+  ```
 
 ### `workflows[]`
 

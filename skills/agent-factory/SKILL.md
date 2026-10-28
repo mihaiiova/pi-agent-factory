@@ -146,6 +146,17 @@ first; the user decides.
   …): `deliver: [{ mcp, tool, with?, note? }]`, any number per document; the
   writer needs that tool. The agreed format and deliveries are rendered into
   the writer's instructions.
+- **Command-line tools:** when an agent needs a CLI the user already has
+  (`gh`, `wrangler`, `stripe`, a project script), prefer a declared command
+  in `integrations.cli` over `bash`: a fixed shape such as
+  `gh issue create --repo <owner/repo> --title {title} --body-file {body:file}`,
+  given to that agent as `cli:<name>`. The agent fills in only the
+  placeholders, nothing runs through a shell, and by default the user
+  approves each run. Commands that need approval belong with the
+  orchestrator, since background subagents can't ask. Check the CLI is
+  installed with `factory discover --cli <name>`. After generation,
+  `/factory-permission` manages these, and the orchestrator can ask for a
+  missing one with `request_permission`.
 - **Capabilities and permissions:** what each agent may touch is the user's
   call; the factory adds no restrictions of its own. When an agent would
   publish, send, delete or otherwise change something outside the project (a

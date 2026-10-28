@@ -8,10 +8,12 @@
  * is reported before a workflow depends on it.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { enforcedAgentTools } from './policy.mjs';
 import { needsBackground, SUBAGENT_CONFIG } from './generate.mjs';
 import { skillSourceKind } from './skill-sources.mjs';
+import { cliEntries, cliRef } from './cli-tools.mjs';
+import { probeClis } from './discover.mjs';
 
 const BUILTIN = new Set(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
 
@@ -34,22 +36,33 @@ function serverTools(server, config, cache) {
 /**
  * @param {string} root project directory
  * @param {object} model validated system.yaml
- * @param {{ registeredTools?: string[] }} [opts] tool names registered in this
- *   session (from pi.getAllTools()); extension tools are checked only when given.
+ * @param {{ registeredTools?: string[], probe?: (cli: string) => boolean }} [opts]
+ *   tool names registered in this session (from pi.getAllTools()); extension
+ *   tools are checked only when given. `probe` checks a command is on PATH.
  * @returns {{ ok: boolean, problems: Array<{ agent: string, problem: string }> }}
  */
-export function launchCheck(root, model, { registeredTools } = {}) {
+export function launchCheck(root, model, { registeredTools, probe } = {}) {
   const problems = [];
   const mcpServers = readJson(root, '.pi/mcp.json')?.mcpServers ?? {};
   const cache = readJson(root, '.factory/pi-home/mcp-cache.json');
   const registered = Array.isArray(registeredTools) ? new Set(registeredTools) : null;
   const forced = readJson(root, SUBAGENT_CONFIG)?.forceTopLevelAsync === true;
   const skills = new Map((Array.isArray(model?.skills) ? model.skills : []).map((s) => [s.name, s]));
+  const commands = new Map(cliEntries(model).map((c) => [c.name, c]));
+  const installed = (command) => (command.includes('/') ? existsSync(resolve(root, command)) : probeClis([command], probe ? { probe } : {})[command] === true);
+  const checkCommands = (agentName, tools) => {
+    for (const name of (Array.isArray(tools) ? tools : []).map(cliRef).filter(Boolean)) {
+      const entry = commands.get(name);
+      if (entry && !installed(entry.command)) problems.push({ agent: agentName, problem: `cli:${name}: "${entry.command}" is not installed or not on PATH` });
+    }
+  };
+  if (model?.orchestrator) checkCommands(model.orchestrator.name, Array.isArray(model.orchestrator.tools) ? model.orchestrator.tools : cliEntries(model).map((c) => `cli:${c.name}`));
   for (const agent of Array.isArray(model?.agents) ? model.agents : []) {
     const report = (problem) => problems.push({ agent: agent.name, problem });
     const tools = enforcedAgentTools(agent.name, model.policies, agent.tools);
+    checkCommands(agent.name, tools);
     for (const tool of Array.isArray(tools) ? tools : []) {
-      if (BUILTIN.has(tool)) continue;
+      if (BUILTIN.has(tool) || cliRef(tool)) continue;
       if (tool.startsWith('mcp:')) {
         const [server, name] = tool.slice(4).split('/');
         if (!mcpServers[server]) { report(`${tool}: MCP server "${server}" is not configured in .pi/mcp.json`); continue; }

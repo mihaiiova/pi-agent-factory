@@ -17,6 +17,7 @@ import { declaredPackages, skillSourceKind } from "./skill-sources.mjs";
 import { splitModelRef } from "./models.mjs";
 import { needsBackground } from "./generate.mjs";
 import { DEFAULT_MAX_CHARS, MEMORY_FILE } from "./memory.mjs";
+import { cliAgents, cliEntries, cliRef } from "./cli-tools.mjs";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -67,6 +68,14 @@ export function effectiveCapabilities(model, opts = {}) {
       name: skill.name,
       source: skillSourceKind(skill.source) ?? "authored",
     })),
+    // Declared command shapes and who may run them (enforced: the Factory
+    // extension registers each only for these agents).
+    commands: cliEntries(model).map((entry) => ({
+      name: entry.name,
+      command: [entry.command, ...(entry.args ?? [])].join(" "),
+      approve: entry.approve !== false,
+      agents: cliAgents(model, entry.name, (agent) => enforcedAgentTools(agent.name, model.policies, agent.tools)),
+    })),
     mcpServers: mcpList.map((entry) => ({
       name: entry.name,
       excludeTools: sortUnique(hiddenMcpTools(entry.name, model?.policies)),
@@ -113,7 +122,7 @@ export function checkCapabilities(model, generated, opts = {}) {
   }
 
   const actualTools = sortUnique(settings.defaultTools);
-  if (!arraysEqual(caps.orchestratorTools, actualTools)) {
+  if (!arraysEqual(caps.orchestratorTools.filter((tool) => !cliRef(tool)), actualTools)) {
     errors.push(
       `settings.defaultTools mismatch: expected [${caps.orchestratorTools}] got [${actualTools}]`,
     );

@@ -10,6 +10,7 @@ import { probeClis } from './discover.mjs';
 import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
 import { memoryPrompt, updateMemory, failedTools, MEMORY_FILE } from './memory.mjs';
+import { registerPermissions } from './permissions-extension.mjs';
 
 export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } = {}) {
   let armed = false;
@@ -131,6 +132,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
   });
   pi.on('session_shutdown', () => { controller?.abort(); armed = false; pending = null; });
   registerMemory(pi, Type, root, () => armed);
+  registerPermissions(pi, Type, root, () => armed);
   pi.registerCommand('factory-update', {
     description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rollback | reconcile | recover | done',
     handler: async (args, ctx) => {
