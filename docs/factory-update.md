@@ -1,5 +1,11 @@
 # Generated-system maintenance: `/factory-update`
 
+> Agent Factory is being renamed **Pi Forge**, and `/factory-update` will become
+> part of a single `/forge` command. This document describes the current
+> implementation. See [the product direction](product-direction.md) and
+> [Milestone 0 of the roadmap](roadmap.md#milestone-0-pi-forge-rename-command-surface-and-a-security-fix)
+> for the rename and the migration sequence.
+
 Agent Factory remains the development-environment builder. `/agent-factory` is
 its convenience alias. Generated systems do **not** install the global Agent Factory.
 They contain a minimal, versioned Factory maintenance engine and expose a
