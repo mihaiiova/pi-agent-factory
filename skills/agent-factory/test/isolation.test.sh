@@ -85,7 +85,7 @@ second="$(node -e 'const s=require(process.argv[1]); process.stdout.write(JSON.s
 pass "A: regeneration is idempotent (no config drift)"
 
 # A5: subagent allowlists enforce declared tool boundaries.
-grep -q 'tools: \[read, grep, find, ls\]' "$work/.pi/agents/analyst.md" || fail "A: analyst allowlist wrong"
+grep -Pzq 'tools:\n  - read\n  - grep\n  - find\n  - ls\n' "$work/.pi/agents/analyst.md" || fail "A: analyst allowlist wrong"
 if grep -q 'tools: .*write' "$work/.pi/agents/analyst.md"; then fail "A: analyst allowlist grants write"; fi
 pass "A: subagent allowlists enforce declared tool boundaries"
 

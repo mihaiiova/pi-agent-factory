@@ -47,7 +47,7 @@ test("round-trip: import → generate preserves each agent's model, skills and M
   assert.equal(agents.length, 4, "four specialist agents materialize");
   const worker = agents.find((f) => f.path === ".pi/agents/worker.md").content;
   assert.match(worker, /^model: provider-a\/model-medium\nthinking: high$/m);
-  assert.match(agents.find((f) => f.path === ".pi/agents/scout.md").content, /^skills: \[house-style\]$/m);
+  assert.match(agents.find((f) => f.path === ".pi/agents/scout.md").content, /^skills:\n  - house-style$/m);
 
   const localSkills = files.filter((f) => f.path.includes("/SKILL.md"));
   assert.deepEqual(localSkills.map(f => f.path), ['.pi/skills/factory-update/SKILL.md'], "imported skills stay in their own directories");

@@ -106,7 +106,7 @@ test("each agent's own model, thinking and skills land in its frontmatter", () =
   const agent = byPath(generateProject(withAgent, {}).files, ".pi/agents/helper.md").content;
   assert.match(agent, /^model: provider-b\/model-small$/m);
   assert.match(agent, /^thinking: high$/m);
-  assert.match(agent, /^skills: \[notes\]$/m);
+  assert.match(agent, /^skills:\n  - notes$/m);
 });
 
 test("sourced skills generate no SKILL.md and packaged sources join runtime packages", () => {

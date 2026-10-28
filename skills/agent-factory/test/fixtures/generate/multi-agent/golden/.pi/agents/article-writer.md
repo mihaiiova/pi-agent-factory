@@ -1,7 +1,9 @@
 ---
 name: article-writer
 description: "Drafts articles"
-tools: [read, write]
+tools:
+  - read
+  - write
 model: provider-a/model-medium
 thinking: high
 systemPrompt: |
@@ -9,4 +11,4 @@ systemPrompt: |
   researcher subagent.
 ---
 
-<!-- agent-factory:generated v1 sha256=ecfaa2dba96cda331c42c0d1c20b6e0214463b8ad250d4a50990d1f32aaccc86 -->
+<!-- agent-factory:generated v1 sha256=55f9259fce24466305bbac4fd92c0087e69cd03bdd809f7f28d441ea2fc391ef -->

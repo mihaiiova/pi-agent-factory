@@ -121,7 +121,7 @@ test('maintenance previews skill contents, installs on apply and removes on unde
   assert.equal(calls.length, 0);
   applyChange(root, plan, true, { run: fakeCli(calls) });
   assert.ok(existsSync(join(root, '.agents/skills/seo-audit/SKILL.md')));
-  assert.match(readFileSync(join(root, '.pi/agents/auditor.md'), 'utf8'), /skills: \[seo-audit\]/);
+  assert.match(readFileSync(join(root, '.pi/agents/auditor.md'), 'utf8'), /skills:\n  - seo-audit\n/);
 
   const removal = planChange(root, [
     { op: 'update', target: 'agent', name: 'auditor', value: { skills: [] } },

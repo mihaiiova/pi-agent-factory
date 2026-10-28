@@ -230,7 +230,7 @@ test('vendored skills must already be in the project and cannot be orphaned', t 
   mkdirSync(join(root, '.pi/skills/house-style'), { recursive: true });
   writeFileSync(join(root, '.pi/skills/house-style/SKILL.md'), '---\nname: house-style\n---\nWrite plainly.\n');
   applyChange(root, planChange(root, [local, { op: 'add', target: 'agent', name: 'writer', value: { model: 'fixture/small', skills: ['house-style'] } }]), true);
-  assert.match(readText(root, '.pi/agents/writer.md'), /skills: \[house-style\]/);
+  assert.match(readText(root, '.pi/agents/writer.md'), /skills:\n  - house-style\n/);
   assert.equal(readText(root, '.pi/skills/house-style/SKILL.md').includes('Write plainly.'), true, 'vendored copy is never rewritten');
   assert.throws(() => planChange(root, [{ op: 'update', target: 'agent', name: 'writer', value: { skills: [] } }, { op: 'remove', target: 'skill', name: 'house-style' }]), /Removed vendored skill still loads/);
 });
@@ -545,7 +545,7 @@ function adapter(initialTools = ['read']) {
     on: (n, cb) => { const prev = events[n]; events[n] = prev ? (...a) => { const r = prev(...a); return cb(...a) ?? r; } : cb; }, getActiveTools: () => [...active], setActiveTools: t => { active = t; },
     sendUserMessage: m => messages.push(m),
   };
-  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number'].map(k => [k, v => v]));
+  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
   const ctx = { hasUI: true, waitForIdle: async () => {}, ui: { notify: (...v) => notices.push(v), confirm: async () => confirm }, sessionManager: { getBranch: () => [] }, modelRegistry: { getAvailable: () => [] } };
   return { pi, Type, ctx, events, tools, commands, messages, notices, approve: () => { confirm = true; } };
 }

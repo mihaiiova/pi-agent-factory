@@ -22,6 +22,7 @@ import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
 import { infrastructureFiles } from "./maintenance-infra.mjs";
+import { cliRef, cliToolName } from "./cli-tools.mjs";
 import { documentInstructions } from "./documents.mjs";
 
 const MARKER = "agent-factory:generated v1";
@@ -200,8 +201,10 @@ function buildSettings(model, existingText, packages) {
     else delete out.subagents;
   }
 
+  // Commands reach the orchestrator through the Factory extension, which
+  // registers only the ones it lists; defaultTools bounds Pi's own tools.
   const tools = Array.isArray(orchestrator.tools)
-    ? orchestrator.tools
+    ? orchestrator.tools.filter((tool) => !cliRef(tool))
     : undefined;
   if (tools !== undefined) out.defaultTools = tools;
   else delete out.defaultTools;
@@ -320,6 +323,8 @@ function readmeBody(model) {
     'Use `/factory-update <request>` to propose a declarative change, then',
     '`/factory-update apply` to preview and approve it. `/factory-update review`',
     'is read-only. Tooling lifecycle: `/factory-update check`, `update`, `rollback`.',
+    '`/factory-permission` lists the commands agents may run and adds, removes or',
+    'reviews them; agents ask for a command they need with `request_permission`.',
     'Startup checks never install updates. Restart `./run` after applying changes.',
     '',
     policySection(model),
@@ -337,17 +342,26 @@ function envBody(model) {
     .join("\n") + "\n";
 }
 
+/** A frontmatter list as YAML block items. pi-subagents splits a flow list
+ * ("[a, b]") on commas and keeps the brackets, so it is never emitted; an
+ * empty list is a bare key, which it reads as an empty allowlist. */
+function blockList(key, items) {
+  return [`${key}:`, ...items.map((item) => `  - ${item}`)];
+}
+
 function agentBody(agent, tools, model) {
   const lines = ["---"];
   lines.push(`name: ${agent.name}`);
-  if (isNonEmptyString(agent.description)) lines.push(`description: ${yamlString(agent.description)}`);
+  // pi-subagents skips an agent file without a description, so one is always written.
+  const fallback = (isNonEmptyString(agent.prompt) ? agent.prompt.trim().split("\n")[0].slice(0, 120) : "") || agent.name;
+  lines.push(`description: ${yamlString(isNonEmptyString(agent.description) ? agent.description : fallback)}`);
   if (Array.isArray(tools)) {
-    lines.push(`tools: [${tools.join(", ")}]`);
+    lines.push(...blockList("tools", tools.map((t) => (cliRef(t) ? cliToolName(cliRef(t)) : t))));
   }
   if (isNonEmptyString(agent.model)) lines.push(`model: ${agent.model}`);
   if (isNonEmptyString(agent.thinking)) lines.push(`thinking: ${agent.thinking}`);
   if (Array.isArray(agent.skills) && agent.skills.length > 0) {
-    lines.push(`skills: [${agent.skills.join(", ")}]`);
+    lines.push(...blockList("skills", agent.skills));
   }
   if (agent.inheritProjectContext === true) lines.push("inheritProjectContext: true");
   if (agent.inheritSkills === true) lines.push("inheritSkills: true");

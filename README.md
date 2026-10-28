@@ -107,7 +107,38 @@ don't see them. The file is plain Markdown you can edit. `/factory-update review
 reads it, so a lesson that should always hold can become a previewed change to a
 prompt, skill or tool.
 
+### Commands: CLI permissions per agent
+
+Agents can run command-line tools you already use (`gh`, `wrangler`, your own
+scripts) through declared commands instead of a full shell. Each is a fixed
+shape in `system.yaml` where the agent fills in only the `{placeholders}`:
+
+```yaml
+integrations:
+  cli:
+    - name: create-issue
+      command: gh
+      args: [issue, create, --repo, mihaiiova/owlie-app, --title, "{title}", --body-file, "{body:file}"]
+      approve: true   # the default: you approve each run
+```
+
+Give it to an agent with `cli:create-issue` in its `tools`. Commands run
+without a shell, with your own CLI logins. In a running system:
+
+- `/factory-permission` lists commands and who may run them; `add`, `remove
+  <name>` and `review` change them through a preview you confirm.
+- When the orchestrator needs a command it has no tool for, it asks with
+  `request_permission`: allow once, always (saved to `system.yaml`), or deny.
+  In a headless run the request waits for `/factory-permission review`.
+
 ### Running and maintaining a generated system
+
+**Upgrading a project generated before v0.11:** older generators wrote agent
+`tools`/`skills` lists as `[a, b]`, which pi-subagents reads as the names `[a`
+and `b]`, so specialists started without those tools or skills. Agents without
+a `description` were skipped entirely. Run `/factory-update update`, restart,
+then `/factory-update reconcile` and `/factory-update apply`; the startup check
+lists every affected agent until then.
 
 A generated project starts with `./run`, which isolates it from your global Pi
 configuration (own config dir, own credentials: `/login` once per project).

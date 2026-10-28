@@ -1,4 +1,4 @@
-<!-- agent-factory:generated v1 sha256=044f1259a27fd991c53dc4092989e195c07b488bad2fe65bd69392904e96c7db -->
+<!-- agent-factory:generated v1 sha256=c63aea4d2ff2b1255453ab2ebf32c17912807ed236ea53c101ef7f2cd0adba3a -->
 # seo-agent-system
 
 SEO analysis + article drafting
@@ -24,6 +24,8 @@ capabilities are enforced vs advisory.
 Use `/factory-update <request>` to propose a declarative change, then
 `/factory-update apply` to preview and approve it. `/factory-update review`
 is read-only. Tooling lifecycle: `/factory-update check`, `update`, `rollback`.
+`/factory-permission` lists the commands agents may run and adds, removes or
+reviews them; agents ask for a command they need with `request_permission`.
 Startup checks never install updates. Restart `./run` after applying changes.
 
 ## Policy
