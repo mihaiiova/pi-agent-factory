@@ -3,7 +3,7 @@
 Based on an audit of the repository at v0.18.0 (`217fc0b`, 2026-10-28), measured
 against [the product direction](product-direction.md). Issues live in
 GitHub under epic [#24](https://github.com/mihaiiova/pi-agent-factory/issues/24), indexed
-listed at the end. Each one is scoped for a single implementation session.
+at the end. Each one is scoped for a single implementation session.
 
 ## 1. Audit: what exists today
 
