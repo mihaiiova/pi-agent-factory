@@ -1,14 +1,61 @@
-# pi-agent-factory
+# Pi Forge
 
-This repository is becoming the **Agent Factory**: a conversational builder that
-defines a standalone, project-local Pi agent system from zero — its orchestrator,
-specialist subagents, skills, MCP integrations, workflows and policies — and
-maintains it afterwards. The former personal Pi setup (spec lifecycle, domain
-skills, sync/state extensions) now lives in the private
+**Design, generate, check, and revise specialized Pi agents.**
+
+Pi Forge (formerly **Pi Agent Factory**) is a conversational development tool
+for specialized agents. You describe the outcome you want. Forge recommends the
+simplest agent that achieves it and generates it as an ordinary, project-local
+Pi project: an orchestrator, optional specialists, skills, packages, MCP
+integrations, commands, workflows and permissions. It then keeps that agent
+working as your needs change.
+
+**The specialized agent is the product. Pi is its runtime.** Forge composes
+Pi's own resources and adds no runtime, workflow engine or scheduler of its
+own. A generated agent runs with Pi alone and does not need Forge running.
+
+- [Product direction](docs/product-direction.md): what Forge is, how to judge
+  changes, and its non-goals. This is the authoritative document.
+- [Roadmap](docs/roadmap.md): the current audit, gaps, milestones and issues.
+
+> **Naming.** The rename is planned but not done yet. This repository, the
+> package (`pi-agent-factory`) and the commands (`/agent-factory`,
+> `/factory-update`, `/factory-permission`) still use the old names. They will
+> become `mihaiiova/pi-forge`, `pi-forge` and a single `/forge` command, and
+> existing projects will be migrated rather than recreated. See
+> [Milestone 0](docs/roadmap.md#milestone-0-pi-forge-rename-command-surface-and-a-security-fix).
+
+### Architecture in brief
+
+```text
+you ──▶ /agent-factory (builder, conversational)
+          │  factory CLI: discover · validate · generate --dry-run · generate
+          ▼
+   <project>/.pi/system.yaml   compact desired state (schema 1)
+   <project>/.pi/…             native Pi files: settings, agents, skills, mcp.json, prompts
+   <project>/run               isolated launcher (own Pi home and credentials)
+   <project>/.factory/         build record, pinned agent runtime, Forge tooling bundle
+          │
+          ▼
+   ./run, ./run -p "…"   Pi runs the agent; /factory-update revises it in place
+```
+
+- **Design and generate:** `/agent-factory` holds a design conversation, writes
+  `system.yaml`, previews the generated files and writes them only after you
+  confirm. Generation is deterministic and idempotent, and never silently
+  overwrites your edits.
+- **Check:** `factory validate`, a capability manifest
+  (`.factory/capabilities.json`) and a launch check on every start that each
+  agent will get its declared tools, MCP tools and skills. Checking actual
+  behavior is on the [roadmap](docs/roadmap.md).
+- **Revise:** inside a project, `/factory-update <request>` proposes a small
+  structured change, shows the diff, and applies it after your approval.
+
+The former personal Pi setup (spec lifecycle, domain skills, sync/state
+extensions) now lives in the private
 [`pi-personal`](https://github.com/mihaiiova/pi-personal) repository; see
 [Personal Pi setup](#personal-pi-setup).
 
-## Agent Factory
+## Using Forge today
 
 Start it from any Pi session with `/agent-factory <outcome>` (or
 `/skill:agent-factory`). The builder works as a design conversation, not an
