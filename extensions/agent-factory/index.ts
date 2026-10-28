@@ -7,7 +7,7 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       await ctx.waitForIdle();
       const skill = readFileSync(new URL('../../skills/agent-factory/SKILL.md', import.meta.url), 'utf8');
-      pi.sendUserMessage(`${skill}\n\nFactory skill location: ${new URL('../../skills/agent-factory/', import.meta.url).pathname}\n\nUser request: ${args}`);
+      pi.sendUserMessage(`${skill}\n\nFactory skill location: ${new URL('../../skills/agent-factory/', import.meta.url).pathname}\n\nUser request: ${(args ?? '').trim() || '(none: continue from this conversation)'}`);
     },
   });
 }

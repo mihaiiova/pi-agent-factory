@@ -11,9 +11,12 @@ skills, sync/state extensions) now lives in the private
 ## Agent Factory
 
 Start it from any Pi session with `/agent-factory <outcome>` (or
-`/skill:agent-factory`). The builder interviews you, runs `factory discover`,
-designs a `.pi/system.yaml`, previews the generated files and applies them only
-after you confirm. The deterministic CLI behind it:
+`/skill:agent-factory`). The builder works as a design conversation, not an
+interview: it uses what you've already said, recommends the simplest system
+that fits, and asks only questions that change the design. When you say
+"build it", it runs `factory discover`, writes a `.pi/system.yaml`, previews
+the generated files and applies them only after you confirm. See the
+[conversational acceptance scenarios](docs/agent-factory-conversation.md). The deterministic CLI behind it:
 
 ```sh
 node skills/agent-factory/factory.mjs discover [dir]          # models, your skills, MCP, CLIs
@@ -92,6 +95,17 @@ skills it is declared to have, and names any that are missing.
 See [`schema.md`](skills/agent-factory/schema.md) for every field, validation
 rule and the file-ownership contract, and [docs/agent-factory.md](docs/agent-factory.md)
 for the architecture.
+
+### Memory: the orchestrator learns across sessions
+
+Optional, set with `orchestrator.memory: true` (or `{ maxChars: N }`; the
+default is 4000). The orchestrator keeps short notes in `.pi/MEMORY.md`:
+corrections, preferences, and tools or specialists that failed and what worked
+instead. It writes them itself with a `memory` tool, is reminded to after a task
+with failed tool calls, and loads them at the start of each session. Subagents
+don't see them. The file is plain Markdown you can edit. `/factory-update review`
+reads it, so a lesson that should always hold can become a previewed change to a
+prompt, skill or tool.
 
 ### Running and maintaining a generated system
 

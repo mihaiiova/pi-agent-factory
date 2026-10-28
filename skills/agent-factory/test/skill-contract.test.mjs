@@ -20,9 +20,25 @@ test("SKILL.md drives the lifecycle through discover/generate/modify/validate", 
   assert.ok(skill.includes("factory validate"), "references factory validate");
 });
 
-test("SKILL.md interviews without depending on host skills and previews before applying", () => {
-  assert.ok(!/grill-me|grill-with-docs|decisionThreshold/.test(skill), "the interview is self-contained");
+test("SKILL.md converses without depending on host skills and previews before applying", () => {
+  assert.ok(!/grill-me|grill-with-docs|decisionThreshold/.test(skill), "the conversation is self-contained");
   assert.ok(skill.includes("--dry-run"), "references the preview-before-apply dry-run");
+});
+
+test("SKILL.md designs conversationally and keeps the build confirmation", () => {
+  for (const phase of ["### Explore", "### Synthesize", "### Build"]) assert.ok(skill.includes(phase), `describes ${phase}`);
+  for (const mark of ["**Confirmed**", "**Proposed**", "**Unresolved**"]) assert.ok(skill.includes(mark), `marks ${mark}`);
+  assert.ok(/conversation is the requirement source/.test(skill), "reuses the conversation as requirements");
+  assert.ok(/not a\s+checklist or a state machine/.test(skill), "phases are not a state machine");
+  assert.ok(/not\s+approval to write files unseen/.test(skill), "build intent is not approval to write files");
+  assert.ok(!/\binterview for\b/i.test(skill), "no interview-first step");
+});
+
+test("conversational acceptance scenarios are documented", () => {
+  const doc = readFileSync(resolve(here, "../../../docs/agent-factory-conversation.md"), "utf-8");
+  const scenarios = doc.match(/^## \d\. /gm) ?? [];
+  assert.equal(scenarios.length, 6, "six numbered scenarios");
+  for (const part of ["**Input.**", "**Pass.**", "**Fail.**"]) assert.equal(doc.split(part).length - 1, 6, `each scenario has ${part}`);
 });
 
 test("SKILL.md asks for each agent's model from the full Pi line-up", () => {

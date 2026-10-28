@@ -542,7 +542,7 @@ function adapter(initialTools = ['read']) {
   let confirm = false;
   const pi = {
     registerTool: t => { tools[t.name] = t; }, registerCommand: (n, c) => { commands[n] = c; },
-    on: (n, cb) => { events[n] = cb; }, getActiveTools: () => [...active], setActiveTools: t => { active = t; },
+    on: (n, cb) => { const prev = events[n]; events[n] = prev ? (...a) => { const r = prev(...a); return cb(...a) ?? r; } : cb; }, getActiveTools: () => [...active], setActiveTools: t => { active = t; },
     sendUserMessage: m => messages.push(m),
   };
   const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number'].map(k => [k, v => v]));
