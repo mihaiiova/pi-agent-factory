@@ -122,7 +122,9 @@ workflow simplification; enforced versus advisory permissions; document
 formats (declared, or missing for documents agents keep writing); and available
 execution evidence, including subagentRuns (repeated failures of one agent
 point to a configuration problem, quoted by its diagnostic) and launchCheck
-(tools, MCP servers or skills an agent is declared to have but would not get).
+(tools, MCP servers or skills an agent is declared to have but would not get),
+and the orchestrator's memory notes (a lesson that should always hold is a
+candidate for a prompt, skill, document or tool change).
 Suggest skills.sh skills for agents whose role a skill could serve. Absence of observed use is not proof a tool is unused.
 
 Return a prioritized practical shortlist. Label every finding as one of:

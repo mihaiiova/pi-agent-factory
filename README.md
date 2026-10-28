@@ -96,6 +96,17 @@ See [`schema.md`](skills/agent-factory/schema.md) for every field, validation
 rule and the file-ownership contract, and [docs/agent-factory.md](docs/agent-factory.md)
 for the architecture.
 
+### Memory: the orchestrator learns across sessions
+
+Optional, set with `orchestrator.memory: true` (or `{ maxChars: N }`; the
+default is 4000). The orchestrator keeps short notes in `.pi/MEMORY.md`:
+corrections, preferences, and tools or specialists that failed and what worked
+instead. It writes them itself with a `memory` tool, is reminded to after a task
+with failed tool calls, and loads them at the start of each session. Subagents
+don't see them. The file is plain Markdown you can edit. `/factory-update review`
+reads it, so a lesson that should always hold can become a previewed change to a
+prompt, skill or tool.
+
 ### Running and maintaining a generated system
 
 A generated project starts with `./run`, which isolates it from your global Pi

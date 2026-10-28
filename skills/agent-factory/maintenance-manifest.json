@@ -31,6 +31,7 @@
     "skills/agent-factory/maintenance-fetch.mjs",
     "skills/agent-factory/discover.mjs",
     "skills/agent-factory/maintenance-updates.mjs",
+    "skills/agent-factory/memory.mjs",
     "skills/agent-factory/maintenance-extension.mjs",
     "skills/agent-factory/maintenance-smoke.mjs",
     "skills/agent-factory/maintenance-cli.mjs",
