@@ -118,11 +118,11 @@ test("sourced skills generate no SKILL.md and packaged sources join runtime pack
     ],
   };
   const { files } = generateProject(sourced, {}, {
-    piPackages: ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1"],
+    piPackages: ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"],
   });
   assert.ok(!files.some((f) => f.path.startsWith(".pi/skills/packaged") || f.path.startsWith(".pi/skills/local")));
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.deepEqual(settings.packages, ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1", "npm:@acme/skills@1.0.0"]);
+  assert.deepEqual(settings.packages, ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:@acme/skills@1.0.0"]);
 });
 
 test("unrelated keys in .pi/mcp.json survive regeneration", () => {
@@ -205,7 +205,7 @@ test("authored scaffold carries an agent-factory marker and the scaffolded body"
 test("golden tree: minimal fixture produces the committed snapshot", () => {
   const goldenDir = resolve(fixtureRoot, "golden");
   const { files } = generateProject(model, {}, {
-    piPackages: ["npm:pi-subagents@0.65.0", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"],
+    piPackages: ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"],
   });
 
   const produced = new Map(files.map((f) => [f.path, f.content]));
@@ -227,7 +227,7 @@ test("golden tree: minimal fixture produces the committed snapshot", () => {
 
 test("runtime packages are computed from piPackages + declared model packages", () => {
   const piPackages = [
-    "npm:pi-subagents@0.65.0",
+    "npm:pi-subagents@0.83.1",
     "npm:pi-mcp-adapter@2.32.1",
     "npm:pi-web-access@0.27.0",
   ];
@@ -238,7 +238,7 @@ test("runtime packages are computed from piPackages + declared model packages", 
   );
   const settings = JSON.parse(byPath(withDeclared.files, ".pi/settings.json").content);
   assert.deepEqual(settings.packages, [
-    "npm:pi-subagents@0.65.0",
+    "npm:pi-subagents@0.83.1",
     "npm:pi-mcp-adapter@2.32.1",
     "npm:foo@1.0.0",
   ]);

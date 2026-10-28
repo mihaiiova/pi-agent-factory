@@ -217,6 +217,14 @@ function buildSettings(model, existingText, packages) {
     delete out.packages;
   }
 
+  // Pi's built-in MCP support and pi-mcp-adapter both claim /mcp; the adapter
+  // is the system's MCP runtime, so the built-in one is switched off. Other
+  // extension entries the user added are kept.
+  if (runtime.some((pkg) => /^npm:pi-mcp-adapter@/.test(pkg))) {
+    const kept = (Array.isArray(out.extensions) ? out.extensions : []).filter((e) => e !== "+builtin:mcp" && e !== "builtin:mcp" && e !== "-builtin:mcp");
+    out.extensions = [...kept, "-builtin:mcp"];
+  }
+
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 
