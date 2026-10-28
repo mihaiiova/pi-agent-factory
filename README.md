@@ -11,9 +11,12 @@ skills, sync/state extensions) now lives in the private
 ## Agent Factory
 
 Start it from any Pi session with `/agent-factory <outcome>` (or
-`/skill:agent-factory`). The builder interviews you, runs `factory discover`,
-designs a `.pi/system.yaml`, previews the generated files and applies them only
-after you confirm. The deterministic CLI behind it:
+`/skill:agent-factory`). The builder works as a design conversation, not an
+interview: it uses what you've already said, recommends the simplest system
+that fits, and asks only questions that change the design. When you say
+"build it", it runs `factory discover`, writes a `.pi/system.yaml`, previews
+the generated files and applies them only after you confirm. See the
+[conversational acceptance scenarios](docs/agent-factory-conversation.md). The deterministic CLI behind it:
 
 ```sh
 node skills/agent-factory/factory.mjs discover [dir]          # models, your skills, MCP, CLIs

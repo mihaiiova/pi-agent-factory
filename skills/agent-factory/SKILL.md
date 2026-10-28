@@ -13,98 +13,189 @@ single source of truth for generation; this skill drives it.
 Invoke with `/agent-factory` (convenience alias), `/skill:agent-factory`, or describe an agent-system outcome ("I want an
 SEO system", "set up a coding agent with a reviewer", …) and this skill routes here.
 
-## Lifecycle
+## How to work: a design conversation, not a questionnaire
 
-1. **Understand** — interview for the outcome: what the system must achieve, which
-   distinct roles it needs, and what each role may touch — that is the user's
-   call for each agent; the factory adds no restrictions of its own. Ask only genuinely-required
-   questions, one decision at a time; never re-ask a fact the next step already
-   answers. **Done when** the outcome is unambiguous enough to design against.
-2. **Discover** — run `factory discover`. It reports the machine's full Pi model
-   line-up (`models`, from `pi --list-models`), the user's own installed skills,
-   MCP servers and subagents. It knows no CLIs of its own: when the user names
-   command-line tools the system will use, add `--cli <name>` for each to check
-   they are installed. Resolve discoverable facts rather than asking.
-   Search the open skills registry with `factory search-skills <terms>`
-   (skills.sh: name, source repo, installs, page).
-3. **Design** — define the system from zero using the seven primitives
-   (`orchestrator`, `agents`, `skills`, `integrations`, `workflows`, `policies`,
-   `packages`).
-   - **Models:** the factory ships no default models. For the orchestrator and
-     for each subagent, ask which model to use, offering the entire discovered
-     line-up, and record it as `model: provider/id` (plus an optional
-     `thinking:` level) on that agent. Agents may share a model or each use a
-     different one. Any model can be changed later (step 7).
-   - **Skills:** the factory ships no skills of its own; each agent gets the
-     skills the user chooses for it. Whenever you design, add or change an
-     agent, search skills.sh for its role (`factory search-skills <terms>`)
-     and suggest a few candidates per agent, with source repo, install count
-     and skills.sh page; install counts are information, not a filter. For
-     each one the user is interested in, run `factory preview-skill
-     <owner/repo>@<name>`: it pins the skill to the repository's current
-     commit and prints its `SKILL.md` and files, which you summarize (what it
-     instructs, any scripts) before the user decides. Record the user's picks
-     with the printed `source: skills:<owner>/<repo>/<dir>@<commit>`;
-     `factory generate` installs them into the project's `.agents/skills/<name>/`
-     with the `skills` CLI (project-local, never global) and `skills-lock.json`
-     records the commit. Skills can also be an inline `body`, a pinned package
-     (`source: npm:<name>@<version>` or `git:<repo>@<ref>`), or a directory the
-     user points at (`source: ./path`, `../path`, `/abs/path` or `~/path`),
-     vendored into `.pi/skills/<name>/`. Attach skills per agent with
-     `agents[].skills`. An agent the user wants to find and install skills
-     itself can be given the `vercel-labs/skills@find-skills` skill plus
-     `bash`; tell it, as a document rule or in its prompt, to install
-     project-locally (`--agent pi`, no `-g`).
-   - **Documents:** any agent may write or return any number of documents.
-     For each one, propose a structure — purpose, sections in order with a
-     one-line guide each, and optionally a word limit and rules — and ask
-     the user to add, remove or change sections before recording it in
-     `documents[]` with its `writer`. Propose; never decide the format alone.
-     A document can also be delivered anywhere an MCP tool reaches (Google
-     Drive, Notion, Slack, …): `deliver: [{ mcp, tool, with?, note? }]`, any
-     number per document; the writer needs that tool. The agreed format and
-     deliveries are rendered into the writer's instructions.
-4. **Generate** — write `system.yaml`, then **preview first**: run
-   `factory generate <dir> --dry-run` and show the planned diff. Only apply after
-   the user confirms. Generation also writes `.factory/capabilities.json` — the
-   deterministic effective-capability manifest (orchestrator/subagent tools,
-   skills, MCP servers + exclusions, packages) derived from `system.yaml`, used
-   to inspect and cross-check the generated capability surface.
-5. **Configure** — help with credentials: declare each variable in
-   `integrations.env` and reference it as `${NAME}` in MCP config. `./run` loads
-   declared names from the gitignored `.env`; the user fills it in (or later uses
-   `/factory-update env set NAME`). Explain what each credential and tool can
-   reach (an MCP server with a scoped token, or `bash` with the user's own CLI
-   logins) and let the user choose per agent; the factory sets no limits of
-   its own.
-   **Never write a secret into a committed file** — only `${ENV}` references and
-   `.env.example` templates. **Done when** every required credential is declared as
-   a `${ENV}`/`.env.example` entry and no secret is committed.
-6. **Validate** — `factory validate <dir>`, then a headless smoke run through
-   the generated launcher (`./run -p "<workflow input>"`). The launcher is the
-   canonical entry point and runs the system under its own isolated Pi config
-   directory (`PI_CODING_AGENT_DIR=.factory/pi-home`), so the host's global
-   Pi settings/MCP/extensions/credentials are not inherited. Skills in the
-   shared Agent Skills folder `~/.agents/skills/` (and `.agents/skills/` in the
-   project and its parents) do load for the orchestrator, by design;
-   subagents get only the skills listed for them.
-7. **Maintain** — every generated system bundles `/factory-update`, its thin
-   skill/command and minimal standalone deterministic engine. Within `./run`, use
-   `/factory-update <request>` to inspect/discover/preview a structured model
-   change, `/factory-update apply` to confirm it, or `/factory-update review` for
-   read-only recommendations. Switch any agent's model with an `assign`
-   operation (`{"op":"assign","name":"<agent>","model":"provider/id"}`). The
-   operational loadout is not broadened. Changes
-   go through `system.yaml`, never direct settings/MCP edits. CLI equivalents:
-   `factory change <dir> --operations <json-file> --dry-run`, then `--yes` after
-   approval. Existing `factory modify <dir> --dry-run` reconciliation is preserved.
-8. **Upgrade tooling** — `/factory-update check|update|rollback` use pinned trusted
-   Factory metadata, cached nonblocking startup discovery, staged exact revisions,
-   explicit confirmation and retained offline rollback. No automatic activation,
-   functional model change or dependency on the global Agent Factory install. Restart after applying.
-   Bootstrap older projects with `factory bootstrap-update <dir> --dry-run`, then
-   `--yes`; conflicts/migrations must be resolved explicitly. See
-   `../../docs/factory-update.md` for architecture, recovery and limitations.
+Act as an experienced technical collaborator helping the developer shape an
+idea into a working system. The specification emerges from the conversation;
+it is not collected up front.
+
+- **The conversation is the requirement source.** Before replying, reread this
+  session — including everything said before the Factory was invoked — and
+  never ask again for something already established (purpose, outputs,
+  integrations they said they have, things they ruled out). Invoked with no
+  request, continue from the conversation; ask what they want to achieve only
+  when there is nothing to go on.
+- **Recommend, don't survey.** State an explicit recommendation with its
+  reason and let the user redirect it, rather than asking them to choose among
+  technical options. "I'd start with one orchestrator and a researcher; a
+  separate writer isn't needed until drafting gets complex", not "What agents
+  do you want?".
+- **One question at a time, only when the answer changes the design.** Infer
+  safe defaults for everything else and say what you assumed.
+- **Simplest viable system first.** Challenge subagents the orchestrator could
+  handle itself, and integrations or workflows the outcome doesn't need.
+  Recommending an existing tool or a single agent is a valid answer.
+- **Follow changes of direction.** When the user changes the architecture,
+  update your understanding; don't defend or repeat the earlier proposal.
+- **Progressive disclosure.** Talk outcomes and architecture first; bring in
+  tools, models and skills when a design takes shape; exact models,
+  permissions, skill sources, files and credentials when building. Give any
+  detail the user asks for at any time. Don't re-present the whole design after
+  every small clarification — say what changed.
+- **Ground every claim in discovery.** Models, installed tools, MCP servers and
+  skills come from `factory discover`, `factory search-skills` and
+  `factory preview-skill` — never from memory or invention.
+
+The three phases below describe how the conversation tends to move, not a
+checklist or a state machine. Stay in exploration as long as the user wants;
+skip ahead when the user is already specific; go back when something changes.
+
+### Explore
+
+Understand the outcome behind the requested implementation: who it is for,
+what "done" looks like, what must not happen. Sketch one or two possible
+architectures with their trade-offs, lead with the simplest, and recommend
+one. Don't ask for models, agents, skills, document structures, permissions or
+integrations here, and don't search for skills yet — that comes when the
+design needs it or when preparing to build.
+
+### Synthesize
+
+When the direction is clear, summarize the emerging design in a few short,
+plain-language paragraphs or bullets — not YAML:
+
+- what the system accomplishes, and what it explicitly won't do;
+- the orchestrator's job and each specialist's (only where a specialist earns
+  its place);
+- the tools, MCP integrations and skills it needs, and suggested models where
+  useful;
+- inputs and outputs (documents and where they go), and important operational
+  constraints.
+
+Mark each point **Confirmed** (the user said or agreed to it), **Proposed**
+(your recommendation, not yet agreed) or **Unresolved** (blocks
+implementation). Don't ask for approval of each point; the user corrects what
+they disagree with. In a long conversation this summary is the compact record
+to build from — don't persist any separate state.
+
+### Build
+
+"Build it", "let's create it", "that works", "proceed", "generate the agent"
+mean the user agrees to implement the design. Don't restart discovery or
+interview again; reuse the design and the conversation, then:
+
+1. **Discover** what is still unknown: `factory discover` (add `--cli <name>`
+   for each command-line tool the system will use), skills per agent, and
+   whether the integrations the user mentioned are actually present.
+2. **Fill the gaps with recommendations** (see *Technical decisions*) and state
+   the assumptions. Ask only about decisions that cannot safely be inferred or
+   that materially change functionality, cost, external permissions or
+   security — and ask those before writing `system.yaml`.
+3. **Construct** `.pi/system.yaml` from the seven primitives (`orchestrator`,
+   `agents`, `skills`, `integrations`, `workflows`, `policies`, `packages`).
+4. **Validate** with `factory validate <dir>`.
+5. **Preview** with `factory generate <dir> --dry-run`, and summarize what will
+   be created — agents with their exact models and tools, skills with their
+   sources, MCP servers and their scope, documents and deliveries, required
+   credentials — and anything still unresolved.
+6. **Get explicit confirmation of that preview** before writing any file, then
+   run `factory generate <dir>`. "Build it" agrees to the design; it is not
+   approval to write files unseen.
+
+## Technical decisions
+
+Settled while building, or earlier whenever they become useful. Recommend
+first; the user decides.
+
+- **Models:** the factory ships no default models. Recommend a model for the
+  orchestrator and for each subagent from the discovered line-up (`models`,
+  from `pi --list-models`), with the reason — e.g. "X for planning, the cheaper
+  Y for research; either can change later". Ask explicitly when the choice has
+  a consequential cost or capability trade-off, and show the full line-up on
+  request. Record each as `model: provider/id` (plus an optional `thinking:`
+  level) on that agent. Agents may share a model or each use a different one.
+  Any model can be changed later (see *Maintain*).
+- **Skills:** the factory ships no skills of its own; each agent gets the
+  skills the user chooses for it. When the design needs skills, or when
+  preparing to build, search skills.sh for each agent's role
+  (`factory search-skills <terms>`: name, source repo, installs, page) and
+  present the few relevant candidates — what each adds, and which you'd pick
+  and why. Install counts are information, not a filter. Before any
+  third-party skill is chosen, run `factory preview-skill <owner/repo>@<name>`:
+  it pins the skill to the repository's current commit and prints its
+  `SKILL.md` and files, which you summarize (what it instructs, any scripts) so
+  the user decides on what will actually be installed. Record the user's picks
+  with the printed `source: skills:<owner>/<repo>/<dir>@<commit>`;
+  `factory generate` installs them into the project's `.agents/skills/<name>/`
+  with the `skills` CLI (project-local, never global) and `skills-lock.json`
+  records the commit. Skills can also be an inline `body`, a pinned package
+  (`source: npm:<name>@<version>` or `git:<repo>@<ref>`), or a directory the
+  user points at (`source: ./path`, `../path`, `/abs/path` or `~/path`),
+  vendored into `.pi/skills/<name>/`. Attach skills per agent with
+  `agents[].skills`. An agent that should find and install skills itself can
+  be given the `vercel-labs/skills@find-skills` skill plus `bash`; tell it, as
+  a document rule or in its prompt, to install project-locally (`--agent pi`,
+  no `-g`).
+- **Documents:** any agent may write or return any number of documents. For
+  each one, propose a structure — purpose, sections in order with a one-line
+  guide each, optionally a word limit and rules — e.g. "a short report with
+  findings, prioritized opportunities and recommended actions". The user
+  adjusts it in conversation or in the build summary; propose, never decide the
+  format alone. Record it in `documents[]` with its `writer`. A document can
+  also be delivered anywhere an MCP tool reaches (Google Drive, Notion, Slack,
+  …): `deliver: [{ mcp, tool, with?, note? }]`, any number per document; the
+  writer needs that tool. The agreed format and deliveries are rendered into
+  the writer's instructions.
+- **Capabilities and permissions:** what each agent may touch is the user's
+  call; the factory adds no restrictions of its own. When an agent would
+  publish, send, delete or otherwise change something outside the project (a
+  site, a repository, a CMS, someone's inbox), settle the permission and
+  approval boundary before enabling it — which tool or MCP scope, and whether a
+  human confirms each action. Don't infer this or bury it in a default. Explain
+  what each credential and tool can reach (an MCP server with a scoped token,
+  or `bash` with the user's own CLI logins) and let the user choose per agent.
+- **Generated files:** generation also writes `.factory/capabilities.json` —
+  the deterministic effective-capability manifest (orchestrator/subagent tools,
+  skills, MCP servers + exclusions, packages) derived from `system.yaml`, used
+  to inspect and cross-check the generated capability surface.
+
+## After generation
+
+- **Configure** — declare each credential in `integrations.env` and reference
+  it as `${NAME}` in MCP config. `./run` loads declared names from the
+  gitignored `.env`; the user fills it in (or later uses
+  `/factory-update env set NAME`). **Never write a secret into a committed
+  file** — only `${ENV}` references and `.env.example` templates. **Done when**
+  every required credential is declared as a `${ENV}`/`.env.example` entry and
+  no secret is committed.
+- **Validate** — `factory validate <dir>`, then a headless smoke run through
+  the generated launcher (`./run -p "<workflow input>"`). The launcher is the
+  canonical entry point and runs the system under its own isolated Pi config
+  directory (`PI_CODING_AGENT_DIR=.factory/pi-home`), so the host's global
+  Pi settings/MCP/extensions/credentials are not inherited. Skills in the
+  shared Agent Skills folder `~/.agents/skills/` (and `.agents/skills/` in the
+  project and its parents) do load for the orchestrator, by design;
+  subagents get only the skills listed for them.
+- **Maintain** — every generated system bundles `/factory-update`, its thin
+  skill/command and minimal standalone deterministic engine. Within `./run`, use
+  `/factory-update <request>` to inspect/discover/preview a structured model
+  change, `/factory-update apply` to confirm it, or `/factory-update review` for
+  read-only recommendations. Switch any agent's model with an `assign`
+  operation (`{"op":"assign","name":"<agent>","model":"provider/id"}`). The
+  operational loadout is not broadened. Changes
+  go through `system.yaml`, never direct settings/MCP edits. CLI equivalents:
+  `factory change <dir> --operations <json-file> --dry-run`, then `--yes` after
+  approval. Existing `factory modify <dir> --dry-run` reconciliation is preserved.
+- **Upgrade tooling** — `/factory-update check|update|rollback` use pinned trusted
+  Factory metadata, cached nonblocking startup discovery, staged exact revisions,
+  explicit confirmation and retained offline rollback. No automatic activation,
+  functional model change or dependency on the global Agent Factory install. Restart after applying.
+  Bootstrap older projects with `factory bootstrap-update <dir> --dry-run`, then
+  `--yes`; conflicts/migrations must be resolved explicitly. See
+  `../../docs/factory-update.md` for architecture, recovery and limitations.
+
+Acceptance scenarios for this conversational behavior:
+`../../docs/agent-factory-conversation.md`.
 
 ## Policy and ownership contract
 

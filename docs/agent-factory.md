@@ -10,7 +10,9 @@
 > discovery with `--no-context-files`. Model tiers (`models.tiers`, §A.5) and
 > the built-in skill recommendations are superseded: every agent now names its
 > own `provider/id` model and skills come only from the user — see
-> `skills/agent-factory/schema.md`. This document is the
+> `skills/agent-factory/schema.md`. The builder no longer runs an interview
+> (§C.9): it designs the system conversationally and builds on request — see
+> [the conversational acceptance scenarios](agent-factory-conversation.md). This document is the
 > architecture reference; sections that describe *planned* behavior are
 > historical and kept for provenance where still relevant.
 >
