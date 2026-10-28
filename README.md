@@ -98,8 +98,8 @@ for the architecture.
 
 ### Memory: the orchestrator learns across sessions
 
-Optional, set with `orchestrator.memory: true` (or `{ maxChars: N }`; the
-default is 4000). The orchestrator keeps short notes in `.pi/MEMORY.md`:
+Always on. The orchestrator keeps short notes (up to 4000 characters) in
+`.pi/MEMORY.md`:
 corrections, preferences, and tools or specialists that failed and what worked
 instead. It writes them itself with a `memory` tool, is reminded to after a task
 with failed tool calls, and loads them at the start of each session. Subagents

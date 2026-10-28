@@ -56,18 +56,16 @@ level go into its own `.pi/agents/<name>.md` frontmatter. No routing overrides
 ### `orchestrator`
 
 Allowed keys: `name` (required string), `description`, `prompt`, `model`
-(required `provider/id`), `thinking`, `tools` (array of strings), `memory`.
+(required `provider/id`), `thinking`, `tools` (array of strings).
 
-`memory` (optional, off by default) gives the orchestrator notes it keeps
-across sessions: `true`, or `{ maxChars: <positive integer> }` (default 4000).
-The notes live in `.pi/MEMORY.md`, one `- ` entry per line, and load into the
-orchestrator's prompt at session start. The orchestrator writes them freely
-with the `memory` tool (add, replace, remove) within `maxChars`, and is told to
-record lessons before finishing a task, and after a task with failed tool
-calls. Subagents neither see nor write them. `/factory-update review` reads
-the notes; making a lesson permanent (a prompt, skill or tool change) is a
-normal previewed change. The file is the user's to edit, and no generated
-file depends on it.
+The orchestrator always has memory: notes it keeps across sessions in
+`.pi/MEMORY.md`, one `- ` entry per line, up to 4000 characters. They load
+into its prompt at session start. It writes them freely with the `memory` tool
+(add, replace, remove), and is told to record lessons before finishing a task,
+and after a task with failed tool calls. Subagents neither see nor write them.
+`/factory-update review` reads the notes; making a lesson permanent (a prompt,
+skill or tool change) is a normal previewed change. The file is the user's to
+edit, and no generated file depends on it.
 
 ### `agents[]`
 

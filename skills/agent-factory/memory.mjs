@@ -1,8 +1,7 @@
 /**
  * memory — the orchestrator's own notes, kept across sessions.
  *
- * Opt-in with `orchestrator.memory` in system.yaml. The notes live in
- * `.pi/MEMORY.md`; each line starting with `- ` is one entry, and anything
+ * Always on for the orchestrator. The notes live in `.pi/MEMORY.md`; each line starting with `- ` is one entry, and anything
  * else the user writes there is kept as is. Entries load into the
  * orchestrator's prompt at session start and are written freely by the
  * orchestrator through the `memory` tool within a size cap. Subagents neither
@@ -14,14 +13,6 @@ import { atomicWrite, readText } from './maintenance-store.mjs';
 export const MEMORY_FILE = '.pi/MEMORY.md';
 export const DEFAULT_MAX_CHARS = 4000;
 const HEADER = '# Memory\n\nNotes the orchestrator keeps across sessions. Edit freely.\n\n';
-
-/** The memory settings for a validated model, or null when it is off. */
-export function memoryConfig(model) {
-  const memory = model?.orchestrator?.memory;
-  if (memory === true) return { maxChars: DEFAULT_MAX_CHARS };
-  if (memory && typeof memory === 'object') return { maxChars: memory.maxChars ?? DEFAULT_MAX_CHARS };
-  return null;
-}
 
 const isEntry = (line) => line.startsWith('- ') && line.slice(2).trim() !== '';
 const entryText = (line) => line.slice(2).trim();
