@@ -16,6 +16,12 @@ orchestrator:
   name: lead
   model: faux/faux
   tools: [read, subagent]
+agents:
+  - name: researcher
+    description: Research
+    model: faux/faux
+    tools: [read]
+    prompt: Research.
 skills:
   - name: draft
     description: Draft a report
@@ -25,6 +31,10 @@ workflows:
     entry: lead
     inputs: [data/]
     outputs: [data/]
+  - name: research
+    entry: researcher
+    inputs: [notes/]
+    outputs: [results/]
 `);
   const generated = spawnSync(process.execPath, [forge, 'generate', root], { encoding: 'utf8' });
   assert.equal(generated.status, 0, generated.stderr);
@@ -109,4 +119,24 @@ test('workflow validates options and input key-value pairs before invoking Pi', 
     assert.equal(result.status, 2, `${args}: ${result.stderr}`);
     assert.equal(JSON.parse(result.stdout.trim()).status, 'configuration_error');
   }
+});
+
+test('skill-less specialist workflows pass boundaries, inputs, and run metadata to Pi', t => {
+  const { root, env } = fixture(t);
+  const capture = join(root, 'invocation');
+  writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+require('fs').writeFileSync(${JSON.stringify(capture)}, JSON.stringify({args:process.argv.slice(2), workflow:process.env.FORGE_WORKFLOW, trigger:process.env.FORGE_TRIGGER, runId:process.env.FORGE_RUN_ID}));
+console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'done'}]}}));
+`, { mode: 0o755 });
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'research', '--input', 'topic=one=two'], { env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const call = JSON.parse(readFileSync(capture, 'utf8'));
+  assert.equal(call.workflow, 'research');
+  assert.equal(call.trigger, 'headless');
+  assert.match(call.runId, /^[0-9a-f-]{36}$/);
+  const prompt = call.args.at(-1);
+  assert.match(prompt, /researcher/);
+  assert.match(prompt, /notes\//);
+  assert.match(prompt, /results\//);
+  assert.match(prompt, /one=two/);
 });

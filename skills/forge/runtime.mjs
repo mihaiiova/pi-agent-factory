@@ -64,7 +64,7 @@ const PROMPT_FILES = [
 ];
 const LAUNCH = 'pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"';
 export function launcherScript(names = [], workflows = [], lead = '') {
-  const manifest = Buffer.from(JSON.stringify(workflows.map(w => ({ name: w.name, skill: w.skill, entry: w.entry, lead })))).toString('base64');
+  const manifest = Buffer.from(JSON.stringify(workflows.map(w => ({ ...w, lead })))).toString('base64');
   return [
     "#!/usr/bin/env bash",
     "# Hermetic runtime launcher for a generated Pi agent system.",
