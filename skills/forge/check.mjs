@@ -24,6 +24,14 @@ export function connectMcp(root) {
 
 /** Check declarations without making a model call. */
 export function checkAgent(root, options = {}) {
+  const checked = options.toolCheck;
+  const registeredTools = options.registeredTools ?? (checked && !checked.error && !checked.missing.length ? Object.keys(checked.providers) : undefined);
+  const checks = checkProject(root, { ...options, registeredTools });
+  if (checks.validation.length) {
+    const result = { timestamp: new Date().toISOString(), ok: false, capabilities: [], checks };
+    atomicWrite(root, '.forge/check.json', json(result));
+    return result;
+  }
   const model = parsedModel(readFileSync(join(root, '.pi/system.yaml'), 'utf8'));
   let previous;
   try { previous = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8')); } catch { /* no previous check */ }
@@ -31,14 +39,14 @@ export function checkAgent(root, options = {}) {
   const declaredServers = model.integrations?.mcp ?? [];
   let mcpEvidence = options.mcpServers;
   if (!mcpEvidence && Array.isArray(options.mcpTools)) {
-    mcpEvidence = declaredServers.map(({ name }) => ({ name, state: 'connected', tools: options.mcpTools.filter(t => t.name.startsWith(mcpToolName(name, '')) && t.exposure !== 'hidden').map(t => t.name.slice(mcpToolName(name, '').length)) }));
+    mcpEvidence = declaredServers.map(({ name }) => {
+      const offered = options.mcpTools.filter(t => t.name.startsWith(mcpToolName(name, '')));
+      return { name, state: offered.length ? 'connected' : 'unknown', tools: offered.filter(t => t.exposure !== 'hidden').map(t => t.name.slice(mcpToolName(name, '').length)) };
+    });
   }
   const liveMcp = Array.isArray(mcpEvidence);
   if (!liveMcp) mcpEvidence = previous?.mcpEvidence?.servers ?? [];
   const mcpTimestamp = liveMcp ? timestamp : previous?.mcpEvidence?.timestamp;
-  const checked = options.toolCheck;
-  const registeredTools = options.registeredTools ?? (checked && !checked.error && !checked.missing.length ? Object.keys(checked.providers) : undefined);
-  const checks = checkProject(root, { ...options, registeredTools });
   const capabilities = [];
   const commands = new Map(cliEntries(model).map(c => [c.name, c]));
   const skills = new Map((model.skills ?? []).map(s => [s.name, s]));
@@ -49,7 +57,7 @@ export function checkAgent(root, options = {}) {
         const [server, tool] = name.slice(4).split('/');
         const state = mcpEvidence.find(s => s.name === server);
         const present = state?.state === 'connected' && (!tool || state.tools?.includes(tool));
-        const status = present ? (liveMcp ? 'verified now' : `last seen ${mcpTimestamp}`) : state ? 'missing' : 'not verifiable';
+        const status = present ? (liveMcp ? 'verified now' : `last seen ${mcpTimestamp}`) : state && state.state !== 'unknown' ? 'missing' : 'not verifiable';
         capabilities.push({ agent: agent.name, name, provider: `MCP ${server}`, status, fix: present ? 'None.' : `Check ${server} with /mcp or rerun check-agent --connect.${state?.error ? ` ${state.error}` : ''}` });
       } else if (name.startsWith('cli:')) {
         const command = commands.get(name.slice(4))?.command;
@@ -72,7 +80,7 @@ export function checkAgent(root, options = {}) {
   }
   for (const { name } of declaredServers) {
     const state = mcpEvidence.find(s => s.name === name);
-    const status = state?.state === 'connected' ? (liveMcp ? 'verified now' : `last seen ${mcpTimestamp}`) : state ? 'missing' : 'not verifiable';
+    const status = state?.state === 'connected' ? (liveMcp ? 'verified now' : `last seen ${mcpTimestamp}`) : state && state.state !== 'unknown' ? 'missing' : 'not verifiable';
     capabilities.push({ agent: model.orchestrator.name, name: `mcp:${name}`, provider: `MCP ${name}`, status, fix: status === 'missing' ? `Check /mcp.${state?.error ? ` ${state.error}` : ''}` : status === 'not verifiable' ? 'Connect with check-agent --connect or check in a running session.' : 'None.' });
   }
   let build = null;

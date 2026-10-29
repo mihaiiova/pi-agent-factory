@@ -124,3 +124,12 @@ test('check-agent --connect verifies a local MCP server without a model call', a
   assert.equal(broken.status, 1);
   assert.ok(report.capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'missing' && c.fix.includes('fixture connection failed')));
 });
+
+test('a session with no registered MCP tools does not claim a live connection', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const { loadYaml } = await import('../yaml-loader.mjs');
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), loadYaml().stringify(model));
+  const report = checkAgent(root, { mcpTools: [] });
+  assert.ok(report.capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'not verifiable'));
+});
