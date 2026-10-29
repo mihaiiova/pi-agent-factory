@@ -49,5 +49,17 @@ FORGE_TEST_SCOPE=1 FORGE_SUBAGENTS_PACKAGE=/path/to/pi-subagents node --test \
 ```
 
 The first command forces the fallback; the second requires a usable user
-systemd scope. The ordinary launcher tests also exercise fallback isolation,
+systemd scope and verifies the actual Pi process's cgroup contains the Forge
+scope. The ordinary launcher tests also exercise fallback isolation,
 process-group termination, and scope cleanup when a user scope is available.
+
+The live-model workflow fixture is opt-in; it uses the configured model and
+provider key from the environment, so it can incur API cost:
+
+```sh
+RUN_FACTORY_LIVE_TESTS=1 FORGE_LIVE_MODEL=provider/model node --test \
+  skills/forge/test/workflow-live.test.mjs
+```
+
+Export the provider's API key as well. The generated project's Pi home is
+isolated, so credentials stored only in the host Pi home are not inherited.
