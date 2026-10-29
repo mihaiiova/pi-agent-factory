@@ -2,7 +2,7 @@
 export const workflowRunner = String.raw`#!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, writeFileSync, renameSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, writeFileSync, renameSync, existsSync, readlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -103,10 +103,13 @@ async function stopSubagents() {
       let status;
       try { status = JSON.parse(readFileSync(join(dir, 'status.json'), 'utf8')); } catch { active++; continue; }
       const running = ['queued', 'running'].includes(status.state);
-      let alive = false;
+      let alive = false, dead = false;
       if (Number.isSafeInteger(status.pid) && status.pid > 1) {
-        try { process.kill(status.pid, 0); alive = true; } catch (e) { if (e.code !== 'ESRCH') alive = true; }
+        try { process.kill(status.pid, 0); alive = true; } catch (e) { if (e.code !== 'ESRCH') alive = true; else dead = true; }
       }
+      let sameNamespace = false;
+      try { sameNamespace = status.pidNamespaceScope === readlinkSync('/proc/self/ns/pid'); } catch {}
+      if (running && dead && scope && scopeClean && sameNamespace) continue;
       if (!running && !alive && ['complete', 'failed', 'partial', 'paused', 'stopped', 'rejected'].includes(status.state)) continue;
       active++;
       if (!running || requested.has(dir)) continue;

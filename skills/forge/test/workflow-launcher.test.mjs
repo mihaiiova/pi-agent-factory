@@ -204,7 +204,7 @@ export default pi => {
   writeFileSync(agent, body);
   const noScope = join(root, 'no-scope');
   mkdirSync(noScope);
-  writeFileSync(join(noScope, 'systemd-run'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  if (!process.env.FORGE_TEST_SCOPE) writeFileSync(join(noScope, 'systemd-run'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   const env = { ...process.env, PATH: `${noScope}:${process.env.PATH}`, PI_OFFLINE: '1' };
   delete env.PI_SUBAGENT_CHILD;
   const result = spawnSync(join(root, 'run'), ['--workflow', 'research', '--timeout', '6s'], { env, encoding: 'utf8', timeout: 20000 });
