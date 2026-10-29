@@ -101,3 +101,12 @@ console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopRea
   assert.equal(result.status, 1, result.stderr);
   assert.equal(JSON.parse(result.stdout.trim()).status, 'error');
 });
+
+test('workflow validates options and input key-value pairs before invoking Pi', t => {
+  const { root, env } = fixture(t);
+  for (const args of [ ['--workflow', 'missing'], ['--workflow', 'report', '--input', 'bad'], ['--workflow', 'report', '--bogus'], ['--workflow', 'report', '--timeout', '0s'] ]) {
+    const result = spawnSync(join(root, 'run'), args, { env, encoding: 'utf8' });
+    assert.equal(result.status, 2, `${args}: ${result.stderr}`);
+    assert.equal(JSON.parse(result.stdout.trim()).status, 'configuration_error');
+  }
+});

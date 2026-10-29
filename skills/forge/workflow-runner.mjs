@@ -11,22 +11,28 @@ const workflows = JSON.parse(Buffer.from(encoded, 'base64').toString());
 const separator = args.indexOf('--');
 const prompts = args.slice(0, separator);
 const options = args.slice(separator + 1);
-let name, inputs = [], timeout = 1800000, concurrent = false;
+let name, inputs = Object.create(null), timeout = 1800000, concurrent = false, invalid = false;
 for (let i = 0; i < options.length; i++) {
-  if (options[i] === '--workflow') name = options[++i];
-  else if (options[i] === '--input') inputs.push(options[++i]);
+  if (options[i] === '--workflow' && name === undefined) name = options[++i];
+  else if (options[i] === '--input') {
+    const input = options[++i] ?? '';
+    const index = input.indexOf('=');
+    const key = input.slice(0, index);
+    if (index < 1 || !/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(key) || Object.hasOwn(inputs, key)) invalid = true;
+    else inputs[key] = input.slice(index + 1);
+  }
   else if (options[i] === '--allow-concurrent') concurrent = true;
   else if (options[i] === '--timeout') {
     const value = options[++i] ?? '';
     const match = /^(\d+)(s|m|h)$/.exec(value);
     timeout = match ? Number(match[1]) * ({ s: 1000, m: 60000, h: 3600000 })[match[2]] : 0;
-  }
+  } else invalid = true;
 }
 const workflow = workflows.find(w => w.name === name);
 const runId = randomUUID();
 let answer = '';
-if (!workflow || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2147483647) {
-  console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Unknown workflow' }));
+if (invalid || !workflow || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2147483647) {
+  console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Unknown workflow or invalid options' }));
   process.exit(2);
 }
 const prompt = (workflow.skill ? '/skill:' + workflow.skill + ' ' : '') +
