@@ -210,7 +210,10 @@ While preparing a change, the maintainer can read public documentation (for
 example an MCP server's README and releases) to verify versions, tools and
 auth, and can declare the environment variables an integration needs. You set
 their values with `/factory-update env set NAME`; `./run` loads them from the
-project's gitignored `.env`.
+project's gitignored `.env`. Generation and change previews also add missing
+secret and state paths to an existing `.gitignore` without rewriting your rules.
+Ignoring files does not remove credentials already committed to git: rotate any
+credentials that were committed, including those in `.env` or `.factory/`.
 
 On every start, `./run` checks in the background whether a newer Factory
 release exists, by comparing the git commit the project was generated from
