@@ -127,8 +127,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     } catch { /* an invalid model is reported by the commands that use it */ }
   });
   pi.on('session_shutdown', () => { armed = false; pending = null; });
-  // What agents use while working comes from the bundle that built this
-  // project, so updating the tooling leaves it unchanged until a rebuild.
+  // What agents use while working comes from the pinned Factory package.
   registerAgent(pi, Type, root, { maintaining: () => armed });
   /**
    * Regenerate from system.yaml with this version. Text agents read is

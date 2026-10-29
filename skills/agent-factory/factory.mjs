@@ -18,8 +18,8 @@
  *   0  valid / generated / discovered / modified / imported (reported conflicts do not fail)
  *   1  invalid, missing, or unparseable system.yaml; or an unknown command
  *
- * Generated sessions use the narrow bundled maintenance adapter, not this
- * development CLI or the user's globally installed Agent Factory.
+ * Generated sessions use /factory-update from the pinned Factory package, not
+ * this development CLI or the user's globally installed Agent Factory.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, chmodSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
