@@ -42,6 +42,7 @@ import { registrySkills, installedDir, installRegistrySkill, searchSkills, previ
 import { planChange, applyChange, withSkillPreviews } from './maintenance.mjs';
 import { fingerprints } from './maintenance-store.mjs';
 import { checkAgent, loadProjectTools, connectMcp } from './check.mjs';
+import { parsedModel } from './changes.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -625,8 +626,8 @@ async function main(argv) {
   if (command === 'check-agent') {
     if (!dir) { fail('missing <dir> argument'); return; }
     const root = resolve(dir);
-    const model = loadModel(root);
-    if (model.error || !model.ok) { fail(model.error ?? model.errors.join('; ')); return; }
+    try { parsedModel(readFileSync(join(root, '.pi/system.yaml'), 'utf8')); }
+    catch (error) { fail(error.message); return; }
     const connected = rest.includes('--connect') ? connectMcp(root) : null;
     const report = checkAgent(root, { toolCheck: await loadProjectTools(root), ...(connected?.servers ? { mcpServers: connected.servers } : {}) });
     if (connected?.error) { report.ok = false; report.mcpDiagnostic = connected.error; writeFileSync(join(root, '.forge/check.json'), `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 }); }
