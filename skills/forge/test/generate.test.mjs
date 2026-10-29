@@ -345,3 +345,27 @@ test("edited scaffold gets safety entries appended without replacing edits", () 
   assert.equal(file.action, 'write');
   assert.equal(file.content, edited + '# forge: required ignores\n.forge/\n');
 });
+
+test('README lists exact named workflow commands and unattended options', () => {
+  const workflowModel = { ...model, workflows: [{ name: 'daily-report', entry: model.orchestrator.name }] };
+  const readme = byPath(generateProject(workflowModel, {}).files, 'README.md').content;
+  assert.match(readme, /\.\/run --workflow daily-report/);
+  assert.match(readme, /--allow-concurrent/);
+  assert.match(readme, /--timeout/);
+  assert.match(readme, /--input/);
+});
+
+test('README states timeout cleanup ownership and detached-process limit', () => {
+  const workflowModel = { ...model, workflows: [{ name: 'daily-report', entry: model.orchestrator.name }] };
+  const readme = byPath(generateProject(workflowModel, {}).files, 'README.md').content;
+  assert.match(readme, /pi-subagents/);
+  assert.match(readme, /independently detached processes.*survive/i);
+  assert.match(readme, /cleanup.*incomplete/i);
+});
+
+test('README describes systemd scope and fallback', () => {
+  const workflowModel = { ...model, workflows: [{ name: 'daily-report', entry: model.orchestrator.name }] };
+  const readme = byPath(generateProject(workflowModel, {}).files, 'README.md').content;
+  assert.match(readme, /systemd.*scope/i);
+  assert.match(readme, /fallback/i);
+});
