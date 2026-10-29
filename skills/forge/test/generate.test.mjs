@@ -355,3 +355,11 @@ test('README lists exact named workflow commands and unattended options', () => 
   assert.match(readme, /--timeout/);
   assert.match(readme, /--input/);
 });
+
+test('README states timeout cleanup ownership and detached-process limit', () => {
+  const workflowModel = { ...model, workflows: [{ name: 'daily-report', entry: model.orchestrator.name }] };
+  const readme = byPath(generateProject(workflowModel, {}).files, 'README.md').content;
+  assert.match(readme, /pi-subagents/);
+  assert.match(readme, /independently detached processes.*survive/i);
+  assert.match(readme, /cleanup.*incomplete/i);
+});
