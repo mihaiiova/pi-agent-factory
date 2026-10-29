@@ -1,5 +1,5 @@
 {
-  "name": "pi-agent-factory",
+  "name": "pi-forge",
   "version": "0.19.1",
   "private": true,
   "dependencies": {
