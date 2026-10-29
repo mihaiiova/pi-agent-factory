@@ -79,3 +79,10 @@ test('declared CLI approval yields workflow exit 3 and names the call', t => {
   const { summary } = run(t, 'cli_make_file', {});
   assert.match(summary.message, /make-file.*touch/);
 });
+
+test('request_permission yields workflow exit 3 without queuing or executing', t => {
+  const { summary, root } = run(t, 'request_permission', { name: 'create-directory', command: 'mkdir', args: ['created'], reason: 'Need a directory' });
+  assert.match(summary.message, /request_permission create-directory: mkdir created/);
+  assert.equal(existsSync(join(root, 'created')), false);
+  assert.equal(existsSync(join(root, '.forge/permission-requests.json')), false);
+});
