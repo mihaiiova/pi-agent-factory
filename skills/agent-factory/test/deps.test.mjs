@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runtimePackages } from "../deps.mjs";
 
-const FACTORY = "git:github.com/mihaiiova/pi-agent-factory@v0.19.0";
+const FACTORY = "git:github.com/mihaiiova/pi-agent-factory@v0.19.1";
 const PI_PACKAGES = [
   "npm:pi-mcp-adapter@2.32.1",
   "npm:pi-subagents@0.83.1",
