@@ -74,7 +74,7 @@ node -e 'const s=require(process.argv[1]); const t=s.defaultTools||[]; if(t.incl
 pass "A: undeclared skills/MCP/web/packages are excluded from generated config"
 
 # A3: dependency selection emits only the pinned Forge and the runtime primitives.
-node -e 'const s=require(process.argv[1]); const v=require(process.argv[2]).version; const e=[`git:github.com/mihaiiova/pi-forge@v${v}`,"npm:pi-subagents@0.83.1","npm:pi-mcp-adapter@2.32.1"]; if(JSON.stringify(s.packages)!==JSON.stringify(e)) process.exit(1)' "$work/.pi/settings.json" "$here/../../../package.json" \
+node -e 'const s=require(process.argv[1]); const v=require(process.argv[2]).version; const e=[`git:github.com/mihaiiova/pi-forge@v${v}`,"npm:pi-subagents@0.83.1"]; if(JSON.stringify(s.packages)!==JSON.stringify(e)) process.exit(1)' "$work/.pi/settings.json" "$here/../../../package.json" \
   || fail "A: runtime primitives missing or extra packages present"
 pass "A: dependency selection emits only the declared runtime primitives"
 
@@ -98,7 +98,7 @@ const caps = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 if (!Array.isArray(caps.orchestratorTools)) process.exit(1);
 if (!Array.isArray(caps.agents) || caps.agents.length !== 1) process.exit(1);
 if (!Array.isArray(caps.mcpServers) || caps.mcpServers[0].name !== "openseo") process.exit(1);
-if (!caps.packages.includes("npm:pi-subagents@0.83.1") || !caps.packages.includes("npm:pi-mcp-adapter@2.32.1")) process.exit(1);
+if (!caps.packages.includes("npm:pi-subagents@0.83.1")) process.exit(1);
 ' "$work/.forge/capabilities.json" \
   || fail "A: capabilities manifest missing or does not reflect the model"
 pass "A: effective-capability manifest is written and reflects the model"

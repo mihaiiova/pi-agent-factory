@@ -11,6 +11,9 @@
  */
 import { runtimePackages } from "./deps.mjs";
 import { declaredPackages } from "./skill-sources.mjs";
+import { leadTools } from "./asking.mjs";
+
+const hasMcp = (model) => Array.isArray(model?.integrations?.mcp) && model.integrations.mcp.length > 0;
 
 /** Project-relative isolated Pi config directory. */
 export const AGENT_DIR = ".forge/pi-home";
@@ -63,8 +66,15 @@ const PROMPT_FILES = [
   "done",
 ];
 const LAUNCH = 'pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"';
+/** Every MCP tool, including the resource tools, for an orchestrator without `mcp`. */
+const NO_MCP = "--exclude-tools 'mcp__*,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource'";
 
-export function launcherScript(names = []) {
+/**
+ * @param {string[]} names declared env names the launcher loads from .env.
+ * @param {{ excludeMcp?: boolean }} [opts] remove MCP tools from the
+ *   orchestrator's session; specialists still receive their `mcp:` selections.
+ */
+export function launcherScript(names = [], { excludeMcp = false } = {}) {
   return [
     "#!/usr/bin/env bash",
     "# Hermetic runtime launcher for a generated Pi agent system.",
@@ -97,7 +107,7 @@ export function launcherScript(names = []) {
     // Pi's agent-dir does not suppress ancestor instruction discovery.
     // APPEND_SYSTEM.md still supplies the project's operational instructions.
     ...PROMPT_FILES,
-    `exec ${LAUNCH}`,
+    `exec ${excludeMcp ? LAUNCH.replace("--no-context-files", `--no-context-files ${NO_MCP}`) : LAUNCH}`,
     "",
   ].join("\n");
 }
@@ -115,7 +125,7 @@ export function buildRuntimePlan(model, opts = {}) {
   return {
     agentDir: AGENT_DIR,
     packages,
-    launcherScript: launcherScript(envNames(model)),
+    launcherScript: launcherScript(envNames(model), { excludeMcp: hasMcp(model) && !leadTools(model).includes("mcp") }),
     warnings: [
       "credentials are not inherited from the host; start ./run and use /login, or export PI_API_KEY / a provider key",
       "the launcher disables AGENTS.md/CLAUDE.md discovery with --no-context-files; declare project instructions in system.yaml / APPEND_SYSTEM.md. Inherited subagent project context is an explicit opt-in.",

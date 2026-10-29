@@ -1,30 +1,30 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mcpFromIntegrations } from "../mcp-gen.mjs";
+import { mcpFromIntegrations, mcpToolName } from "../mcp-gen.mjs";
 
-test("stdio and http entries are emitted as mcpServers", () => {
+test("servers keep their connection settings; without includeTools their tools are deferred", () => {
   const mcp = [
-    { name: "openseo", config: { url: "http://localhost:3002/mcp" } },
-    { name: "gh", config: { command: "npx", args: ["-y", "gh-mcp"] } },
+    { name: "openseo", config: { url: "http://localhost:3002/mcp", headers: { Authorization: "Bearer ${SEO_TOKEN}" }, description: "SEO data" } },
+    { name: "gh", config: { command: "npx", args: ["-y", "gh-mcp"], env: { GH_TOKEN: "${GH_TOKEN}" } } },
   ];
   assert.deepEqual(mcpFromIntegrations(mcp, undefined), {
-    openseo: { url: "http://localhost:3002/mcp" },
-    gh: { command: "npx", args: ["-y", "gh-mcp"] },
+    openseo: { url: "http://localhost:3002/mcp", headers: { Authorization: "Bearer ${SEO_TOKEN}" }, description: "SEO data", exposure: "deferred" },
+    gh: { command: "npx", args: ["-y", "gh-mcp"], env: { GH_TOKEN: "${GH_TOKEN}" }, exposure: "deferred" },
   });
 });
 
-test("enforced hide lists become excludeTools", () => {
-  const mcp = [{ name: "openseo", config: { url: "http://localhost:3002/mcp" } }];
-  const policies = { enforced: [{ mcp: "openseo", hide: ["publish_*", "delete_*"] }] };
-  const servers = mcpFromIntegrations(mcp, policies);
-  assert.deepEqual(servers.openseo.excludeTools, ["publish_*", "delete_*"]);
+test("includeTools declares only those tools directly; the rest of the server is hidden", () => {
+  const servers = mcpFromIntegrations([{ name: "seo", config: { url: "http://x", includeTools: ["get_report", "run_*"], approveTools: ["run_*"] } }], undefined);
+  assert.deepEqual(servers.seo, { url: "http://x", exposure: "hidden", toolExposure: { get_report: "direct", "run_*": "direct" } });
 });
 
-test("excludeTools merges with a config's existing excludeTools", () => {
-  const mcp = [{ name: "openseo", config: { url: "http://x", excludeTools: ["a"] } }];
-  const policies = { enforced: [{ mcp: "openseo", hide: ["b"] }] };
-  const servers = mcpFromIntegrations(mcp, policies);
-  assert.deepEqual(servers.openseo.excludeTools, ["a", "b"]);
+test("excludeTools and enforced hide policies are hidden and win over includeTools", () => {
+  const policies = { enforced: [{ mcp: "seo", hide: ["publish_*"] }] };
+  const servers = mcpFromIntegrations([{ name: "seo", config: { url: "http://x", includeTools: ["get_report", "publish_post", "delete_*"], excludeTools: ["delete_*"] } }], policies);
+  assert.deepEqual(servers.seo.toolExposure, { "delete_*": "hidden", "publish_*": "hidden", get_report: "direct" });
+  assert.equal(servers.seo.exposure, "hidden");
+  const open = mcpFromIntegrations([{ name: "seo", config: { url: "http://x" } }], policies);
+  assert.deepEqual(open.seo, { url: "http://x", exposure: "deferred", toolExposure: { "publish_*": "hidden" } });
 });
 
 test("removing a server from the model drops it on the next materialization", () => {
@@ -38,25 +38,7 @@ test("removing a server from the model drops it on the next materialization", ()
   assert.deepEqual(Object.keys(second), ["openseo"], "gh is gone after removal");
 });
 
-test("a manually inserted undeclared server never survives", () => {
-  // The old `existingServers` argument is gone: there is no path by which an
-  // undeclared server can be merged back in. The only input is the declared list.
-  const servers = mcpFromIntegrations([{ name: "openseo", config: { url: "http://x" } }], undefined);
-  assert.deepEqual(Object.keys(servers), ["openseo"]);
-});
-
-test("repeated materialization is idempotent", () => {
-  const mcp = [{ name: "openseo", config: { url: "http://x" } }];
-  assert.deepEqual(mcpFromIntegrations(mcp, undefined), mcpFromIntegrations(mcp, undefined));
-});
-
-test("${ENV} references pass through, never substituted", () => {
-  const mcp = [
-    {
-      name: "openseo",
-      config: { url: "http://x", headers: { Authorization: "Bearer ${OPENSEO_TOKEN}" } },
-    },
-  ];
-  const servers = mcpFromIntegrations(mcp, undefined);
-  assert.equal(servers.openseo.headers.Authorization, "Bearer ${OPENSEO_TOKEN}");
+test("Pi names each MCP tool mcp__<server>__<tool>, replacing other characters with _", () => {
+  assert.equal(mcpToolName("my-docs", "get-item"), "mcp__my_docs__get_item");
+  assert.equal(mcpToolName("seo", "run_*"), "mcp__seo__run_*", "patterns keep their wildcards");
 });

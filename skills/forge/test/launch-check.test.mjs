@@ -33,21 +33,25 @@ const problems = (root, opts) => launchCheck(root, model, opts).problems.map((p)
 
 test('launch check reports missing MCP tools, extension tools, skills and background setup', (t) => {
   const root = project(t);
-  writeFileSync(join(root, '.forge/pi-home/mcp-cache.json'), JSON.stringify({ servers: { seo: { tools: [{ name: 'delete_all' }, { name: 'list' }] } } }));
-  const found = problems(root, { registeredTools: ['read', 'mcp'] });
-  assert.ok(found.includes('seo: mcp:seo/audit: "seo" does not expose "audit" (after includeTools/excludeTools)'));
+  const mcpTools = [{ name: 'mcp__seo__delete_all', exposure: 'hidden' }, { name: 'mcp__seo__list', exposure: 'deferred' }];
+  const found = problems(root, { registeredTools: ['read'], mcpTools });
+  assert.ok(found.includes('seo: mcp:seo/audit: "seo" does not offer "audit"'));
   assert.ok(found.includes('seo: web_search: no loaded extension registers this tool'));
   assert.ok(found.includes('seo: skill "audit" is not installed at .agents/skills/audit/'));
-  assert.ok(found.some((p) => p.startsWith('gh: mcp:github: "github" has never connected')));
+  assert.ok(found.includes('gh: mcp:github: "github" has not connected or offers no tools; /mcp shows why'));
   assert.ok(!found.some((p) => p.startsWith('all:')), 'list is exposed');
   assert.ok(!found.some((p) => p.startsWith('plain:')));
   assert.ok(!found.some((p) => p.includes('background')), 'generated agents are set up for background launch');
+  assert.ok(!problems(root, { registeredTools: ['read'] }).some((p) => p.includes('"github"')), 'servers connect after session start; without mcpTools they are not checked');
+
+  // A hidden tool can't be selected.
+  const hidden = launchCheck(root, { ...model, agents: [{ name: 'del', model: 'p/m', tools: ['mcp:seo/delete_all'] }] }, { mcpTools }).problems;
+  assert.ok(hidden.some((p) => p.problem === 'mcp:seo/delete_all: "delete_all" is hidden by includeTools, excludeTools or a hide policy'));
 
   // Everything present: no problems.
-  writeFileSync(join(root, '.forge/pi-home/mcp-cache.json'), JSON.stringify({ servers: { seo: { tools: [{ name: 'audit' }] }, github: { tools: [{ name: 'issue_read' }] } } }));
   mkdirSync(join(root, '.agents/skills/audit'), { recursive: true });
   writeFileSync(join(root, '.agents/skills/audit/SKILL.md'), '---\nname: audit\n---\n');
-  assert.deepEqual(problems(root, { registeredTools: ['web_search'] }), []);
+  assert.deepEqual(problems(root, { registeredTools: ['web_search'], mcpTools: [{ name: 'mcp__seo__audit', exposure: 'deferred' }, { name: 'mcp__github__issue_read', exposure: 'deferred' }] }), []);
 
   // A project generated before background launch is told to reconcile.
   rmSync(join(root, '.forge/pi-home/extensions'), { recursive: true });

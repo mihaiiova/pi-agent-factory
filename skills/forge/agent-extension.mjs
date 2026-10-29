@@ -15,12 +15,35 @@ import { parsedModel } from './changes.mjs';
 import { memoryPrompt, updateMemory, failedTools, MEMORY_FILE } from './memory.mjs';
 import { registerPermissions } from './permissions-extension.mjs';
 import { capabilitySection } from './agent-context.mjs';
+import { mcpApprovals } from './mcp-gen.mjs';
 
 export function registerAgent(pi, Type, root, { maintaining = () => false, argv } = {}) {
   registerMemory(pi, Type, root, maintaining);
+  registerMcpApproval(pi, root);
   const permissions = registerPermissions(pi, Type, root);
   registerAgentContext(pi, root, argv);
   return permissions;
+}
+
+/**
+ * approveTools: Pi's built-in MCP asks nobody, so every call to a listed tool
+ * (declared, loaded by tool_search, or from a codemode script) asks the user
+ * here first. Without a UI (headless runs, background specialists) the call
+ * is blocked.
+ */
+function registerMcpApproval(pi, root) {
+  let approvals = [];
+  try { approvals = mcpApprovals(parsedModel(readText(root, '.pi/system.yaml'))); } catch { approvals = []; }
+  if (!approvals.length) return;
+  pi.on('tool_call', async (event, ctx) => {
+    const rule = approvals.find((a) => a.test(event.toolName));
+    if (!rule) return undefined;
+    const call = `${rule.server}: ${event.toolName.slice(event.toolName.indexOf('__', 5) + 2)}`;
+    if (!ctx?.hasUI) return { block: true, reason: `${call} needs the user's approval for each call, which this session can't ask for. Report the exact call you need instead.` };
+    const input = JSON.stringify(event.input ?? {}, null, 2);
+    if (await ctx.ui.confirm(`Allow this MCP call? ${call}`, input.length > 4000 ? `${input.slice(0, 4000)}\n…` : input)) return undefined;
+    return { block: true, reason: 'The user declined this call. Do not try it another way.' };
+  });
 }
 
 /**

@@ -35,6 +35,11 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     }
     return fetcher(url.href);
   };
+  /** What this session registered: tool names, and MCP tools with their exposure (servers that have connected). */
+  const loaded = () => {
+    const all = pi.getAllTools?.() ?? [];
+    return { registeredTools: all.map(t => t.name), mcpTools: all.filter(t => t.name.startsWith('mcp__')).map(t => ({ name: t.name, exposure: t.exposure })) };
+  };
   const tell = (ctx, message, level = 'info') => {
     if (ctx.hasUI) ctx.ui.notify(message, level);
     else process.stderr.write(`Forge (${level}): ${message}\n`);
@@ -60,7 +65,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
         let value;
         if (params.action === 'inspect') {
           value = inspectProject(root);
-          value.launchCheck = launchCheck(root, value.parsedModel, { registeredTools: pi.getAllTools?.().map(t => t.name) });
+          value.launchCheck = launchCheck(root, value.parsedModel, loaded());
           value.schemaReference = readFileSync(new URL('./schema.md', import.meta.url), 'utf8');
           value.availableModels = (ctx.modelRegistry?.getAvailable?.() ?? []).map(m => ({ provider: m.provider, id: m.id, cost: m.cost }));
           // Execution evidence is deliberately summary-only: never include tool
@@ -170,7 +175,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     await ctx.reload();
   };
   const check = (ctx) => {
-    const result = checkProject(root, { registeredTools: pi.getAllTools?.().map(t => t.name) });
+    const result = checkProject(root, loaded());
     if (result.ok) { tell(ctx, 'All checks passed: system.yaml is valid, the generated files match it, and every agent starts with what it needs.'); return; }
     const section = (name, problems, fix) => problems === null ? `${name}: skipped until system.yaml is valid`
       : problems.length ? `${name}: ${problems.length} problem${problems.length === 1 ? '' : 's'}\n${problems.map(p => `- ${p}`).join('\n')}${fix ? `\n${fix}` : ''}` : `${name}: ok`;

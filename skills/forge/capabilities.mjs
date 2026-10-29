@@ -11,13 +11,14 @@
  * at runtime and are not assertable without a running process — the manifest
  * states this instead of claiming they are absent.
  */
-import { hiddenMcpTools, enforcedAgentTools } from "./policy.mjs";
+import { enforcedAgentTools } from "./policy.mjs";
 import { runtimePackages } from "./deps.mjs";
 import { declaredPackages, skillSourceKind } from "./skill-sources.mjs";
 import { splitModelRef } from "./models.mjs";
 import { needsBackground } from "./generate.mjs";
 import { DEFAULT_MAX_CHARS, MEMORY_FILE } from "./memory.mjs";
 import { cliAgents, cliEntries, cliRef } from "./cli-tools.mjs";
+import { mcpFromIntegrations } from "./mcp-gen.mjs";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -76,9 +77,11 @@ export function effectiveCapabilities(model, opts = {}) {
       approve: entry.approve !== false,
       agents: cliAgents(model, entry.name, (agent) => enforcedAgentTools(agent.name, model.policies, agent.tools)),
     })),
-    mcpServers: mcpList.map((entry) => ({
-      name: entry.name,
-      excludeTools: sortUnique(hiddenMcpTools(entry.name, model?.policies)),
+    // How each server's tools reach agents: exposure and per-tool overrides.
+    mcpServers: Object.entries(mcpFromIntegrations(mcpList, model?.policies)).map(([name, server]) => ({
+      name,
+      exposure: server.exposure,
+      ...(server.toolExposure ? { toolExposure: server.toolExposure } : {}),
     })),
     packages,
     // Declared package specs (npm:/git:) may register extension-provided
@@ -122,7 +125,7 @@ export function checkCapabilities(model, generated, opts = {}) {
   }
 
   const actualTools = sortUnique(settings.defaultTools);
-  if (!arraysEqual(caps.orchestratorTools.filter((tool) => !cliRef(tool)), actualTools)) {
+  if (!arraysEqual(caps.orchestratorTools.filter((tool) => !cliRef(tool) && tool !== "mcp" && !tool.startsWith("mcp:")), actualTools)) {
     errors.push(
       `settings.defaultTools mismatch: expected [${caps.orchestratorTools}] got [${actualTools}]`,
     );
@@ -144,12 +147,15 @@ export function checkCapabilities(model, generated, opts = {}) {
   }
   for (const server of caps.mcpServers) {
     const actual = actualServers[server.name];
-    const actualExclude = sortUnique(actual?.excludeTools);
-    if (!arraysEqual(server.excludeTools, actualExclude)) {
-      errors.push(
-        `mcpServers.${server.name}.excludeTools mismatch: expected [${server.excludeTools}] got [${actualExclude}]`,
-      );
+    if (actual?.exposure !== server.exposure) {
+      errors.push(`mcpServers.${server.name}.exposure mismatch: expected ${server.exposure} got ${actual?.exposure}`);
     }
+    if (JSON.stringify(actual?.toolExposure ?? {}) !== JSON.stringify(server.toolExposure ?? {})) {
+      errors.push(`mcpServers.${server.name}.toolExposure mismatch: expected ${JSON.stringify(server.toolExposure ?? {})} got ${JSON.stringify(actual?.toolExposure ?? {})}`);
+    }
+  }
+  if (Object.keys(actualServers).length && mcp.autoEnableCodemode !== false) {
+    errors.push("mcp.json must set autoEnableCodemode: false, or codemode would reach every server's tools");
   }
 
   return { ok: errors.length === 0, errors };

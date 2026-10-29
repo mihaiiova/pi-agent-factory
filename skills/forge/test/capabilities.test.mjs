@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { effectiveCapabilities, checkCapabilities } from "../capabilities.mjs";
 
-const PI_PACKAGES = ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"];
+const PI_PACKAGES = ["npm:pi-subagents@0.83.1", "npm:pi-web-access@0.27.0"];
 
 const MODEL = {
   schema: 1,
@@ -33,11 +33,10 @@ test("effectiveCapabilities derives the full intended surface", () => {
     { name: "packaged", source: "package" },
     { name: "local", source: "path" },
   ]);
-  assert.deepEqual(caps.mcpServers, [{ name: "openseo", excludeTools: ["publish_*"] }]);
+  assert.deepEqual(caps.mcpServers, [{ name: "openseo", exposure: "deferred", toolExposure: { "publish_*": "hidden" } }]);
   assert.deepEqual(caps.packages, [
     "git:github.com/mihaiiova/pi-forge@v0.19.1",
     "npm:pi-subagents@0.83.1",
-    "npm:pi-mcp-adapter@2.32.1",
     "npm:extra@1.0.0",
     "npm:@acme/skills@2.0.0",
   ]);
@@ -54,10 +53,16 @@ test("checkCapabilities passes for consistent generated config", () => {
   const caps = effectiveCapabilities(MODEL, { piPackages: PI_PACKAGES });
   const generated = {
     settings: { defaultProvider: "m", defaultModel: "large", defaultTools: MODEL.orchestrator.tools, packages: caps.packages },
-    mcpJson: { mcpServers: { openseo: { url: "http://localhost:3002/mcp", excludeTools: ["publish_*"] } } },
+    mcpJson: { mcpServers: { openseo: { url: "http://localhost:3002/mcp", exposure: "deferred", toolExposure: { "publish_*": "hidden" } } }, autoEnableCodemode: false },
   };
   const { ok, errors } = checkCapabilities(MODEL, generated, { piPackages: PI_PACKAGES });
   assert.equal(ok, true, `expected consistent: ${errors.join("; ")}`);
+  const lead = { ...MODEL, orchestrator: { ...MODEL.orchestrator, tools: [...MODEL.orchestrator.tools, "mcp"] } };
+  assert.equal(checkCapabilities(lead, generated, { piPackages: PI_PACKAGES }).ok, true, "mcp is reached through exposure, not defaultTools");
+  const unhidden = { ...generated, mcpJson: { mcpServers: { openseo: { url: "http://localhost:3002/mcp", exposure: "deferred" } }, autoEnableCodemode: false } };
+  assert.ok(checkCapabilities(MODEL, unhidden, { piPackages: PI_PACKAGES }).errors.some((e) => e.includes("toolExposure mismatch")), "a hidden tool made reachable is flagged");
+  const codemode = { ...generated, mcpJson: { ...generated.mcpJson, autoEnableCodemode: true } };
+  assert.ok(checkCapabilities(MODEL, codemode, { piPackages: PI_PACKAGES }).errors.some((e) => e.includes("autoEnableCodemode")));
 });
 
 test("checkCapabilities flags a hand-added mcp server", () => {

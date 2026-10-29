@@ -2,12 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildRuntimePlan, launcherScript, envNames, AGENT_DIR } from "../runtime.mjs";
 
-const PI_PACKAGES = ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"];
+const PI_PACKAGES = ["npm:pi-subagents@0.83.1", "npm:pi-web-access@0.27.0"];
 
 test("buildRuntimePlan derives the isolated agent dir, packages, and warnings", () => {
   const plan = buildRuntimePlan({ packages: ["npm:foo@1.0.0"] }, { piPackages: PI_PACKAGES });
   assert.equal(plan.agentDir, ".forge/pi-home");
-  assert.deepEqual(plan.packages, ["git:github.com/mihaiiova/pi-forge@v0.19.1", "npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:foo@1.0.0"]);
+  assert.deepEqual(plan.packages, ["git:github.com/mihaiiova/pi-forge@v0.19.1", "npm:pi-subagents@0.83.1", "npm:foo@1.0.0"]);
   assert.deepEqual(plan.errors, []);
   assert.ok(plan.warnings.length >= 2, "warns about auth + parent context files");
 });
@@ -40,4 +40,13 @@ test("launcherScript adds a .env loader only for declared env names", () => {
   assert.match(script, /FORGE_ENV_NAMES=" GITHUB_PAT OTHER "/);
   assert.ok(script.indexOf("FORGE_ENV_NAMES") > script.indexOf("export PI_CODING_AGENT_DIR"), "the agent dir cannot be overridden from .env");
   assert.ok(!/\bsource\b|^\s*\. /m.test(script), ".env is parsed, never sourced");
+});
+
+test("an orchestrator without mcp starts with every MCP tool removed; specialists keep their selections", () => {
+  const servers = { integrations: { mcp: [{ name: "seo", config: { url: "http://x" } }] } };
+  const exec = (model) => buildRuntimePlan(model, { piPackages: PI_PACKAGES }).launcherScript.split("\n").find((l) => l.startsWith("exec "));
+  assert.match(exec({ ...servers, orchestrator: { name: "lead", tools: ["read", "subagent"] } }), /--exclude-tools 'mcp__\*,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource'/);
+  assert.doesNotMatch(exec({ ...servers, orchestrator: { name: "lead", tools: ["read", "mcp"] } }), /--exclude-tools/);
+  assert.doesNotMatch(exec({ ...servers, orchestrator: { name: "lead" } }), /--exclude-tools/, "omitted tools include mcp");
+  assert.doesNotMatch(exec({ orchestrator: { name: "lead", tools: ["read"] } }), /--exclude-tools/, "no servers, nothing to remove");
 });

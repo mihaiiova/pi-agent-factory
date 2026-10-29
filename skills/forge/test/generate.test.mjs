@@ -48,7 +48,7 @@ test("fresh generate creates the full single-agent tree", () => {
   assert.equal(settings.subagents, undefined, "no routing overrides: agents carry their own models");
 
   const mcp = JSON.parse(byPath(files, ".pi/mcp.json").content);
-  assert.deepEqual(mcp, { mcpServers: {} });
+  assert.deepEqual(mcp, { mcpServers: {}, autoEnableCodemode: false });
 });
 
 test("generated project pins the Forge package to its release", () => {
@@ -123,11 +123,11 @@ test("sourced skills generate no SKILL.md and packaged sources join runtime pack
     ],
   };
   const { files } = generateProject(sourced, {}, {
-    piPackages: ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"],
+    piPackages: ["npm:pi-subagents@0.83.1"],
   });
   assert.ok(!files.some((f) => f.path.startsWith(".pi/skills/packaged") || f.path.startsWith(".pi/skills/local")));
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.deepEqual(settings.packages, ["git:github.com/mihaiiova/pi-forge@v0.19.1", "npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:@acme/skills@1.0.0"]);
+  assert.deepEqual(settings.packages, ["git:github.com/mihaiiova/pi-forge@v0.19.1", "npm:pi-subagents@0.83.1", "npm:@acme/skills@1.0.0"]);
 });
 
 test("unrelated keys in .pi/mcp.json survive regeneration", () => {
@@ -210,7 +210,7 @@ test("authored scaffold carries an forge marker and the scaffolded body", () => 
 test("golden tree: minimal fixture produces the committed snapshot", () => {
   const goldenDir = resolve(fixtureRoot, "golden");
   const { files } = generateProject(model, {}, {
-    piPackages: ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"],
+    piPackages: ["npm:pi-subagents@0.83.1", "npm:pi-web-access@0.27.0"],
   });
 
   const produced = new Map(files.map((f) => [f.path, f.content]));
@@ -233,8 +233,7 @@ test("golden tree: minimal fixture produces the committed snapshot", () => {
 test("runtime packages are computed from piPackages + declared model packages", () => {
   const piPackages = [
     "npm:pi-subagents@0.83.1",
-    "npm:pi-mcp-adapter@2.32.1",
-    "npm:pi-web-access@0.27.0",
+        "npm:pi-web-access@0.27.0",
   ];
   const withDeclared = generateProject(
     { ...model, packages: ["npm:foo@1.0.0"] },
@@ -245,8 +244,7 @@ test("runtime packages are computed from piPackages + declared model packages", 
   assert.deepEqual(settings.packages, [
     "git:github.com/mihaiiova/pi-forge@v0.19.1",
     "npm:pi-subagents@0.83.1",
-    "npm:pi-mcp-adapter@2.32.1",
-    "npm:foo@1.0.0",
+        "npm:foo@1.0.0",
   ]);
 
   // Without piPackages, the Forge pin is still present (but primitives are missing).
@@ -257,7 +255,7 @@ test("runtime packages are computed from piPackages + declared model packages", 
 
 test("generateProject reports missing runtime primitives as errors", () => {
   const { files, errors } = generateProject(model, {}, { piPackages: [] });
-  assert.ok(errors.length >= 2, "both required primitives are reported missing");
+  assert.ok(errors.some((e) => e.includes('"pi-subagents"')), "the missing primitive is reported");
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
   assert.deepEqual(settings.packages, ["git:github.com/mihaiiova/pi-forge@v0.19.1"]);
 });

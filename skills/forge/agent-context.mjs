@@ -9,6 +9,7 @@
 import { advisoryText, enforcedAgentTools } from "./policy.mjs";
 import { cliEntries, cliRef, cliToolName, formatCommand } from "./cli-tools.mjs";
 import { askingReach, leadTools } from "./asking.mjs";
+import { mcpToolName } from "./mcp-gen.mjs";
 
 const BUILTIN = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 
@@ -67,7 +68,9 @@ export function capabilitySection(model, name) {
     lines.push("- **MCP servers:**");
     for (const m of mcp) {
       const about = describeServer(m.s, m.only);
-      lines.push(`  - \`${m.name}\` (${m.scope})${about ? ` — ${about}` : ""}`);
+      // Without includeTools the lead's server is deferred: tool_search loads its tools.
+      const search = isLead && m.s?.config?.includeTools === undefined ? ", found with tool_search" : "";
+      lines.push(`  - \`${m.name}\` (${m.scope}; tools named \`${mcpToolName(m.name, "")}<tool>\`${search})${about ? ` — ${about}` : ""}`);
     }
   }
 

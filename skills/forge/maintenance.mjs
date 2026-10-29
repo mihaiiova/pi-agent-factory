@@ -78,12 +78,12 @@ export function inspectProject(root) {
  * /forge check: system.yaml is valid, the generated files match it, and each
  * agent would start with what it needs. Reads only.
  */
-export function checkProject(root, { registeredTools } = {}) {
+export function checkProject(root, { registeredTools, mcpTools } = {}) {
   const doc = loadYaml().parse(readText(root, '.pi/system.yaml') ?? '');
   const validation = validateSystem(doc, { tolerate: askingMessages(doc) }).errors;
   if (validation.length) return { ok: false, validation, consistency: null, launch: null };
   const consistency = checkCapabilities(doc, { settings: readJson(root, '.pi/settings.json'), mcpJson: readJson(root, '.pi/mcp.json') }, { piPackages: pinsAt(root) }).errors;
-  const launch = launchCheck(root, doc, { registeredTools }).problems.map(p => `${p.agent}: ${p.problem}`);
+  const launch = launchCheck(root, doc, { registeredTools, mcpTools }).problems.map(p => `${p.agent}: ${p.problem}`);
   return { ok: !consistency.length && !launch.length, validation, consistency, launch };
 }
 /** /forge status: what the agent is made of and what is waiting on the user. */

@@ -212,8 +212,9 @@ function buildSettings(model, existingText, packages) {
 
   // Commands reach the orchestrator through the Forge extension, which
   // registers only the ones it lists; defaultTools bounds Pi's own tools.
+  // MCP reach is set by exposure and the launcher, not by defaultTools.
   const tools = Array.isArray(orchestrator.tools)
-    ? orchestrator.tools.filter((tool) => !cliRef(tool))
+    ? orchestrator.tools.filter((tool) => !cliRef(tool) && tool !== "mcp" && !tool.startsWith("mcp:"))
     : undefined;
   if (tools !== undefined) out.defaultTools = tools;
   else delete out.defaultTools;
@@ -225,12 +226,11 @@ function buildSettings(model, existingText, packages) {
     delete out.packages;
   }
 
-  // Pi's built-in MCP support and pi-mcp-adapter both claim /mcp; the adapter
-  // is the system's MCP runtime, so the built-in one is switched off. Other
-  // extension entries the user added are kept.
-  if (runtime.some((pkg) => /^npm:pi-mcp-adapter@/.test(pkg))) {
-    const kept = (Array.isArray(out.extensions) ? out.extensions : []).filter((e) => e !== "+builtin:mcp" && e !== "builtin:mcp" && e !== "-builtin:mcp");
-    out.extensions = [...kept, "-builtin:mcp"];
+  // The system's MCP runtime is Pi's built-in support, so an entry that
+  // switches it off is dropped. Other extension entries the user added are kept.
+  if (Array.isArray(out.extensions)) {
+    out.extensions = out.extensions.filter((e) => e !== "-builtin:mcp");
+    if (out.extensions.length === 0) delete out.extensions;
   }
 
   return `${JSON.stringify(out, null, 2)}\n`;
@@ -248,9 +248,14 @@ function buildMcpJson(model, existingText) {
   if (!isPlainObject(existing)) existing = {};
 
   const out = { ...existing };
-  delete out.mcpServers; // capability-bearing — authoritative from the model, never merged
+  // Capability-bearing — authoritative from the model, never merged.
+  delete out.mcpServers;
+  delete out.autoEnableCodemode;
   const integrations = isPlainObject(model.integrations) ? model.integrations : {};
   out.mcpServers = mcpFromIntegrations(integrations.mcp, model.policies);
+  // Codemode would reach every server's tools; agents get theirs directly
+  // (or through tool_search for deferred servers) instead.
+  out.autoEnableCodemode = false;
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 

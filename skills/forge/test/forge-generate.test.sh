@@ -91,7 +91,7 @@ for f in $(cd "$fixtures/generate/multi-agent/golden" && find . -type f | sort);
 done
 [[ -x "$ma/run" ]] || fail "run launcher not executable"
 grep -q 'PI_CODING_AGENT_DIR' "$ma/run" || fail "run launcher missing the isolated agent dir"
-node -e 'const s=require(process.argv[1]); const e=["git:github.com/mihaiiova/pi-forge@v0.19.1","npm:pi-subagents@0.83.1","npm:pi-mcp-adapter@2.32.1"]; if(JSON.stringify(s.packages)!==JSON.stringify(e)){console.error(JSON.stringify(s.packages));process.exit(1)}' "$ma/.pi/settings.json" || fail "settings.json packages are not the pinned Forge and runtime primitives"
+node -e 'const s=require(process.argv[1]); const e=["git:github.com/mihaiiova/pi-forge@v0.19.1","npm:pi-subagents@0.83.1"]; if(JSON.stringify(s.packages)!==JSON.stringify(e)){console.error(JSON.stringify(s.packages));process.exit(1)}' "$ma/.pi/settings.json" || fail "settings.json packages are not the pinned Forge and runtime primitives"
 rm -rf "$ma"
 pass "forge generate reproduces the multi-agent golden tree"
 
@@ -103,7 +103,7 @@ node "$forge" generate "$vs" >/dev/null
 node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf-8"))' \
   "$vs/.pi/mcp.json" >/dev/null || fail "valid-seo mcp.json is not valid JSON"
 grep -q '"openseo"' "$vs/.pi/mcp.json" || fail "valid-seo mcp.json missing openseo"
-grep -q '"excludeTools"' "$vs/.pi/mcp.json" || fail "valid-seo mcp.json missing excludeTools"
+grep -q '"publish_\*": "hidden"' "$vs/.pi/mcp.json" || fail "valid-seo hidden tools missing from toolExposure"
 grep -q 'publish_\*' "$vs/.pi/mcp.json" || fail "valid-seo hide publish_* missing"
 grep -q '### Enforced (cannot be bypassed)' "$vs/README.md" || fail "README missing enforced marker"
 grep -q '### Advisory (guidance — not enforced)' "$vs/README.md" || fail "README missing advisory marker"

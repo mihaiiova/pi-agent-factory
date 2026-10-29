@@ -301,6 +301,10 @@ export function validateSystem(doc, { tolerate = [] } = {}) {
                 `document.integrations.mcp[${i}].config must be a non-empty object ` +
                   "(url, or command + args)",
               );
+            } else {
+              for (const key of ["exposure", "toolExposure"]) {
+                if (key in mcp.config) errors.push(`document.integrations.mcp[${i}].config.${key} is set by Forge: list the tools agents use in includeTools and hide others with excludeTools`);
+              }
             }
           });
         }
