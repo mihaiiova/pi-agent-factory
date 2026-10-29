@@ -38,8 +38,8 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
   };
   /** What this session registered: tool names, and MCP tools with their exposure (servers that have connected). */
   const loaded = () => {
-    const all = pi.getAllTools?.() ?? [];
-    return { registeredTools: all.map(t => t.name), mcpTools: all.filter(t => t.name.startsWith('mcp__')).map(t => ({ name: t.name, exposure: t.exposure })) };
+    const all = pi.getAllTools?.();
+    return { registeredTools: all?.map(t => t.name), mcpTools: all?.filter(t => t.name.startsWith('mcp__')).map(t => ({ name: t.name, exposure: t.exposure })) };
   };
   const tell = (ctx, message, level = 'info') => {
     if (ctx.hasUI) ctx.ui.notify(message, level);
@@ -179,13 +179,18 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     const report = checkAgent(root, loaded());
     const result = report.checks;
     const evidence = report.capabilities.map(c => `- ${c.agent}: ${c.name} (${c.provider}): ${c.status}; ${c.fix}`).join('\n');
-    if (result.ok && report.ok) { tell(ctx, `All checks passed: system.yaml is valid and the generated files match it.\n${evidence}`); return; }
+    const versions = report.versions ? `Build: ${report.versions.build ?? 'unknown'}; tooling: ${report.versions.tooling}.${report.versions.fix ? ` ${report.versions.fix}` : ''}` : '';
+    if (result.ok && report.ok) {
+      const summary = report.capabilities.some(c => c.status === 'not verifiable' || c.status.startsWith('last seen ')) ? 'No missing capabilities found; some are not verified now.' : 'All checks passed: system.yaml is valid and the generated files match it.';
+      tell(ctx, `${summary}\n${versions}\n${evidence}`); return;
+    }
     const section = (name, problems, fix) => problems === null ? `${name}: skipped until system.yaml is valid`
       : problems.length ? `${name}: ${problems.length} problem${problems.length === 1 ? '' : 's'}\n${problems.map(p => `- ${p}`).join('\n')}${fix ? `\n${fix}` : ''}` : `${name}: ok`;
     tell(ctx, [
       section('Validation', result.validation, 'Describe the fix with /forge <request>.'),
       section('Consistency', result.consistency, 'Run /forge sync to rebuild the generated files from system.yaml.'),
       section('Launch check', result.launch),
+      versions,
       evidence,
     ].join('\n\n'), 'warning');
   };

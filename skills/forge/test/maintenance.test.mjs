@@ -576,3 +576,14 @@ test('/forge status reports the last capability check and build version', async 
   await command('status', a.ctx);
   assert.match(a.notices.at(-1)[0], /Last capability check:/);
 });
+
+test('/forge check does not claim unknown capabilities are verified', async t => {
+  const root = project(t);
+  const doc = { ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'unknown_tool'] } };
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(doc));
+  const a = adapter();
+  const command = registerMaintenance(a.pi, a.Type, root);
+  await command('check', a.ctx);
+  assert.match(a.notices.at(-1)[0], /not verifiable/);
+  assert.doesNotMatch(a.notices.at(-1)[0], /All checks passed|every agent starts with what it needs/);
+});
