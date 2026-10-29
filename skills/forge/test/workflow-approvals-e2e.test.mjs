@@ -86,3 +86,8 @@ test('request_permission yields workflow exit 3 without queuing or executing', t
   assert.equal(existsSync(join(root, 'created')), false);
   assert.equal(existsSync(join(root, '.forge/permission-requests.json')), false);
 });
+
+test('MCP approveTools yields workflow exit 3 and names the call', t => {
+  const { summary } = run(t, 'mcp__seo__run_audit', {});
+  assert.match(summary.message, /seo: run_audit/);
+});
