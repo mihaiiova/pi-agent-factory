@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, writeFileSync, renameSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, writeFileSync, renameSync, existsSync, readlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,7 +30,7 @@ for (let i = 0; i < options.length; i++) {
 const workflow = workflows.find(w => w.name === name);
 const runId = randomUUID();
 let answer = '';
-if (invalid || !workflow || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2147483647) {
+if (invalid || !workflow || !existsSync('.pi/system.yaml') || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2147483647) {
   console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Unknown workflow or invalid options' }));
   process.exit(2);
 }
@@ -48,12 +48,28 @@ const piArgs = ['--approve', '--no-context-files', ...prompts, '--mode', 'json',
 const subagentRoot = join(temp, 'subagents');
 const env = { ...process.env, FORGE_WORKFLOW: workflow.name, FORGE_TRIGGER: 'headless', FORGE_RUN_ID: runId, FORGE_APPROVAL_FILE: approvalFile, PI_SUBAGENTS_TEMP_ROOT: subagentRoot };
 delete env.PI_SUBAGENT_CHILD;
-const child = spawn(concurrent ? 'pi' : 'flock', concurrent ? piArgs : ['-n', '-E', '73', '-o', lock, 'pi', ...piArgs], {
+const probe = process.platform === 'linux' ? spawnSync('systemd-run', ['--user', '--scope', '--quiet', '--', 'true'], { stdio: 'ignore', timeout: 3000 }) : null;
+const scope = probe?.status === 0 ? 'forge-workflow-' + runId + '.scope' : null;
+const command = scope ? 'systemd-run' : 'pi';
+const commandArgs = scope ? ['--user', '--scope', '--quiet', '--unit', scope, '--', 'pi', ...piArgs] : piArgs;
+const child = spawn(concurrent ? command : 'flock', concurrent ? commandArgs : ['-n', '-E', '73', '-o', lock, command, ...commandArgs], {
   env,
   detached: true,
   stdio: ['ignore', 'pipe', 'inherit'],
 });
+let scopeClean = true, scopeStopped = false;
+const stopScope = () => {
+  if (!scope || scopeStopped) return;
+  scopeStopped = true;
+  const stopped = spawnSync('systemctl', ['--user', 'stop', scope], { encoding: 'utf8', timeout: 3000 });
+  if (stopped.status !== 0) {
+    const state = spawnSync('systemctl', ['--user', 'show', '--property=LoadState', '--value', scope], { encoding: 'utf8', timeout: 3000 });
+    scopeClean = state.status === 0 && state.stdout.trim() === 'not-found';
+    if (!scopeClean) console.error('Workflow scope cleanup failed: ' + (stopped.stderr?.trim() || stopped.error?.message || 'unknown error'));
+  }
+};
 const stop = () => {
+  stopScope();
   try { process.kill(-child.pid, 'SIGTERM'); } catch {}
   killTimer ||= setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 500);
 };
@@ -86,10 +102,13 @@ async function stopSubagents() {
       let status;
       try { status = JSON.parse(readFileSync(join(dir, 'status.json'), 'utf8')); } catch { active++; continue; }
       const running = ['queued', 'running'].includes(status.state);
-      let alive = false;
+      let alive = false, dead = false;
       if (Number.isSafeInteger(status.pid) && status.pid > 1) {
-        try { process.kill(status.pid, 0); alive = true; } catch (e) { if (e.code !== 'ESRCH') alive = true; }
+        try { process.kill(status.pid, 0); alive = true; } catch (e) { if (e.code !== 'ESRCH') alive = true; else dead = true; }
       }
+      let sameNamespace = false;
+      try { sameNamespace = status.pidNamespaceScope === readlinkSync('/proc/self/ns/pid'); } catch {}
+      if (running && dead && scope && scopeClean && sameNamespace) continue;
       if (!running && !alive && ['complete', 'failed', 'partial', 'paused', 'stopped', 'rejected'].includes(status.state)) continue;
       active++;
       if (!running || requested.has(dir)) continue;
@@ -113,9 +132,10 @@ child.on('close', async code => {
   clearTimeout(deadline);
   if (killTimer) await new Promise(resolve => setTimeout(resolve, 550));
   try { blocked ||= readFileSync(approvalFile, 'utf8'); } catch {}
-  let cleanup = true;
+  stopScope();
+  let cleanup = scopeClean;
   if (timedOut || blocked) {
-    try { cleanup = await stopSubagents(); } catch (error) { cleanup = false; console.error('Workflow cleanup: ' + error.message); }
+    try { if (!await stopSubagents()) cleanup = false; } catch (error) { cleanup = false; console.error('Workflow cleanup: ' + error.message); }
   }
   if (cleanup) rmSync(temp, { recursive: true, force: true });
   else console.error('Workflow cleanup incomplete; run state retained at ' + temp);

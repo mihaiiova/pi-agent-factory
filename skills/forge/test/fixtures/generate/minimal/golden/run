@@ -16,6 +16,9 @@ fi
 cd "$ROOT"
 
 if [[ ! -f ".pi/system.yaml" ]]; then
+  if [[ "${1:-}" == "--workflow" ]]; then
+    exec node "$ROOT/.pi/forge-workflow.mjs" 'W10=' -- "$@"
+  fi
   echo "run: .pi/system.yaml not found in $ROOT" >&2
   exit 1
 fi
