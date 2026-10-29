@@ -1,8 +1,8 @@
 /** Source of the standalone headless runner emitted into generated projects. */
 export const workflowRunner = String.raw`#!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { randomUUID, createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,10 +11,11 @@ const workflows = JSON.parse(Buffer.from(encoded, 'base64').toString());
 const separator = args.indexOf('--');
 const prompts = args.slice(0, separator);
 const options = args.slice(separator + 1);
-let name, inputs = [], timeout = 1800000;
+let name, inputs = [], timeout = 1800000, concurrent = false;
 for (let i = 0; i < options.length; i++) {
   if (options[i] === '--workflow') name = options[++i];
   else if (options[i] === '--input') inputs.push(options[++i]);
+  else if (options[i] === '--allow-concurrent') concurrent = true;
   else if (options[i] === '--timeout') {
     const value = options[++i] ?? '';
     const match = /^(\d+)(s|m|h)$/.exec(value);
@@ -35,8 +36,13 @@ const prompt = (workflow.skill ? '/skill:' + workflow.skill + ' ' : '') +
 const temp = mkdtempSync(join(tmpdir(), 'forge-run-'));
 const approvalFile = join(temp, 'approval');
 let blocked = '', timedOut = false, killTimer;
-const child = spawn('pi', ['--approve', '--no-context-files', ...prompts, '--mode', 'json', '-p', prompt], {
-  env: { ...process.env, FORGE_WORKFLOW: workflow.name, FORGE_TRIGGER: 'headless', FORGE_RUN_ID: runId, FORGE_APPROVAL_FILE: approvalFile },
+mkdirSync('.forge/workflow-locks', { recursive: true });
+const lock = join('.forge/workflow-locks', createHash('sha256').update(name).digest('hex'));
+const piArgs = ['--approve', '--no-context-files', ...prompts, '--mode', 'json', '-p', prompt];
+const env = { ...process.env, FORGE_WORKFLOW: workflow.name, FORGE_TRIGGER: 'headless', FORGE_RUN_ID: runId, FORGE_APPROVAL_FILE: approvalFile };
+delete env.PI_SUBAGENT_CHILD;
+const child = spawn(concurrent ? 'pi' : 'flock', concurrent ? piArgs : ['-n', '-E', '73', '-o', lock, 'pi', ...piArgs], {
+  env,
   detached: true,
   stdio: ['ignore', 'pipe', 'inherit'],
 });
@@ -67,8 +73,9 @@ child.on('close', code => {
       }
     } catch {}
   }
-  const status = blocked ? 'blocked' : timedOut ? 'timeout' : code === 0 ? 'ok' : 'error';
-  console.log(JSON.stringify({ workflow: name, runId, status, answer, ...(blocked ? { message: blocked } : {}) }));
-  process.exitCode = blocked ? 3 : timedOut ? 4 : code === 0 ? 0 : 1;
+  const locked = !concurrent && code === 73;
+  const status = blocked ? 'blocked' : timedOut ? 'timeout' : locked ? 'configuration_error' : code === 0 ? 'ok' : 'error';
+  console.log(JSON.stringify({ workflow: name, runId, status, answer, ...(blocked ? { message: blocked } : locked ? { message: 'Workflow already running' } : {}) }));
+  process.exitCode = blocked ? 3 : timedOut ? 4 : locked ? 2 : code === 0 ? 0 : 1;
 });
 `;

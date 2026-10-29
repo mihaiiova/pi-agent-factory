@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -70,4 +70,23 @@ setTimeout(() => {}, 30000);
   assert.equal(summary.status, 'timeout');
   const pid = Number(readFileSync(join(root, 'child-pid'), 'utf8'));
   assert.throws(() => process.kill(pid, 0), /ESRCH/);
+});
+
+test('workflow locking is default and concurrency is explicit opt-in', async t => {
+  const { root, env } = fixture(t);
+  const marker = join(root, 'started');
+  writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+require('fs').writeFileSync(${JSON.stringify(marker)}, 'started');
+setTimeout(() => console.log(JSON.stringify({type:'message_end', message:{role:'assistant', stopReason:'stop', content:[{type:'text',text:'done'}]}})), 1500);
+`, { mode: 0o755 });
+  const { spawn } = await import('node:child_process');
+  const first = spawn(join(root, 'run'), ['--workflow', 'report'], { env, stdio: 'ignore' });
+  t.after(() => { try { first.kill(); } catch {} });
+  for (let i = 0; i < 100 && !existsSync(marker); i++) await new Promise(r => setTimeout(r, 20));
+  assert.ok(existsSync(marker));
+  const second = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8', timeout: 4000 });
+  assert.equal(second.status, 2);
+  assert.match(second.stdout, /already running/);
+  const parallel = spawnSync(join(root, 'run'), ['--workflow', 'report', '--allow-concurrent'], { env, encoding: 'utf8', timeout: 4000 });
+  assert.equal(parallel.status, 0, parallel.stderr);
 });
