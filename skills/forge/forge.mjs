@@ -40,7 +40,7 @@ import { parseModelList, unavailableModelWarnings } from "./models.mjs";
 import { vendoredSkills } from "./skill-sources.mjs";
 import { registrySkills, installedDir, installRegistrySkill, searchSkills, previewRegistrySkill, resolveRegistrySkill } from "./registry-skills.mjs";
 import { planChange, applyChange, withSkillPreviews } from './maintenance.mjs';
-import { fingerprints } from './maintenance-store.mjs';
+import { fingerprints, atomicWrite } from './maintenance-store.mjs';
 import { checkAgent, loadProjectTools, connectMcp } from './check.mjs';
 import { parsedModel } from './changes.mjs';
 
@@ -630,7 +630,7 @@ async function main(argv) {
     catch (error) { fail(error.message); return; }
     const connected = rest.includes('--connect') ? connectMcp(root) : null;
     const report = checkAgent(root, { toolCheck: await loadProjectTools(root), ...(connected?.servers ? { mcpServers: connected.servers } : {}) });
-    if (connected?.error) { report.ok = false; report.mcpDiagnostic = connected.error; writeFileSync(join(root, '.forge/check.json'), `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 }); }
+    if (connected?.error) { report.ok = false; report.mcpDiagnostic = connected.error; atomicWrite(root, '.forge/check.json', `${JSON.stringify(report, null, 2)}\n`); }
     console.log(JSON.stringify(report, null, 2));
     process.exitCode = report.ok ? 0 : 1;
     return;
