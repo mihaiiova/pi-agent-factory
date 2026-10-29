@@ -504,3 +504,12 @@ test('change and rebuild preview missing gitignore safety entries', t => {
   assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), plan.writes['.gitignore']);
   assert.ok(!rebuildPlan(root).preview.files.some(f => f.path === '.gitignore'));
 });
+
+test('check-agent saves a timestamped capability report without a model call', t => {
+  const root = project(t);
+  const out = execFileSync(process.execPath, [forge, 'check-agent', root], { encoding: 'utf8' });
+  const report = JSON.parse(out);
+  assert.ok(!Number.isNaN(Date.parse(report.timestamp)));
+  assert.ok(report.capabilities.some(c => c.agent === 'lead' && c.name === 'read' && c.status === 'verified now'));
+  assert.equal(JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8')).timestamp, report.timestamp);
+});
