@@ -33,5 +33,15 @@ test('Pi loads a generated project from the Factory package', async t => {
     assert.ok(commands.includes('factory-update'));
     assert.ok(commands.includes('factory-permission'));
     assert.ok(session.extensionRunner.getAllRegisteredTools().some(t => t.definition.name === 'memory'));
+    assert.ok(session.extensionRunner.getAllRegisteredTools().some(t => t.definition.name === 'request_permission'));
+    const oldFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({ tag_name: 'v0.20.0' }), { status: 200 });
+    try {
+      const notices = [];
+      const command = session.extensionRunner.getCommand('factory-update');
+      await command.handler('check', { hasUI: true, ui: { notify: message => notices.push(message) } });
+      assert.match(notices.join('\n'), /v0\.19\.0/);
+      assert.match(notices.join('\n'), /v0\.20\.0/);
+    } finally { globalThis.fetch = oldFetch; }
   } finally { session.dispose(); }
 });

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { inspectProject, planChange, applyChange, publicChangePreview, withSkillPreviews, rebuildPlan } from './maintenance.mjs';
 import { searchSkills, resolveRegistrySkill } from './registry-skills.mjs';
-import { checkForUpdates, checkSummary, startupCheck, prepareUpdate, activateUpdate, finishUpdate, rollbackPlan, applyRollback, fetchJson } from './maintenance-updates.mjs';
+import { prepareUpdate, activateUpdate, finishUpdate, rollbackPlan, applyRollback, fetchJson } from './maintenance-updates.mjs';
 import { json, recoveryPlan, applyRecovery, readText, readJson } from './maintenance-store.mjs';
 import { fetchDocument, documentSlice, checkUrl } from './maintenance-fetch.mjs';
 import { envStatus, setEnvValue } from './maintenance-env.mjs';
@@ -179,8 +179,21 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           return;
         }
         if (request === 'check') {
-          const result = await checkForUpdates(root, { force: true });
-          tell(ctx, checkSummary(result), result.status === 'checked' ? 'info' : 'warning');
+          const source = 'git:github.com/mihaiiova/pi-agent-factory@';
+          const packages = readJson(root, '.pi/settings.json').packages ?? [];
+          const pins = packages.map(p => typeof p === 'string' ? p : p?.source).filter(p => p?.startsWith(source));
+          if (pins.length !== 1) throw new Error('Expected exactly one pinned Factory package in .pi/settings.json');
+          const installed = pins[0].slice(source.length);
+          const version = tag => {
+            const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+            if (!match) throw new Error(`Invalid Factory release tag: ${tag}`);
+            return match.slice(1).map(BigInt);
+          };
+          const current = version(installed);
+          const release = await fetchJson('https://api.github.com/repos/mihaiiova/pi-agent-factory/releases/latest');
+          const latest = version(release.tag_name);
+          const newer = latest.some((part, index) => part > current[index] && latest.slice(0, index).every((v, i) => v === current[i]));
+          tell(ctx, `Installed Factory: ${installed}\nLatest release: ${release.tag_name}\n${newer ? 'Update available: /factory-update update' : 'No newer release available.'}`);
           return;
         }
         if (request === 'rebuild' || request === 'reconcile') {
