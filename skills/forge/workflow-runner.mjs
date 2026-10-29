@@ -1,6 +1,6 @@
 /** Source of the standalone headless runner emitted into generated projects. */
 export const workflowRunner = String.raw`#!/usr/bin/env node
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -49,12 +49,20 @@ const piArgs = ['--approve', '--no-context-files', ...prompts, '--mode', 'json',
 const subagentRoot = join(temp, 'subagents');
 const env = { ...process.env, FORGE_WORKFLOW: workflow.name, FORGE_TRIGGER: 'headless', FORGE_RUN_ID: runId, FORGE_APPROVAL_FILE: approvalFile, PI_SUBAGENTS_TEMP_ROOT: subagentRoot };
 delete env.PI_SUBAGENT_CHILD;
-const child = spawn(concurrent ? 'pi' : 'flock', concurrent ? piArgs : ['-n', '-E', '73', '-o', lock, 'pi', ...piArgs], {
+const probe = process.platform === 'linux' ? spawnSync('systemd-run', ['--user', '--scope', '--quiet', '--', 'true'], { stdio: 'ignore', timeout: 3000 }) : null;
+const scope = probe?.status === 0 ? 'forge-workflow-' + runId + '.scope' : null;
+const command = scope ? 'systemd-run' : 'pi';
+const commandArgs = scope ? ['--user', '--scope', '--quiet', '--unit', scope, '--', 'pi', ...piArgs] : piArgs;
+const child = spawn(concurrent ? command : 'flock', concurrent ? commandArgs : ['-n', '-E', '73', '-o', lock, command, ...commandArgs], {
   env,
   detached: true,
   stdio: ['ignore', 'pipe', 'inherit'],
 });
 const stop = () => {
+  if (scope && !killTimer) {
+    const stopped = spawnSync('systemctl', ['--user', 'stop', scope], { encoding: 'utf8', timeout: 3000 });
+    if (stopped.status !== 0) console.error('Workflow scope cleanup failed: ' + (stopped.stderr?.trim() || stopped.error?.message || 'unknown error'));
+  }
   try { process.kill(-child.pid, 'SIGTERM'); } catch {}
   killTimer ||= setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 500);
 };
