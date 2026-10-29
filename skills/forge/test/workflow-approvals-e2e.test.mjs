@@ -49,9 +49,9 @@ workflows:
   writeFileSync(provider, `import {createFauxCore,fauxAssistantMessage,fauxToolCall} from ${JSON.stringify(ai)};
 export default pi => {
  const faux=createFauxCore({api:'faux-test',provider:'faux',models:[{id:'faux-1'}]});
- faux.setResponses([fauxAssistantMessage([fauxToolCall(${JSON.stringify(tool)},${JSON.stringify(input)})]), fauxAssistantMessage('done')]);
+ faux.setResponses(${tool === null ? "[fauxAssistantMessage('Workflow complete')]" : `[fauxAssistantMessage([fauxToolCall(${JSON.stringify(tool)},${JSON.stringify(input)})]), fauxAssistantMessage('done')]`});
  pi.registerProvider('faux',{baseUrl:'http://localhost',apiKey:'test',api:'faux-test',streamSimple:faux.streamSimple,models:[{type:'chat',id:'faux-1',name:'faux',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:100000,maxTokens:1000}]});
- if (${JSON.stringify(tool)}.startsWith('mcp__')) pi.on('before_agent_start', async () => {
+ if (${JSON.stringify(tool)}?.startsWith('mcp__')) pi.on('before_agent_start', async () => {
    for(let i=0;i<100 && !pi.getAllTools().some(t=>t.name===${JSON.stringify(tool)});i++) await new Promise(r=>setTimeout(r,50));
  });
 };`);
@@ -90,4 +90,13 @@ test('request_permission yields workflow exit 3 without queuing or executing', t
 test('MCP approveTools yields workflow exit 3 and names the call', t => {
   const { summary } = run(t, 'mcp__seo__run_audit', {});
   assert.match(summary.message, /seo: run_audit/);
+});
+
+test('a real Pi workflow returns the scripted final answer', t => {
+  const { root, env } = project(t, null, {});
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'test', '--timeout', '15s'], { env, encoding: 'utf8', timeout: 20000 });
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  const summary = JSON.parse(result.stdout.trim().split('\n').at(-1));
+  assert.equal(summary.status, 'ok');
+  assert.equal(summary.answer, 'Workflow complete');
 });
