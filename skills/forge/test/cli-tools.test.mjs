@@ -290,4 +290,5 @@ test('capability check reports CLI presence without executing commands', async t
   const root = project(t);
   const report = checkAgent(root);
   assert.ok(report.capabilities.some(c => c.name === 'cli:echo-title' && c.status === 'verified now' && /authentication.*not checked/i.test(c.fix)));
+  assert.ok(report.capabilities.some(c => c.name === 'cli:unused' && c.status === 'verified now'));
 });

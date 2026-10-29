@@ -78,6 +78,11 @@ export function checkAgent(root, options = {}) {
       capabilities.push({ agent: agent.name, name: `skill:${name}`, provider: dir ?? 'Pi package', status: dir ? (present ? 'verified now' : 'missing') : 'not verifiable', fix: present ? 'None.' : 'Install the skill or verify its Pi package in a session.' });
     }
   }
+  for (const { name, command } of commands.values()) {
+    if (capabilities.some(c => c.name === `cli:${name}`)) continue;
+    const present = command.includes('/') ? existsSync(join(root, command)) : probeClis([command])[command];
+    capabilities.push({ agent: 'project', name: `cli:${name}`, provider: `CLI ${command}`, status: present ? 'verified now' : 'missing', fix: `${present ? 'Presence only' : 'Install the command or add it to PATH'}; authentication is not checked.` });
+  }
   for (const { name } of declaredServers) {
     const state = mcpEvidence.find(s => s.name === name);
     const status = state?.state === 'connected' ? (liveMcp ? 'verified now' : `last seen ${mcpTimestamp}`) : state && state.state !== 'unknown' ? 'missing' : 'not verifiable';
