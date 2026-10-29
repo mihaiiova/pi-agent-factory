@@ -45,6 +45,18 @@ console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopRea
   return { root, env: { ...process.env, PATH: `${root}/bin:${process.env.PATH}` } };
 }
 
+test('missing installed Forge package fails before starting Pi', t => {
+  const { root, env } = fixture(t);
+  const marker = join(root, 'pi-started');
+  writeFileSync(join(root, 'bin/pi'), `#!/bin/sh\ntouch ${JSON.stringify(marker)}\n`, { mode: 0o755 });
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
+  assert.equal(result.status, 2, result.stderr);
+  const summary = JSON.parse(result.stdout.trim());
+  assert.equal(summary.status, 'configuration_error');
+  assert.match(summary.message, /\.\/run/);
+  assert.equal(existsSync(marker), false);
+});
+
 test('declared workflow returns its final answer in a machine-readable result', t => {
   const { root, env } = fixture(t);
   const result = spawnSync(join(root, 'run'), ['--workflow', 'report', '--input', 'topic=hello world'], { env, encoding: 'utf8' });
