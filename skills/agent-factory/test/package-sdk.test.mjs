@@ -39,6 +39,10 @@ test('Pi loads a generated project from the Factory package', async t => {
     try {
       const notices = [];
       const command = session.extensionRunner.getCommand('factory-update');
+      assert.doesNotMatch(command.description, /rollback|recover/);
+      await command.handler('rollback', { hasUI: true, ui: { notify: message => notices.push(message) } });
+      assert.match(notices.join('\n'), /git/i);
+      notices.length = 0;
       await command.handler('check', { hasUI: true, ui: { notify: message => notices.push(message) } });
       assert.match(notices.join('\n'), /v0\.19\.0/);
       assert.match(notices.join('\n'), /v0\.20\.0/);

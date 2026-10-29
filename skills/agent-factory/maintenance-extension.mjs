@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { inspectProject, planChange, applyChange, publicChangePreview, withSkillPreviews, rebuildPlan } from './maintenance.mjs';
 import { searchSkills, resolveRegistrySkill } from './registry-skills.mjs';
-import { prepareUpdate, activateUpdate, finishUpdate, rollbackPlan, applyRollback, fetchJson } from './maintenance-updates.mjs';
-import { json, recoveryPlan, applyRecovery, readText, readJson } from './maintenance-store.mjs';
+import { prepareUpdate, activateUpdate, finishUpdate, fetchJson } from './maintenance-updates.mjs';
+import { json, readText, readJson } from './maintenance-store.mjs';
 import { fetchDocument, documentSlice, checkUrl } from './maintenance-fetch.mjs';
 import { envStatus, setEnvValue } from './maintenance-env.mjs';
 import { probeClis } from './discover.mjs';
@@ -155,11 +155,12 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
     await ctx.reload();
   };
   pi.registerCommand('factory-update', {
-    description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rebuild | rollback | recover | done',
+    description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rebuild | done',
     handler: async (args, ctx) => {
       try {
         const request = args.trim();
         if (request === 'done') { pending = null; hide(); tell(ctx, 'Factory maintenance closed.'); return; }
+        if (request === 'rollback' || request === 'recover') { tell(ctx, 'These commands were removed. Restore the desired settings and generated files with git, then reload.'); return; }
         const env = request.match(/^env(?:\s+set\s+(\S+))?$/);
         if (env) {
           // Values are typed by the human here and written straight to .env;
@@ -205,11 +206,11 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           tell(ctx, message);
           return;
         }
-        if (['update', 'rollback', 'apply', 'recover'].includes(request)) {
+        if (['update', 'apply'].includes(request)) {
           // No model tool can reach this branch or manufacture a confirmation.
           if (!ctx.hasUI) throw new Error('Interactive user confirmation is required; nothing applied');
           await ctx.waitForIdle();
-          const plan = request === 'update' ? await prepareUpdate(root) : request === 'rollback' ? rollbackPlan(root) : request === 'recover' ? recoveryPlan(root) : pending;
+          const plan = request === 'update' ? await prepareUpdate(root) : pending;
           if (!plan) throw new Error('No pending proposal; request a change first');
           if (plan.kind === 'current') { tell(ctx, plan.preview.latest.revision === plan.preview.installed.revision ? 'Factory is up to date.' : 'No newer compatible Factory revision found in the bounded channel search; use check for details.'); return; }
           if (!await ctx.ui.confirm('Approve Factory maintenance?', json(plan.preview))) { tell(ctx, 'Cancelled; nothing activated or applied.'); return; }
@@ -223,7 +224,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
             await reload(ctx, text);
             return;
           }
-          const message = plan.kind === 'configuration' ? applyChange(root, plan, true) : plan.kind === 'recovery' ? applyRecovery(root, plan, true) : applyRollback(root, plan, true);
+          const message = applyChange(root, plan, true);
           pending = null;
           hide();
           if (plan.kind === 'configuration' && !plan.restart) { await reload(ctx, message); return; }
