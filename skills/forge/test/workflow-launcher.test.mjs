@@ -1,0 +1,45 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+
+const forge = resolve(import.meta.dirname, '../forge.mjs');
+function fixture(t) {
+  const root = mkdtempSync(join(tmpdir(), 'forge-workflow-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, '.pi')); mkdirSync(join(root, 'bin'));
+  writeFileSync(join(root, '.pi/system.yaml'), `schema: 1
+name: workflow-test
+orchestrator:
+  name: lead
+  model: faux/faux
+  tools: [read, subagent]
+skills:
+  - name: draft
+    description: Draft a report
+workflows:
+  - name: report
+    skill: draft
+    entry: lead
+    inputs: [data/]
+    outputs: [data/]
+`);
+  const generated = spawnSync(process.execPath, [forge, 'generate', root], { encoding: 'utf8' });
+  assert.equal(generated.status, 0, generated.stderr);
+  writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'The report is ready.'}]}}));
+`, { mode: 0o755 });
+  return { root, env: { ...process.env, PATH: `${root}/bin:${process.env.PATH}` } };
+}
+
+test('declared workflow returns its final answer in a machine-readable result', t => {
+  const { root, env } = fixture(t);
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report', '--input', 'topic=hello world'], { env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const summary = JSON.parse(result.stdout.trim().split('\n').at(-1));
+  assert.equal(summary.status, 'ok');
+  assert.equal(summary.answer, 'The report is ready.');
+  assert.equal(summary.workflow, 'report');
+});

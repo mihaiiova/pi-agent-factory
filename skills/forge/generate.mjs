@@ -22,6 +22,7 @@ import { workflowSkill } from "./workflow-skill.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
+import { workflowRunner } from "./workflow-runner.mjs";
 import { cliRef, cliToolName } from "./cli-tools.mjs";
 import { capabilitySection } from "./agent-context.mjs";
 import { documentInstructions } from "./documents.mjs";
@@ -68,6 +69,7 @@ function backgroundAgents(model) {
 export const GENERATED_PATHS = [
   ".pi/settings.json",
   ".pi/mcp.json",
+  ".pi/forge-workflow.mjs",
   ".pi/APPEND_SYSTEM.md",
   ".pi/CAPABILITIES.md",
   "README.md",
@@ -496,6 +498,7 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),
     sentinelFile("data/knowledge/.gitkeep", existing["data/knowledge/.gitkeep"]),
     { ...derivedFile("run", plan.launcherScript, existing["run"]), executable: true },
+    derivedFile(".pi/forge-workflow.mjs", workflowRunner, existing[".pi/forge-workflow.mjs"]),
     ...subagentConfig,
     ...agentFiles(model, existing),
     ...skillFiles(model, existing),

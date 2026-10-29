@@ -63,7 +63,8 @@ const PROMPT_FILES = [
   "done",
 ];
 const LAUNCH = 'pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"';
-export function launcherScript(names = []) {
+export function launcherScript(names = [], workflows = [], lead = '') {
+  const manifest = Buffer.from(JSON.stringify(workflows.map(w => ({ name: w.name, skill: w.skill, entry: w.entry, lead })))).toString('base64');
   return [
     "#!/usr/bin/env bash",
     "# Hermetic runtime launcher for a generated Pi agent system.",
@@ -96,6 +97,9 @@ export function launcherScript(names = []) {
     // Pi's agent-dir does not suppress ancestor instruction discovery.
     // APPEND_SYSTEM.md still supplies the project's operational instructions.
     ...PROMPT_FILES,
+    'if [[ "${1:-}" == "--workflow" ]]; then',
+    `  exec node "$ROOT/.pi/forge-workflow.mjs" '${manifest}' "\${prompts[@]}" -- "$@"`,
+    'fi',
     `exec ${LAUNCH}`,
     "",
   ].join("\n");
@@ -114,7 +118,7 @@ export function buildRuntimePlan(model, opts = {}) {
   return {
     agentDir: AGENT_DIR,
     packages,
-    launcherScript: launcherScript(envNames(model)),
+    launcherScript: launcherScript(envNames(model), model.workflows ?? [], model.orchestrator?.name ?? ''),
     warnings: [
       "credentials are not inherited from the host; start ./run and use /login, or export PI_API_KEY / a provider key",
       "the launcher disables AGENTS.md/CLAUDE.md discovery with --no-context-files; declare project instructions in system.yaml / APPEND_SYSTEM.md. Inherited subagent project context is an explicit opt-in.",
