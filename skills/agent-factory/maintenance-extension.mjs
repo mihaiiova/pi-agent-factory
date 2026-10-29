@@ -3,21 +3,20 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { inspectProject, planChange, applyChange, publicChangePreview, withSkillPreviews, rebuildPlan } from './maintenance.mjs';
 import { searchSkills, resolveRegistrySkill } from './registry-skills.mjs';
-import { prepareUpdate, activateUpdate, finishUpdate, fetchJson } from './maintenance-updates.mjs';
+import { checkRelease, proposeUpdate, previewUpdate, applyUpdate, discardUpdate } from './package-update.mjs';
 import { json, readText, readJson } from './maintenance-store.mjs';
-import { fetchDocument, documentSlice, checkUrl } from './maintenance-fetch.mjs';
+import { fetchDocument, documentSlice, checkUrl, fetchJson } from './maintenance-fetch.mjs';
 import { envStatus, setEnvValue } from './maintenance-env.mjs';
 import { probeClis } from './discover.mjs';
 import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
 import { registerAgent } from './agent-extension.mjs';
 
-export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } = {}) {
+export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, updates = {} } = {}) {
   let armed = false;
   let review = false;
   let pending = null;
   let savedTools = null;
-  let controller = null;
   let planning = false;
   // Per maintenance request: hosts the user approved and documents fetched.
   let approvedHosts = new Set();
@@ -127,7 +126,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
       if (!check.ok) tell(ctx, `Some agents would start without what they need:\n${check.problems.map(p => `- ${p.agent}: ${p.problem}`).join('\n')}`, 'warning');
     } catch { /* an invalid model is reported by the commands that use it */ }
   });
-  pi.on('session_shutdown', () => { controller?.abort(); armed = false; pending = null; });
+  pi.on('session_shutdown', () => { armed = false; pending = null; });
   // What agents use while working comes from the bundle that built this
   // project, so updating the tooling leaves it unchanged until a rebuild.
   registerAgent(pi, Type, root, { maintaining: () => armed });
@@ -180,21 +179,28 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           return;
         }
         if (request === 'check') {
-          const source = 'git:github.com/mihaiiova/pi-agent-factory@';
-          const packages = readJson(root, '.pi/settings.json').packages ?? [];
-          const pins = packages.map(p => typeof p === 'string' ? p : p?.source).filter(p => p?.startsWith(source));
-          if (pins.length !== 1) throw new Error('Expected exactly one pinned Factory package in .pi/settings.json');
-          const installed = pins[0].slice(source.length);
-          const version = tag => {
-            const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
-            if (!match) throw new Error(`Invalid Factory release tag: ${tag}`);
-            return match.slice(1).map(BigInt);
-          };
-          const current = version(installed);
-          const release = await fetchJson('https://api.github.com/repos/mihaiiova/pi-agent-factory/releases/latest');
-          const latest = version(release.tag_name);
-          const newer = latest.some((part, index) => part > current[index] && latest.slice(0, index).every((v, i) => v === current[i]));
-          tell(ctx, `Installed Factory: ${installed}\nLatest release: ${release.tag_name}\n${newer ? 'Update available: /factory-update update' : 'No newer release available.'}`);
+          const release = await checkRelease(root, updates);
+          tell(ctx, `Installed Factory: ${release.installed}\nLatest release: ${release.latest}\n${release.newer ? 'Update available: /factory-update update' : 'No newer release available.'}`);
+          return;
+        }
+        if (request === 'update') {
+          // Both approvals come from the human's dialog; a headless session
+          // can grant neither, so it stops before contacting the remote.
+          if (!ctx.hasUI) throw new Error('Updating needs interactive confirmation; nothing was fetched or run');
+          await ctx.waitForIdle();
+          hide();
+          pending = null;
+          const proposal = await proposeUpdate(root, updates);
+          if (proposal.kind === 'current') { tell(ctx, `Factory ${proposal.installed} is up to date.`); return; }
+          const run = await ctx.ui.confirm(`Run Factory ${proposal.tag} to preview the update?`, json({
+            pin: { from: proposal.from, to: proposal.to }, commit: proposal.commit, changes: proposal.changes,
+            note: `Approving downloads ${proposal.tag} at this commit and runs its generator on this project to compute the preview. Nothing is written; applying asks separately.`,
+          }));
+          if (!run) { tell(ctx, 'Cancelled; the new release was not downloaded or run.'); return; }
+          const plan = await previewUpdate(root, proposal, true);
+          if (!await ctx.ui.confirm(`Apply Factory ${proposal.tag}?`, json(plan.preview))) { discardUpdate(plan); tell(ctx, 'Cancelled; nothing applied.'); return; }
+          const applied = await applyUpdate(root, plan, true, updates.install ? { install: updates.install } : {});
+          tell(ctx, `Updated to Factory ${proposal.tag}${applied.changed?.length ? `; rebuilt ${applied.changed.join(', ')}` : ''}. Restart ./run to load it.`);
           return;
         }
         if (request === 'rebuild' || request === 'reconcile') {
@@ -206,28 +212,17 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           tell(ctx, message);
           return;
         }
-        if (['update', 'apply'].includes(request)) {
+        if (request === 'apply') {
           // No model tool can reach this branch or manufacture a confirmation.
           if (!ctx.hasUI) throw new Error('Interactive user confirmation is required; nothing applied');
           await ctx.waitForIdle();
-          const plan = request === 'update' ? await prepareUpdate(root) : pending;
+          const plan = pending;
           if (!plan) throw new Error('No pending proposal; request a change first');
-          if (plan.kind === 'current') { tell(ctx, plan.preview.latest.revision === plan.preview.installed.revision ? 'Factory is up to date.' : 'No newer compatible Factory revision found in the bounded channel search; use check for details.'); return; }
-          if (!await ctx.ui.confirm('Approve Factory maintenance?', json(plan.preview))) { tell(ctx, 'Cancelled; nothing activated or applied.'); return; }
-          if (plan.kind === 'upgrade') {
-            const activated = await activateUpdate(root, plan, true);
-            pending = null;
-            hide();
-            const { text, restart } = await finishUpdate(root, plan, activated, { confirm: (title, body) => ctx.ui.confirm(title, body) });
-            if (restart || typeof ctx.reload !== 'function') { tell(ctx, `${text} Restart ./run to load ${restart ? 'the new launcher and packages' : 'the new version'}.`); return; }
-            // Loads the new tooling and the rebuilt project; nothing runs here afterwards.
-            await reload(ctx, text);
-            return;
-          }
+          if (!await ctx.ui.confirm('Approve Factory maintenance?', json(plan.preview))) { tell(ctx, 'Cancelled; nothing applied.'); return; }
           const message = applyChange(root, plan, true);
           pending = null;
           hide();
-          if (plan.kind === 'configuration' && !plan.restart) { await reload(ctx, message); return; }
+          if (!plan.restart) { await reload(ctx, message); return; }
           tell(ctx, message);
           return;
         }

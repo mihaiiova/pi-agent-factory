@@ -209,3 +209,12 @@ export function documentSlice(doc, offset = 0) {
     content,
   };
 }
+
+/** JSON from a public registry API (discovery search results). */
+export async function fetchJson(url, { fetcher = fetch, signal } = {}) {
+  const response = await fetcher(url, { redirect: 'error', headers: { Accept: 'application/json' }, signal: signal ?? AbortSignal.timeout(4000) });
+  if (!response.ok) throw new Error(`Registry unavailable (HTTP ${response.status})`);
+  const text = await response.text();
+  if (text.length > 1000000) throw new Error('Oversized registry response');
+  return JSON.parse(text);
+}

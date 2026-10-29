@@ -14,7 +14,9 @@
 import { readFileSync } from 'node:fs';
 
 const VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
-const FACTORY_PACKAGE = `git:github.com/mihaiiova/pi-agent-factory@v${VERSION}`;
+/** The Factory package source; generated projects pin it to a release tag. */
+export const FACTORY_SOURCE = 'git:github.com/mihaiiova/pi-agent-factory';
+const FACTORY_PACKAGE = `${FACTORY_SOURCE}@v${VERSION}`;
 const LOCAL_PATH_RE = /^(file:|link:|\/|\.\.?\/)/;
 const RUNTIME_PRIMITIVES = ["pi-subagents", "pi-mcp-adapter"];
 
