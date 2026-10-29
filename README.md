@@ -135,8 +135,20 @@ Slack — with `deliver: [{ mcp, tool, with }]`. Change formats later with
 
 Subagents that use MCP or extension tools (web search, for example) always
 run in the background, where those tools load; the forge sets this up. On
-every start, `./run` checks that each agent will get the tools, MCP tools and
-skills it is declared to have, and names any that are missing.
+every start, `./run` checks that each agent will get the tools and skills it is
+declared to have, and names any that are missing. MCP servers connect after
+start, so `/forge check` also checks their tools.
+
+### MCP: Pi's built-in support
+
+Generated systems use Pi's built-in MCP; there is no MCP package to install.
+Declare each server in `integrations.mcp` and choose per agent which tools it
+gets: `mcp:<server>` or `mcp:<server>/<tool>` for a specialist, `mcp` for the
+orchestrator. In the server's config, `includeTools` lists the tools agents may
+use, `excludeTools` hides tools from everyone, and `approveTools` makes a tool
+ask you before every call; without a UI, such a call is blocked. Use `/mcp`
+inside `./run` to see the servers, their tools and errors, and to sign in to
+servers that use OAuth.
 
 See [`schema.md`](skills/forge/schema.md) for every field, validation
 rule and the file-ownership contract, and [docs/agent-factory.md](docs/agent-factory.md)
@@ -275,7 +287,7 @@ project's git pin as different packages, so inside a generated project both
 load and each command appears twice. Install from the tag instead
 (`pi install git:github.com/mihaiiova/pi-forge@vX.Y.Z`) to let the project pin
 replace it. Forge pins only what
-generated systems need (`pi-subagents`, `pi-mcp-adapter`, and `yaml` for its own
+generated systems need (`pi-subagents`, and `yaml` for its own
 parser) in `package.json` under `pi.packages`.
 
 ## Personal Pi setup

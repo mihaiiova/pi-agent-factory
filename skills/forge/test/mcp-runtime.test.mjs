@@ -5,6 +5,7 @@ import { join, resolve, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { registerAgent } from '../agent-extension.mjs';
 
 const repo = resolve(import.meta.dirname, '../../..');
 const server = join(import.meta.dirname, 'fixtures/mcp/server.mjs');
@@ -19,7 +20,7 @@ const ai = await import(pathToFileURL(resolve(bin, '../../node_modules/@earendil
  * get_report, run_audit and delete_all; the system includes the first two and
  * requires approval for run_audit.
  */
-async function open(t, { answers } = {}) {
+async function open(t, { answers, lead = 'read, mcp, codemode, subagent' } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'forge-mcp-'));
   const log = join(root, 'calls.log');
   mkdirSync(join(root, '.pi'));
@@ -29,7 +30,7 @@ description: Built-in MCP test
 orchestrator:
   name: lead
   model: faux/faux-1
-  tools: [read, mcp, codemode, subagent]
+  tools: [${lead}]
   prompt: Test.
 agents:
   - name: reader
@@ -121,4 +122,35 @@ test('approveTools asks before every call, direct or from codemode, and blocks h
   assert.deepEqual(asked.calls(), ['run_audit', 'run_audit'], 'approved calls run; the declined one does not');
   await asked.run(['mcp__seo__get_report', {}]);
   assert.equal(asked.dialogs.length, 3, 'tools outside approveTools never ask');
+});
+
+test('an orchestrator without mcp cannot call MCP tools, which stay registered for its specialists', async t => {
+  const { session, run, results, calls } = await open(t, { lead: 'read, codemode, subagent' });
+  const registered = session.getAllTools().map(tool => tool.name);
+  assert.ok(registered.includes('mcp__seo__get_report'), 'pi-subagents hands specialists their selections from these');
+  await run(['mcp__seo__get_report', {}], ['codemode', { code: 'return await tools.mcp__seo__get_report({})' }]);
+  assert.deepEqual(session.getActiveToolNames().filter(n => n.startsWith('mcp__')), [], 'not offered to the orchestrator');
+  assert.deepEqual(calls(), [], 'blocked, directly and from codemode');
+  assert.ok(results.every(r => r.error));
+});
+
+test('the boundary blocks any MCP call by an orchestrator without mcp, however it is reached', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'forge-mcp-gate-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, '.pi'));
+  writeFileSync(join(root, '.pi/system.yaml'), 'schema: 1\nname: gate\ndescription: Gate\norchestrator:\n  name: lead\n  model: p/m\n  tools: [read, subagent]\nintegrations:\n  mcp:\n    - name: seo\n      config: { url: "http://x" }\n');
+  const handlers = {};
+  let active = ['read', 'subagent', 'mcp__seo__get_report', 'list_mcp_resources'];
+  const pi = { registerTool() {}, registerCommand() {}, on: (n, h) => { (handlers[n] ??= []).push(h); }, getActiveTools: () => active, setActiveTools: a => { active = a; } };
+  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
+  const child = process.env.PI_SUBAGENT_CHILD;
+  delete process.env.PI_SUBAGENT_CHILD;
+  t.after(() => { if (child !== undefined) process.env.PI_SUBAGENT_CHILD = child; });
+  registerAgent(pi, Type, root);
+  for (const h of handlers.before_agent_start) h({ systemPrompt: '' });
+  assert.deepEqual(active, ['read', 'subagent']);
+  const call = async (toolName, extra = {}) => { for (const h of handlers.tool_call) { const r = await h({ toolName, input: {}, ...extra }, { hasUI: true }); if (r) return r; } };
+  assert.match((await call('mcp__seo__get_report', { parentToolCallId: 'codemode-1' }))?.reason ?? '', /has no MCP access/);
+  assert.equal((await call('list_mcp_resources'))?.block, true);
+  assert.equal(await call('read'), undefined);
 });

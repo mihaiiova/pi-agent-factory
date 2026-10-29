@@ -22,7 +22,7 @@ Top-level keys (all others rejected):
 | `workflows` | no | array | declared workflow boundaries (metadata only) |
 | `documents` | no | array | agreed formats for documents agents write or return |
 | `policies` | no | object | enforced + advisory policy |
-| `packages` | no | array of `npm:`/`git:` specs | additional runtime extension packages (primaries `pi-subagents`/`pi-mcp-adapter` are always included; packaged skill sources are added automatically) |
+| `packages` | no | array of `npm:`/`git:` specs | additional runtime extension packages (`pi-subagents` is always included; `pi-mcp-adapter` is rejected because it would replace Pi's built-in MCP; packaged skill sources are added automatically) |
 
 The **orchestrator is a top-level block**, not an `agents[]` entry. Pi has no
 "primary agent" file: the primary session is shaped by `.pi/settings.json`
@@ -138,8 +138,24 @@ Duplicate `name`s are rejected.
 Allowed keys: `mcp` (array), `env` (array) and `cli` (array).
 
 - `mcp[]` entries: `name` (required string) and `config` (required non-empty
-  object — `{url: …}` or `{command, args}`; the config shape is opaque and
-  passed through to `.pi/mcp.json`). Duplicate `name`s are rejected.
+  object). Generated systems use Pi's built-in MCP, and the connection
+  settings pass through to `.pi/mcp.json`: `{url, headers?, oauth?}` or
+  `{command, args?, env?, cwd?}`, plus `description` and `timeout`. Three
+  keys are Forge's and become Pi's exposure:
+  - `includeTools`: the tools agents may use. They are declared directly and
+    the rest of the server is hidden. Without it, the server's tools are
+    `deferred`: the orchestrator finds them with `tool_search`.
+  - `excludeTools`: tools nobody may use (`hidden`: registered but
+    unreachable, also for specialists). An enforced `hide` policy adds to it.
+  - `approveTools`: tools that ask the user before every call (`true` for
+    all), direct or from a codemode script. Without a UI the call is blocked.
+  `exposure` and `toolExposure` are rejected: Forge derives them. Codemode is
+  not enabled automatically (`autoEnableCodemode: false`), since it would reach
+  every server's tools. Pi names each tool `mcp__<server>__<tool>`. An
+  orchestrator with `mcp` in its tools (or without `tools`) gets every
+  server's usable tools; without it, it can call none, while its specialists
+  still get their `mcp:` selections. OAuth servers need no credentials in the
+  config: sign in with `/mcp` inside `./run`. Duplicate `name`s are rejected.
 - `env[]` entries: `name` (required shell variable name) and `secret`
   (optional boolean). These become `.env.example` entries, and `./run` loads
   exactly these names from the gitignored `.env` (parsed, never sourced; the
@@ -236,7 +252,7 @@ Allowed keys: `enforced` (array) and `advisory` (array of strings).
 - `enforced[]` entries carry exactly one discriminator:
   - `{ agent: <agents[].name>, tools: [string, …] }` → subagent tool allowlist.
   - `{ mcp: <integrations.mcp[].name>, hide: [string, …] }` → MCP
-    `excludeTools` (the pi-mcp-adapter mechanism for making tools unreachable).
+    hidden tools in `.pi/mcp.json` (registered but unreachable).
 - `advisory[]` are behavioral guidance strings (README + skill text).
 
 ## 2. Validation rules
@@ -282,7 +298,7 @@ Full text of `docs/agent-factory.md` §C.6:
    `mcp.json`, and the `run` launcher) are forge-owned and regenerated on
    every `generate`; **unknown keys the forge does not own are preserved**
    The `packages` list is a forge-owned derived key computed from the Pi
-   runtime primitives (`pi-subagents`, `pi-mcp-adapter`) plus any `system.yaml`
+   runtime primitive (`pi-subagents`) plus any `system.yaml`
    `packages` and packaged skill sources the model declares (`deps.mjs`
    `runtimePackages`). Hand-editing a derived file is
    unsupported — change the model instead.

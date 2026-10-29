@@ -16,26 +16,45 @@ import { memoryPrompt, updateMemory, failedTools, MEMORY_FILE } from './memory.m
 import { registerPermissions } from './permissions-extension.mjs';
 import { capabilitySection } from './agent-context.mjs';
 import { mcpApprovals } from './mcp-gen.mjs';
+import { leadTools } from './asking.mjs';
+
+/** Pi's MCP tools: each server's, and the resource tools that reach every server. */
+const isMcpTool = (name) => name.startsWith('mcp__') || ['list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'].includes(name);
 
 export function registerAgent(pi, Type, root, { maintaining = () => false, argv } = {}) {
   registerMemory(pi, Type, root, maintaining);
-  registerMcpApproval(pi, root);
+  registerMcpBoundary(pi, root);
   const permissions = registerPermissions(pi, Type, root);
   registerAgentContext(pi, root, argv);
   return permissions;
 }
 
 /**
- * approveTools: Pi's built-in MCP asks nobody, so every call to a listed tool
- * (declared, loaded by tool_search, or from a codemode script) asks the user
- * here first. Without a UI (headless runs, background specialists) the call
- * is blocked.
+ * What MCP tools an agent may call, enforced on every call (declared, loaded
+ * by tool_search, or from a codemode script):
+ * - an orchestrator without `mcp` may call none. The tools stay registered,
+ *   because pi-subagents hands specialists their `mcp:` selections from them,
+ *   but they are taken out of its active tools and blocked;
+ * - approveTools: Pi's built-in MCP asks nobody, so each call to a listed tool
+ *   asks the user here first. Without a UI (headless runs, background
+ *   specialists) the call is blocked.
  */
-function registerMcpApproval(pi, root) {
-  let approvals = [];
-  try { approvals = mcpApprovals(parsedModel(readText(root, '.pi/system.yaml'))); } catch { approvals = []; }
-  if (!approvals.length) return;
+function registerMcpBoundary(pi, root) {
+  let model;
+  try { model = parsedModel(readText(root, '.pi/system.yaml')); } catch { return; }
+  const approvals = mcpApprovals(model);
+  const servers = Array.isArray(model.integrations?.mcp) ? model.integrations.mcp.length : 0;
+  const lead = model.orchestrator?.name ?? 'The orchestrator';
+  const outside = process.env.PI_SUBAGENT_CHILD !== '1' && servers > 0 && !leadTools(model).includes('mcp');
+  if (!approvals.length && !outside) return;
+  if (outside) {
+    pi.on('before_agent_start', () => {
+      const active = pi.getActiveTools();
+      if (active.some(isMcpTool)) pi.setActiveTools(active.filter((name) => !isMcpTool(name)));
+    });
+  }
   pi.on('tool_call', async (event, ctx) => {
+    if (outside && isMcpTool(event.toolName)) return { block: true, reason: `${lead} has no MCP access in this system. Delegate to a specialist that has this tool.` };
     const rule = approvals.find((a) => a.test(event.toolName));
     if (!rule) return undefined;
     const call = `${rule.server}: ${event.toolName.slice(event.toolName.indexOf('__', 5) + 2)}`;

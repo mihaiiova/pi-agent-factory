@@ -299,3 +299,12 @@ test("validateSystem rejects tools that ask the user in a background subagent", 
     integrations: { ...base.integrations, mcp: [{ name: "openseo", config: { url: "http://localhost:3002/mcp", ...listed } }] },
   }), { tolerate: tolerated }).errors, [], "issues a project already has can be tolerated");
 });
+
+test("validateSystem rejects MCP exposure keys: Forge derives them", () => {
+  const base = validDoc();
+  const { errors } = validateSystem(validDoc({
+    integrations: { ...base.integrations, mcp: [{ name: "openseo", config: { url: "http://localhost:3002/mcp", exposure: "codemode", toolExposure: { "*": "direct" } } }] },
+  }));
+  assert.ok(errors.some((e) => e.includes("config.exposure is set by Forge")));
+  assert.ok(errors.some((e) => e.includes("config.toolExposure is set by Forge")));
+});

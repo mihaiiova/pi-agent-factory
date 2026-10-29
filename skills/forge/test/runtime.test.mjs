@@ -41,12 +41,3 @@ test("launcherScript adds a .env loader only for declared env names", () => {
   assert.ok(script.indexOf("FORGE_ENV_NAMES") > script.indexOf("export PI_CODING_AGENT_DIR"), "the agent dir cannot be overridden from .env");
   assert.ok(!/\bsource\b|^\s*\. /m.test(script), ".env is parsed, never sourced");
 });
-
-test("an orchestrator without mcp starts with every MCP tool removed; specialists keep their selections", () => {
-  const servers = { integrations: { mcp: [{ name: "seo", config: { url: "http://x" } }] } };
-  const exec = (model) => buildRuntimePlan(model, { piPackages: PI_PACKAGES }).launcherScript.split("\n").find((l) => l.startsWith("exec "));
-  assert.match(exec({ ...servers, orchestrator: { name: "lead", tools: ["read", "subagent"] } }), /--exclude-tools 'mcp__\*,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource'/);
-  assert.doesNotMatch(exec({ ...servers, orchestrator: { name: "lead", tools: ["read", "mcp"] } }), /--exclude-tools/);
-  assert.doesNotMatch(exec({ ...servers, orchestrator: { name: "lead" } }), /--exclude-tools/, "omitted tools include mcp");
-  assert.doesNotMatch(exec({ orchestrator: { name: "lead", tools: ["read"] } }), /--exclude-tools/, "no servers, nothing to remove");
-});
