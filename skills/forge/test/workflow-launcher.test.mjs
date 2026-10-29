@@ -231,3 +231,11 @@ fs.writeFileSync(path.join(dir,'status.json'),JSON.stringify({runId:'slow',state
   assert.ok(existsSync(summary.stateDir));
   rmSync(summary.stateDir, { recursive: true, force: true });
 });
+
+test('a missing system model is a machine-readable configuration failure', t => {
+  const { root, env } = fixture(t);
+  rmSync(join(root, '.pi/system.yaml'));
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
+  assert.equal(result.status, 2, result.stderr);
+  assert.equal(JSON.parse(result.stdout.trim()).status, 'configuration_error');
+});

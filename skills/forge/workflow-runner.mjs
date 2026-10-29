@@ -31,7 +31,7 @@ for (let i = 0; i < options.length; i++) {
 const workflow = workflows.find(w => w.name === name);
 const runId = randomUUID();
 let answer = '';
-if (invalid || !workflow || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2147483647) {
+if (invalid || !workflow || !existsSync('.pi/system.yaml') || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2147483647) {
   console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Unknown workflow or invalid options' }));
   process.exit(2);
 }
