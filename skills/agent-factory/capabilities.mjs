@@ -90,7 +90,7 @@ export function effectiveCapabilities(model, opts = {}) {
       proposalTool: 'factory_plan (hidden outside a direct maintenance request)',
       applicationAuthority: 'direct user command plus interactive confirmation',
       operationalToolExpansion: false,
-      dependencies: 'separate versioned maintenance bundle; see .factory/installation.json',
+      dependencies: 'the Factory package pinned in .pi/settings.json',
     },
     notes: [
       "subagent tools are enforced by pi-subagents allowlists (a child lacks unlisted tools)",

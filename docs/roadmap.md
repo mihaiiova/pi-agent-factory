@@ -1,0 +1,221 @@
+# Pi Forge — roadmap
+
+Based on an audit of the repository at v0.18.0 (`217fc0b`, 2026-10-28), measured
+against [the product direction](product-direction.md). Issues live in
+GitHub under epic [#24](https://github.com/mihaiiova/pi-agent-factory/issues/24), indexed
+at the end. Each one is scoped for a single implementation session.
+
+## 1. Audit: what exists today
+
+Facts below come from the source and from running the tests. Where something
+is inferred instead, it is marked as an assumption.
+
+- **Tests:** `bash skills/agent-factory/test/test.sh` passes: 25 node suites
+  (≈215 tests) and 8 shell suites. Live inference and clean-environment network
+  tests are opt-in and were skipped.
+- **Size:** ≈5,900 lines of `.mjs`, of which ≈1,600 are maintenance
+  (`maintenance*.mjs`).
+
+| Capability | Status | Evidence |
+|---|---|---|
+| Conversational design (explore → synthesize → build) | Implemented, satisfactory | `SKILL.md`; scenarios in `docs/agent-factory-conversation.md`; skill-contract test |
+| Declarative model and validator (`system.yaml` schema 1) | Implemented, satisfactory | `validate.mjs`, `schema.md`; strict unknown-key and reference checks |
+| Deterministic generation, ownership, dry-run, idempotence | Implemented, satisfactory | `generate.mjs`; golden fixtures; fingerprint conflicts |
+| Isolated launcher (`./run`) | Implemented, satisfactory | `runtime.mjs`; launcher and isolation suites |
+| Per-agent models and thinking | Implemented, satisfactory | `models.mjs` |
+| Skills from skills.sh (search, preview, pin, project-local install) | Implemented, satisfactory | `registry-skills.mjs`, `skill-sources.mjs` |
+| Specialists, enforced tool allowlists, background launch for extension/MCP tools | Implemented, satisfactory | `policy.mjs`, `generate.mjs` (`needsBackground`), `asking.mjs` |
+| Calls that ask the user, kept with the orchestrator | Implemented, satisfactory | `asking.mjs`; generated "What you can use" sections |
+| Declared CLI commands with per-run approval, `request_permission` | Implemented, satisfactory | `cli-tools.mjs`, `permissions-extension.mjs` |
+| MCP configuration, env-var credentials, hidden tools, `approveTools` | Implemented; **to be replaced** | `mcp-gen.mjs`. Depends on `pi-mcp-adapter` and disables Pi 1.4's built-in MCP (`-builtin:mcp` in `generate.mjs`). Moving to the built-in (#28) |
+| Documents (agreed formats, MCP delivery) | Implemented, satisfactory | `documents.mjs` |
+| Memory (`.pi/MEMORY.md`) | Implemented, satisfactory | `memory.mjs`, `agent-extension.mjs` |
+| Revision via `/factory-update <request>` → preview → `apply` | Implemented, satisfactory | `maintenance-extension.mjs` (`factory_plan`), `maintenance.mjs` (`planChange`) |
+| Builder-time discovery (`factory discover`) | **Partial** | Covers models, the user's skills, MCP config files, project agents and named CLIs. Pi packages and extensions are not covered (`factory.mjs` `runDiscover`) |
+| Revision-time discovery (`factory_plan discover`) | **Partial** | skills.sh, npm free-text search (not filtered to `keywords:pi-package`), MCP registry, docs fetch |
+| Package inspection before proposal | **Missing** | `packages[]` is only checked for a pinned spec (`deps.mjs`). Nothing reports what a package loads or registers, its install scripts, or its license |
+| Selecting a subset of a package's resources | **Missing** | Pi supports `{source, extensions, skills, prompts}` filters (Pi `docs/packages.md`). `packages[]` accepts strings only |
+| Effective-capability verification | **Partial** | `capabilities.json` is derived from declarations only. `launchCheck` checks subagent tools at session start against cached MCP lists and live registrations. It checks only the orchestrator's CLI commands, and there is no explicit command to run it |
+| Workflows | **Partial** | Declared boundaries plus a generated orchestrating skill (`workflow-skill.mjs`). `trigger.kind` is `manual` or `headless`. There is no defined way to invoke one headlessly, and no exit-status or output contract |
+| Scheduling and event triggers | **Missing** | Deferred by design in the MVP (`docs/agent-factory.md` decision 2) |
+| Execution history | **Partial** | Pi sessions in `.factory/pi-home/sessions`. `subagentRuns` summarizes `pi-subagents` launches. Top-level headless runs are not recorded |
+| Functional verification | **Missing** | `workflows[].verify` is free text. Live tests are opt-in and generic, not agent-specific |
+| Maintenance: versioned bundles, integrity, update checks, rebuild, rollback, recovery | Implemented; **to be removed** | ≈1,600 lines plus a 478-line doc. Replaced by a pinned Pi package (#41) |
+| Import of non-Forge Pi projects | Implemented, satisfactory | `import.mjs` |
+| Generating into an existing repository (use case C) | **Defect** | An existing `.gitignore` is kept unchanged, so `.factory/` (including `pi-home/auth.json`) and `.env` are not ignored. Reproduced with `factory generate` on a repository that has its own `.gitignore` |
+| A coding harness reading its repository's own `AGENTS.md` | **Missing** | The launcher always passes `--no-context-files`, which also drops the project's own file |
+
+**Owlie marketing agent** (`~/projects/owlie/marketing`, read only). It is on
+0.18.0 and built with 0.18.0. It has OpenSEO and PostHog MCP, six declared
+`gh` commands, `pi-web-access` (added by hand as a package, with nothing
+attributing `web_search` to it), one declared workflow (`baseline`) and no
+schedule. Its `run-history.jsonl` holds three failed specialist launches and no
+record of the top-level runs. Search Console is reached only through OpenSEO's
+`get_search_console_performance`. These observations shaped Milestones 1, 2
+and 4. The agent itself is not carried forward: it will be rebuilt from scratch
+with Forge.
+
+## 2. Most significant gaps
+
+1. **Packages and extensions are opaque.** Forge can pin a package but cannot
+   say what it will load, register or execute, or whether a needed tool
+   actually comes from it.
+2. **No unattended execution.** There is no workflow invocation contract, no
+   run record and no scheduling.
+3. **Configured is not shown to work.** Checks stop at structure and
+   availability. Agent-specific behavior is never exercised.
+4. **Revision has little evidence.** It has only specialist-launch summaries
+   and tool-failure flags from the current conversation.
+5. **Credential exposure when generating into an existing repository**
+   (defect).
+6. **Naming and commands.** Old names, plus `/factory-update update`,
+   `/factory-update check` (which checks for tooling updates, not the agent),
+   and `apply` as a separate command.
+
+## 3. Considered and rejected
+
+| Proposal | Why rejected |
+|---|---|
+| A separate "conversational modification" feature | `/factory-update <request>` already inspects, proposes a small change, previews it and applies on approval. The real gaps are evidence (M4), schedules (M2) and the command surface (M0) |
+| Execution evidence exposed as its own feature | Folded into M4: it needs the run index (M2) first |
+| A plugin API or capability marketplace | Composition uses Pi packages, npm, the MCP registry and skills.sh as they are (non-goal) |
+| A Forge scheduler or daemon | M2 configures an existing provider (`agents-cron`) |
+| A migration bridge, `.factory/` → `.forge/` migration, compatibility aliases | No installed base to protect. Agents built by older versions are regenerated |
+| A separate in-project maintenance skill | One `forge` skill designs outside a project and revises inside one |
+| Keeping `pi-mcp-adapter` | Pi has built-in MCP; built-ins are always preferred |
+| A memory database or vector store | `.pi/MEMORY.md`, project files and Pi sessions cover the reference cases |
+| A general evaluation framework or LLM grading | M3 checks observable behavior only |
+| Implementing several schedule backends, or a systemd fallback | One provider |
+| Per-build package pins (an idea in earlier notes) | No reference use case needs it yet |
+| An investigation into naming | The name is decided: Pi Forge, `/forge` |
+| Trading execution for use case B | Out of scope until enforceable risk and permission boundaries exist |
+
+## 4. Milestones
+
+Milestones may overlap. A hard dependency is a GitHub "Blocked by" link; a
+soft one is noted as *after*.
+
+### Milestone 0: Packaging, rename, command surface, and a security fix
+
+Goes first because everything later is written against the new names and the
+smaller codebase. There is no migration: projects built by older versions are
+regenerated.
+
+- [#25](https://github.com/mihaiiova/pi-agent-factory/issues/25) `fix-existing-repo-gitignore`: protect `.factory/` and `.env` when generating
+  into an existing repository. No dependencies; small.
+- [#41](https://github.com/mihaiiova/pi-agent-factory/issues/41) `forge-package`: ship Forge as a Pi package pinned in each project's
+  `.pi/settings.json`, and delete the bundle, front-door, update-check and
+  recovery machinery.
+- [#27](https://github.com/mihaiiova/pi-agent-factory/issues/27) `forge-rename`: **Rename pi-agent-factory to pi-forge and consolidate
+  commands under /forge.** A plain rename with no aliases. Blocked by
+  `forge-package`.
+
+[#26](https://github.com/mihaiiova/pi-agent-factory/issues/26) (the migration bridge) was closed: nothing needs to be migrated.
+
+### Milestone 1: Capability composition
+
+- [#28](https://github.com/mihaiiova/pi-agent-factory/issues/28) `mcp-builtin`: replace `pi-mcp-adapter` with Pi's built-in MCP.
+  *After* `forge-package`, since the approval gate moves into the agent
+  runtime.
+- [#29](https://github.com/mihaiiova/pi-agent-factory/issues/29) `package-discovery`: find candidate Pi packages for a requested capability.
+- [#30](https://github.com/mihaiiova/pi-agent-factory/issues/30) `package-inspection`: inspect an exact package version before proposing it.
+- [#31](https://github.com/mihaiiova/pi-agent-factory/issues/31) `package-resource-selection`: load only the package resources an agent
+  needs. Blocked by `package-inspection`.
+- [#32](https://github.com/mihaiiova/pi-agent-factory/issues/32) `capability-check`: verify effective runtime capabilities (`/forge check`).
+  *After* `mcp-builtin`.
+- [#33](https://github.com/mihaiiova/pi-agent-factory/issues/33) `coding-harness-context`: opt in to the repository's own `AGENTS.md` (use
+  case C).
+
+### Milestone 2: Execution and triggers
+
+- [#34](https://github.com/mihaiiova/pi-agent-factory/issues/34) `workflow-invocation`: a headless workflow invocation contract.
+- [#35](https://github.com/mihaiiova/pi-agent-factory/issues/35) `run-index`: record each headless run. Blocked by `workflow-invocation`.
+- [#37](https://github.com/mihaiiova/pi-agent-factory/issues/37) `workflow-schedule`: declare a schedule and install it with `agents-cron`.
+  Blocked by `workflow-invocation` and `run-index`.
+
+[#36](https://github.com/mihaiiova/pi-agent-factory/issues/36) (choosing the scheduler) was closed with the decision in §6.
+
+### Milestone 3: Functional verification
+
+- [#38](https://github.com/mihaiiova/pi-agent-factory/issues/38) `acceptance-scenarios`: declare scenarios and evaluate a run against them.
+  Blocked by `run-index`.
+- [#39](https://github.com/mihaiiova/pi-agent-factory/issues/39) `scenario-runner`: run scenarios safely and report diagnostics. Blocked by
+  `workflow-invocation` and `acceptance-scenarios`. *After*
+  `capability-check`.
+
+### Milestone 4: Operational evolution
+
+- [#40](https://github.com/mihaiiova/pi-agent-factory/issues/40) `run-evidence-revision`: revisions and `/forge status` use run evidence.
+  Blocked by `run-index`. *After* `scenario-runner`.
+
+## 5. Dependency order
+
+```text
+fix-existing-repo-gitignore
+forge-package ─▶ forge-rename
+forge-package ··▶ mcp-builtin ··▶ capability-check ··▶ scenario-runner
+package-discovery
+package-inspection ─▶ package-resource-selection
+coding-harness-context
+workflow-invocation ─▶ run-index ─▶ acceptance-scenarios ─▶ scenario-runner
+       │                 ├────▶ run-evidence-revision
+       └─────────────────┴────▶ workflow-schedule
+```
+
+`─▶` blocks; `··▶` should come after.
+
+## 6. Decisions (2026-10-29)
+
+- **MCP: Pi's built-in.** Built-ins are always preferred over packages. The
+  built-in covers what Forge used the adapter for: `hidden` exposure and
+  `toolExposure` for hiding, `--tools 'mcp__<server>__*'` for per-agent
+  selection, `pi mcp list --json` for checks, OAuth. It has no `approveTools`;
+  per-call approval becomes a `tool_call` gate in Forge's agent runtime, which
+  Pi applies to every MCP call, including calls from codemode scripts (Pi
+  `docs/mcp.md`, Permissions). Implemented by #28.
+- **Scheduler: `agents-cron`.** Of the two packages that run with Pi closed,
+  it is the more used and more maintained one (npm, 28 Sep–27 Oct 2026: 2,893
+  downloads vs 473 for `pi-tick`; 66 commits in that month and 18 releases vs 4
+  commits and no release since 2 Oct). It keeps its store in the project
+  (`.agents/cron/`), runs one isolated session per run, and its CLI (`add
+  --cron … --agent pi`, `remove`, `list --json`) is all Forge needs, so agents
+  never get scheduling tools. Risks: it is young (created Sep 2026) and
+  AGPL-3.0. Forge neither bundles nor modifies it (Pi installs it from npm
+  and Forge calls its CLI), so it should not affect Forge's own license;
+  recheck if that changes. No fallback provider.
+  Implemented by #37.
+- **Distribution: a pinned Pi package.** Each project pins
+  `git:github.com/mihaiiova/pi-forge@vX.Y.Z` in `.pi/settings.json`. Pi
+  installs it, a pin cannot move, a project entry replaces a personal install
+  of the same package (so `/forge` registers once), and git provides history
+  and rollback. This drops the frozen front door, the bundles, the update-check
+  cache and the transaction journal. What is given up: offline first install,
+  bundle integrity manifests (a pinned tag stands in for them), and a separate
+  version for the agent runtime and the tooling. Implemented by #41.
+- **No separate maintenance skill.** One `forge` skill: design mode outside a
+  Forge project, revise mode inside one.
+
+## 7. Issue index
+
+| Issue | Milestone | Title |
+|---|---|---|
+| [#24](https://github.com/mihaiiova/pi-agent-factory/issues/24) | — | Epic: Pi Forge roadmap — design, generate, check, and revise specialized Pi agents |
+| [#25](https://github.com/mihaiiova/pi-agent-factory/issues/25) | M0 | Protect .factory/ and .env when generating into an existing repository |
+| [#41](https://github.com/mihaiiova/pi-agent-factory/issues/41) | M0 | Ship Forge as a pinned Pi package and remove the bundle machinery |
+| [#27](https://github.com/mihaiiova/pi-agent-factory/issues/27) | M0 | Rename pi-agent-factory to pi-forge and consolidate commands under /forge |
+| [#28](https://github.com/mihaiiova/pi-agent-factory/issues/28) | M1 | Use Pi's built-in MCP instead of pi-mcp-adapter |
+| [#29](https://github.com/mihaiiova/pi-agent-factory/issues/29) | M1 | Discover Pi packages for a requested capability |
+| [#30](https://github.com/mihaiiova/pi-agent-factory/issues/30) | M1 | Inspect an exact Pi package version before proposing it |
+| [#31](https://github.com/mihaiiova/pi-agent-factory/issues/31) | M1 | Load only the package resources an agent needs |
+| [#32](https://github.com/mihaiiova/pi-agent-factory/issues/32) | M1 | /forge check verifies an agent's effective capabilities |
+| [#33](https://github.com/mihaiiova/pi-agent-factory/issues/33) | M1 | Let a coding harness load its repository's own AGENTS.md |
+| [#34](https://github.com/mihaiiova/pi-agent-factory/issues/34) | M2 | A headless invocation contract for declared workflows |
+| [#35](https://github.com/mihaiiova/pi-agent-factory/issues/35) | M2 | Record each headless run in a run index |
+| [#37](https://github.com/mihaiiova/pi-agent-factory/issues/37) | M2 | Declare a schedule for a workflow and install it with agents-cron |
+| [#38](https://github.com/mihaiiova/pi-agent-factory/issues/38) | M3 | Declare acceptance scenarios and evaluate a run against them |
+| [#39](https://github.com/mihaiiova/pi-agent-factory/issues/39) | M3 | Run acceptance scenarios safely and report diagnostics |
+| [#40](https://github.com/mihaiiova/pi-agent-factory/issues/40) | M4 | Use run evidence in /forge status and in revisions |
+
+Closed: [#26](https://github.com/mihaiiova/pi-agent-factory/issues/26) (migration bridge, not needed) and [#36](https://github.com/mihaiiova/pi-agent-factory/issues/36) (scheduler, decided).
+
+**Execute first:** [#25](https://github.com/mihaiiova/pi-agent-factory/issues/25) (security fix, small, unblocked), then [#41](https://github.com/mihaiiova/pi-agent-factory/issues/41) (removes the code the rename would otherwise have to touch), then [#27](https://github.com/mihaiiova/pi-agent-factory/issues/27) (so later work lands under the final names). [#30](https://github.com/mihaiiova/pi-agent-factory/issues/30) and [#34](https://github.com/mihaiiova/pi-agent-factory/issues/34) are unblocked and can run in parallel.

@@ -12,7 +12,8 @@
  *     regenerate every run, merge-preserving unknown keys.
  *   - Authored files (`.pi/APPEND_SYSTEM.md`, `README.md`, `.gitignore`,
  *     `.env.example`) scaffold once and are fingerprint-protected with a
- *     header marker; a user edit is never silently overwritten.
+ *     header marker; a user edit is never silently overwritten. The only
+ *     exception is appending missing safety entries to an existing .gitignore.
  */
 import { createHash } from "node:crypto";
 import { splitModelRef } from "./models.mjs";
@@ -21,7 +22,6 @@ import { workflowSkill } from "./workflow-skill.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
-import { infrastructureFiles } from "./maintenance-infra.mjs";
 import { cliRef, cliToolName } from "./cli-tools.mjs";
 import { capabilitySection } from "./agent-context.mjs";
 import { documentInstructions } from "./documents.mjs";
@@ -33,15 +33,14 @@ const MARKER_HTML_RE = /^<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -
 const MARKER_PLAIN_RE = /^# agent-factory:generated v1 sha256=([0-9a-f]{64})$/;
 const MARKER_HTML_TRAILING_RE = /\n<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->[ \t]*\n?$/;
 
+// .pi/git/ and .pi/npm/ hold the packages Pi installs for the project.
+const REQUIRED_IGNORES = [".env", ".factory/", ".pi/state.json", ".pi/sessions/", ".pi/git/", ".pi/npm/"];
 const GITIGNORE_BODY = [
   "data/*",
   "!data/knowledge/",
   "data/knowledge/*",
   "!data/knowledge/.gitkeep",
-  ".env",
-  ".factory/",
-  ".pi/state.json",
-  ".pi/sessions/",
+  ...REQUIRED_IGNORES,
   "",
 ].join("\n");
 
@@ -76,7 +75,6 @@ export const GENERATED_PATHS = [
   ".env.example",
   "data/knowledge/.gitkeep",
   "run",
-  ...Object.keys(infrastructureFiles()),
 ];
 
 function isPlainObject(value) {
@@ -163,6 +161,15 @@ function authoredFile(path, style, desiredBody, existing) {
 
   // Both the user edited AND the model changed: report, never overwrite.
   return { path, content: existing, desired: desiredBody, action: "conflict" };
+}
+
+function gitignoreFile(existing) {
+  if (existing === undefined) return authoredFile(".gitignore", "plain", GITIGNORE_BODY, existing);
+  const lines = new Set(existing.split(/\r?\n/).map((line) => line.replace(/\/$/, "")));
+  const missing = REQUIRED_IGNORES.filter((entry) => !lines.has(entry.replace(/\/$/, "")));
+  if (!missing.length) return { path: ".gitignore", content: existing, action: "none" };
+  const separator = existing && !existing.endsWith("\n") ? "\n" : "";
+  return { path: ".gitignore", content: `${existing}${separator}# agent-factory: required ignores\n${missing.join("\n")}\n`, action: "write" };
 }
 
 function sentinelFile(path, existing) {
@@ -334,10 +341,11 @@ function readmeBody(model) {
     '',
     'Use `/factory-update <request>` to propose a declarative change, then',
     '`/factory-update apply` to preview and approve it. `/factory-update review`',
-    'is read-only. Tooling lifecycle: `/factory-update check`, `update`, `rollback`.',
+    'is read-only. `/factory-update check` reports a newer Factory release;',
+    '`update` moves the pin after two confirmations. Roll back with git.',
     '`/factory-permission` lists the commands agents may run and adds, removes or',
     'reviews them; agents ask for a command they need with `request_permission`.',
-    'Startup checks never install updates. Restart `./run` after applying changes.',
+    'Restart `./run` when the launcher or packages change.',
     '',
     policySection(model),
   ].join("\n");
@@ -479,16 +487,10 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
     authoredFile(".pi/APPEND_SYSTEM.md", "html", prompt, existing[".pi/APPEND_SYSTEM.md"]),
     derivedFile(".pi/CAPABILITIES.md", capabilitySection(model, model.orchestrator?.name), existing[".pi/CAPABILITIES.md"]),
     authoredFile("README.md", "html", readmeBody(model), existing["README.md"]),
-    authoredFile(".gitignore", "plain", GITIGNORE_BODY, existing[".gitignore"]),
+    gitignoreFile(existing[".gitignore"]),
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),
     sentinelFile("data/knowledge/.gitkeep", existing["data/knowledge/.gitkeep"]),
     { ...derivedFile("run", plan.launcherScript, existing["run"]), executable: true },
-    // Infrastructure is deliberately outside model.skills and its removal logic.
-    ...Object.entries(infrastructureFiles()).map(([path, content]) => {
-      const current = existing[path];
-      if (current !== undefined && current !== content) return { path, content: current, desired: content, action: 'conflict' };
-      return derivedFile(path, content, current);
-    }),
     ...subagentConfig,
     ...agentFiles(model, existing),
     ...skillFiles(model, existing),

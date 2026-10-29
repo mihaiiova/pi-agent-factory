@@ -1,7 +1,13 @@
 {
   "name": "pi-agent-factory",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "private": true,
+  "dependencies": {
+    "yaml": "2.8.3"
+  },
+  "peerDependencies": {
+    "typebox": "*"
+  },
   "keywords": [
     "pi-package"
   ],

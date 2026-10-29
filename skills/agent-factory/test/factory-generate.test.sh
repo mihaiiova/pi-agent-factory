@@ -91,7 +91,7 @@ for f in $(cd "$fixtures/generate/multi-agent/golden" && find . -type f | sort);
 done
 [[ -x "$ma/run" ]] || fail "run launcher not executable"
 grep -q 'PI_CODING_AGENT_DIR' "$ma/run" || fail "run launcher missing the isolated agent dir"
-node -e 'const s=require(process.argv[1]); const e=["npm:pi-subagents@0.83.1","npm:pi-mcp-adapter@2.32.1"]; if(JSON.stringify(s.packages)!==JSON.stringify(e)){console.error(JSON.stringify(s.packages));process.exit(1)}' "$ma/.pi/settings.json" || fail "settings.json packages are not the minimal runtime primitives"
+node -e 'const s=require(process.argv[1]); const e=["git:github.com/mihaiiova/pi-agent-factory@v0.19.0","npm:pi-subagents@0.83.1","npm:pi-mcp-adapter@2.32.1"]; if(JSON.stringify(s.packages)!==JSON.stringify(e)){console.error(JSON.stringify(s.packages));process.exit(1)}' "$ma/.pi/settings.json" || fail "settings.json packages are not the pinned Factory and runtime primitives"
 rm -rf "$ma"
 pass "factory generate reproduces the multi-agent golden tree"
 
@@ -256,6 +256,25 @@ out="$(PATH="$vd/bin:$PATH" node "$factory" validate "$vd/project" 2>&1)" || fai
 grep -q 'writer uses model' <<<"$out" || fail "validate does not warn about unavailable models"
 rm -rf "$vd"
 pass "factory generate/validate warn about models missing from the Pi line-up"
+
+
+# Existing repositories preview and apply the security-only gitignore append.
+existing="$work/existing-repo"
+mkdir -p "$existing/.pi"
+cp "$fixtures/generate/minimal/.pi/system.yaml" "$existing/.pi/system.yaml"
+git -C "$existing" init -q
+printf 'node_modules\n.env\n' > "$existing/.gitignore"
+node "$factory" generate "$existing" --dry-run > "$work/ignore-preview"
+grep -q '+ # agent-factory: required ignores' "$work/ignore-preview" || fail 'missing gitignore block in dry-run'
+grep -q '+ .factory/' "$work/ignore-preview" || fail 'missing .factory/ in dry-run'
+[[ "$(cat "$existing/.gitignore")" == $'node_modules\n.env' ]] || fail 'dry-run changed gitignore'
+node "$factory" generate "$existing" >/dev/null
+git -C "$existing" check-ignore -q .env || fail '.env not ignored'
+git -C "$existing" check-ignore -q .factory/pi-home/auth.json || fail 'credentials not ignored'
+cp "$existing/.gitignore" "$work/ignore-after"
+node "$factory" generate "$existing" >/dev/null
+cmp -s "$work/ignore-after" "$existing/.gitignore" || fail 'gitignore append not idempotent'
+pass 'generation previews and protects existing repository secrets'
 
 echo
 echo "All factory-generate tests passed."

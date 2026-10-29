@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runtimePackages } from "../deps.mjs";
 
+const FACTORY = "git:github.com/mihaiiova/pi-agent-factory@v0.19.0";
 const PI_PACKAGES = [
   "npm:pi-mcp-adapter@2.32.1",
   "npm:pi-subagents@0.83.1",
@@ -11,15 +12,16 @@ const PI_PACKAGES = [
   "npm:@lanlance/pi-btw@0.2.0",
 ];
 
-test("runtimePackages emits only the two runtime primitives, in order", () => {
+test("runtimePackages emits the Factory pin and two runtime primitives, in order", () => {
   const { packages, errors } = runtimePackages(PI_PACKAGES);
-  assert.deepEqual(packages, ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"]);
+  assert.deepEqual(packages, [FACTORY, "npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"]);
   assert.deepEqual(errors, []);
 });
 
 test("runtimePackages appends declared npm:/git: specs after the primitives", () => {
   const { packages, errors } = runtimePackages(PI_PACKAGES, ["npm:foo@1.2.3", "git:github.com/x/y@v1"]);
   assert.deepEqual(packages, [
+    FACTORY,
     "npm:pi-subagents@0.83.1",
     "npm:pi-mcp-adapter@2.32.1",
     "npm:foo@1.2.3",
@@ -43,12 +45,12 @@ test("runtimePackages never emits dev-only, web, local-path, or secret-shaped en
     "npm:@juicesharp/rpiv-ask-user-question@2.9.0",
   ];
   const { packages } = runtimePackages(hostile, []);
-  assert.deepEqual(packages, ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"]);
+  assert.deepEqual(packages, [FACTORY, "npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"]);
 });
 
 test("a missing required primitive is an error, never silently omitted", () => {
   const { packages, errors } = runtimePackages(["npm:pi-subagents@0.83.1"]);
-  assert.deepEqual(packages, ["npm:pi-subagents@0.83.1"]);
+  assert.deepEqual(packages, [FACTORY, "npm:pi-subagents@0.83.1"]);
   assert.ok(errors.some((e) => e.includes('"pi-mcp-adapter"')), "names the missing primitive");
 });
 
@@ -72,6 +74,6 @@ test("runtimePackages output is deterministic", () => {
 
 test("runtimePackages tolerates empty inputs by reporting missing primitives", () => {
   const { packages, errors } = runtimePackages(undefined, undefined);
-  assert.deepEqual(packages, []);
+  assert.deepEqual(packages, [FACTORY]);
   assert.equal(errors.length, 2, "both primitives are reported missing");
 });

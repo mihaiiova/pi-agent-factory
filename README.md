@@ -1,14 +1,61 @@
-# pi-agent-factory
+# Pi Forge
 
-This repository is becoming the **Agent Factory**: a conversational builder that
-defines a standalone, project-local Pi agent system from zero — its orchestrator,
-specialist subagents, skills, MCP integrations, workflows and policies — and
-maintains it afterwards. The former personal Pi setup (spec lifecycle, domain
-skills, sync/state extensions) now lives in the private
+**Design, generate, check, and revise specialized Pi agents.**
+
+Pi Forge (formerly **Pi Agent Factory**) is a conversational development tool
+for specialized agents. You describe the outcome you want. Forge recommends the
+simplest agent that achieves it and generates it as an ordinary, project-local
+Pi project: an orchestrator, optional specialists, skills, packages, MCP
+integrations, commands, workflows and permissions. It then keeps that agent
+working as your needs change.
+
+**The specialized agent is the product. Pi is its runtime.** Forge composes
+Pi's own resources and adds no runtime, workflow engine or scheduler of its
+own. A generated agent runs with Pi alone and does not need Forge running.
+
+- [Product direction](docs/product-direction.md): what Forge is, how to judge
+  changes, and its non-goals. This is the authoritative document.
+- [Roadmap](docs/roadmap.md): the current audit, gaps, milestones and issues.
+
+> **Naming.** The rename is planned but not done yet. This repository, the
+> package (`pi-agent-factory`) and the commands (`/agent-factory`,
+> `/factory-update`, `/factory-permission`) still use the old names. They will
+> become `mihaiiova/pi-forge`, `pi-forge` and a single `/forge` command. There
+> is no migration: projects built with the old names are regenerated. See
+> [Milestone 0](docs/roadmap.md#milestone-0-packaging-rename-command-surface-and-a-security-fix).
+
+### Architecture in brief
+
+```text
+you ──▶ /agent-factory (builder, conversational)
+          │  factory CLI: discover · validate · generate --dry-run · generate
+          ▼
+   <project>/.pi/system.yaml   compact desired state (schema 1)
+   <project>/.pi/…             native Pi files: settings, agents, skills, mcp.json, prompts
+   <project>/run               isolated launcher (own Pi home and credentials)
+   <project>/.factory/         build record, capability manifest, isolated Pi home
+          │
+          ▼
+   ./run, ./run -p "…"   Pi runs the agent; /factory-update revises it in place
+```
+
+- **Design and generate:** `/agent-factory` holds a design conversation, writes
+  `system.yaml`, previews the generated files and writes them only after you
+  confirm. Generation is deterministic and idempotent, and never silently
+  overwrites your edits.
+- **Check:** `factory validate`, a capability manifest
+  (`.factory/capabilities.json`) and a launch check on every start that each
+  agent will get its declared tools, MCP tools and skills. Checking actual
+  behavior is on the [roadmap](docs/roadmap.md).
+- **Revise:** inside a project, `/factory-update <request>` proposes a small
+  structured change, shows the diff, and applies it after your approval.
+
+The former personal Pi setup (spec lifecycle, domain skills, sync/state
+extensions) now lives in the private
 [`pi-personal`](https://github.com/mihaiiova/pi-personal) repository; see
 [Personal Pi setup](#personal-pi-setup).
 
-## Agent Factory
+## Using Forge today
 
 Start it from any Pi session with `/agent-factory <outcome>` (or
 `/skill:agent-factory`). The builder works as a design conversation, not an
@@ -147,13 +194,6 @@ without a shell, with your own CLI logins. In a running system:
 
 ### Running and maintaining a generated system
 
-**Upgrading a project generated before v0.11:** older generators wrote agent
-`tools`/`skills` lists as `[a, b]`, which pi-subagents reads as the names `[a`
-and `b]`, so specialists started without those tools or skills. Agents without
-a `description` were skipped entirely. Run `/factory-update update` (from a
-version before 0.18, restart and then run `/factory-update rebuild`); the startup check
-lists every affected agent until then.
-
 A generated project starts with `./run`, which isolates it from your global Pi
 configuration (own config dir, own credentials: `/login` once per project).
 Inside it, `/factory-update <request>` previews declarative changes —
@@ -163,28 +203,45 @@ While preparing a change, the maintainer can read public documentation (for
 example an MCP server's README and releases) to verify versions, tools and
 auth, and can declare the environment variables an integration needs. You set
 their values with `/factory-update env set NAME`; `./run` loads them from the
-project's gitignored `.env`.
+project's gitignored `.env`. Generation and change previews also add missing
+secret and state paths to an existing `.gitignore` without rewriting your rules.
+Ignoring files does not remove credentials already committed to git: rotate any
+credentials that were committed, including those in `.env` or `.factory/`.
 
-On every start, `./run` checks in the background whether a newer Factory
-release exists, by comparing the git commit the project was generated from
-with the newest `vX.Y.Z` release tag on GitHub. A notice appears only when an update
-is available, or — at most once a day — when the check keeps failing for a
-reason other than being offline (for example, the project was generated from a
-commit that was never pushed). Updates install only via `/factory-update update`.
+#### The Factory package: pin, update, roll back
 
-Generate real systems from a pushed commit (ideally a release checkout); a
-project stamped with an unpushed commit cannot be compared. A project generated
-from a commit newer than the latest release reports up to date until a release
-that contains it is tagged. Bootstrap older
-generated systems without recreating them:
+A generated project pins one Factory release as a Pi package in its
+`.pi/settings.json`, for example `git:github.com/mihaiiova/pi-agent-factory@v0.19.0`.
+Nothing is copied into the project. On the first `./run`, Pi installs that
+exact tag under `.pi/git/` in the project (ignored by the generated
+`.gitignore`, like `.pi/npm/`) and loads the
+agent runtime (memory, declared commands, `request_permission`) and
+`/factory-update` from it. The first start therefore needs network access to
+GitHub. Pi never moves a pinned tag by itself.
 
-```sh
-node skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --dry-run
-node skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --yes
-```
+`/factory-update check` lists the release tags on GitHub and says whether a
+newer one exists. It downloads and runs nothing. Startup does not check.
 
-See [Factory maintenance](docs/factory-update.md) for update checks, security
-boundaries, installation metadata, recovery and rollback.
+`/factory-update update` asks twice:
+
+1. **Run the new release to preview it?** The dialog names the tag, the commit
+   it points to and a link to the changes. Only after you agree does Factory
+   fetch exactly that commit and run its generator on the project to compute
+   the preview. Nothing is written yet.
+2. **Apply it?** The preview shows the pin change and every file the new
+   release generates differently. Approving writes them, runs
+   `pi update --extensions` to install the new pin, and asks you to restart
+   `./run`.
+
+Declining either step leaves the project unchanged. A headless session can
+grant neither, so `update` stops there before contacting GitHub.
+
+To roll back, use git: restore the previous `.pi/settings.json` and generated
+files (for example `git checkout <commit> -- .pi run README.md`), then restart
+`./run`. Pi installs the older pin again.
+
+Projects generated before v0.19.0 carried a copied maintenance bundle. They
+are not migrated: regenerate them from their `.pi/system.yaml`.
 
 ### Tests
 

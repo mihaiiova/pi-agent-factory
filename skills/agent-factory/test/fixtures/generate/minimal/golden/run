@@ -30,4 +30,4 @@ prompts=()
 for f in .pi/APPEND_SYSTEM.md .pi/CAPABILITIES.md; do
   if [[ -f "$f" ]]; then prompts+=(--append-system-prompt "$f"); fi
 done
-exec pi --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"
+exec pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"
