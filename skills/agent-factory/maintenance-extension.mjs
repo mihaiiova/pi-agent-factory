@@ -227,7 +227,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
         // Maintenance is a separate loadout, not an expansion of operational
         // authority. Review cannot reach Bash/write/edit, MCP or subagents.
         pi.setActiveTools(['factory_plan']);
-        const workflow = readFileSync(new URL('./maintenance-workflow.md', import.meta.url), 'utf8');
+        const workflow = readFileSync(new URL('./SKILL.md', import.meta.url), 'utf8').split('## Project maintenance workflow\n')[1];
         pi.sendUserMessage(`${workflow}\n\nMode: ${review ? 'READ-ONLY REVIEW' : 'CHANGE PROPOSAL'}.\nUser request: ${request || 'review'}\n\nUse factory_plan inspect first. The command grants no Bash/write privileges. Follow-up maintenance turns must also start with /factory-update.`);
       } catch (error) { hide(); tell(ctx, error.message, 'error'); }
     },
