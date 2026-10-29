@@ -58,11 +58,19 @@ const child = spawn(concurrent ? command : 'flock', concurrent ? commandArgs : [
   detached: true,
   stdio: ['ignore', 'pipe', 'inherit'],
 });
-const stop = () => {
-  if (scope && !killTimer) {
-    const stopped = spawnSync('systemctl', ['--user', 'stop', scope], { encoding: 'utf8', timeout: 3000 });
-    if (stopped.status !== 0) console.error('Workflow scope cleanup failed: ' + (stopped.stderr?.trim() || stopped.error?.message || 'unknown error'));
+let scopeClean = true, scopeStopped = false;
+const stopScope = () => {
+  if (!scope || scopeStopped) return;
+  scopeStopped = true;
+  const stopped = spawnSync('systemctl', ['--user', 'stop', scope], { encoding: 'utf8', timeout: 3000 });
+  if (stopped.status !== 0) {
+    const state = spawnSync('systemctl', ['--user', 'show', '--property=LoadState', '--value', scope], { encoding: 'utf8', timeout: 3000 });
+    scopeClean = state.status === 0 && state.stdout.trim() === 'not-found';
+    if (!scopeClean) console.error('Workflow scope cleanup failed: ' + (stopped.stderr?.trim() || stopped.error?.message || 'unknown error'));
   }
+};
+const stop = () => {
+  stopScope();
   try { process.kill(-child.pid, 'SIGTERM'); } catch {}
   killTimer ||= setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 500);
 };
@@ -122,9 +130,10 @@ child.on('close', async code => {
   clearTimeout(deadline);
   if (killTimer) await new Promise(resolve => setTimeout(resolve, 550));
   try { blocked ||= readFileSync(approvalFile, 'utf8'); } catch {}
-  let cleanup = true;
+  stopScope();
+  let cleanup = scopeClean;
   if (timedOut || blocked) {
-    try { cleanup = await stopSubagents(); } catch (error) { cleanup = false; console.error('Workflow cleanup: ' + error.message); }
+    try { if (!await stopSubagents()) cleanup = false; } catch (error) { cleanup = false; console.error('Workflow cleanup: ' + error.message); }
   }
   if (cleanup) rmSync(temp, { recursive: true, force: true });
   else console.error('Workflow cleanup incomplete; run state retained at ' + temp);

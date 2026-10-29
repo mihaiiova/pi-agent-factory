@@ -260,3 +260,19 @@ setTimeout(()=>{},30000);
   assert.equal(result.status, 4, result.stderr);
   assert.throws(() => process.kill(Number(readFileSync(marker, 'utf8')), 0), /ESRCH/);
 });
+
+test('a systemd scope is cleaned after a successful workflow', { timeout: 10000 }, t => {
+  const probe = spawnSync('systemd-run', ['--user', '--scope', '--quiet', '--', 'true'], { encoding: 'utf8', timeout: 3000 });
+  if (probe.status !== 0) return t.skip('systemd user scopes are unavailable');
+  const { root, env } = fixture(t);
+  rmSync(join(root, 'bin/systemd-run'));
+  const marker = join(root, 'success-child');
+  writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+const fs=require('fs'), {spawn}=require('child_process'); const child=spawn('sleep',['30'],{detached:true,stdio:'ignore'}); child.unref(); fs.writeFileSync(${JSON.stringify(marker)},String(child.pid));
+console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'done'}]}}));
+`, { mode: 0o755 });
+  t.after(() => { try { process.kill(Number(readFileSync(marker, 'utf8')), 'SIGKILL'); } catch {} });
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8', timeout: 8000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.throws(() => process.kill(Number(readFileSync(marker, 'utf8')), 0), /ESRCH/);
+});
