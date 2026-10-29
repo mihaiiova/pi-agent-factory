@@ -2,8 +2,24 @@
 
 Based on an audit of the repository at v0.18.0 (`217fc0b`, 2026-10-28), measured
 against [the product direction](product-direction.md). Issues live in
-GitHub under epic [#24](https://github.com/mihaiiova/pi-agent-factory/issues/24), indexed
+GitHub under epic [#24](https://github.com/mihaiiova/pi-forge/issues/24), indexed
 at the end. Each one is scoped for a single implementation session.
+
+## Status (2026-10-29)
+
+- **Shipped:** #25 and #41 in v0.19.0; #27 (the rename and `/forge`) and #28
+  (Pi's built-in MCP) in v0.20.0. The repository is now `mihaiiova/pi-forge`.
+- **Versioning:** Forge stays below 1.0 for now; #27 planned 1.0.0, and that was
+  deferred. Pre-1.0 releases may break projects, which are regenerated.
+- **Next, for a first MVP agent** exposed to other agents as an MCP server
+  outside Forge: #34 (headless invocation contract), then #32
+  (`/forge check` of effective capabilities). #33 only for a coding agent;
+  #29 and #30 when an agent needs packages.
+- **Known limitations:** a personal Forge install from a local checkout loads
+  next to a project's pin, so commands appear twice inside generated
+  projects (install from the git tag instead). `pi mcp list` in a project's
+  isolated home ignores the project until `/trust` is run once inside `./run`;
+  `/mcp` inside `./run` works without it.
 
 ## 1. Audit: what exists today
 
@@ -101,51 +117,53 @@ Goes first because everything later is written against the new names and the
 smaller codebase. There is no migration: projects built by older versions are
 regenerated.
 
-- [#25](https://github.com/mihaiiova/pi-agent-factory/issues/25) `fix-existing-repo-gitignore`: protect `.factory/` and `.env` when generating
+- [#25](https://github.com/mihaiiova/pi-forge/issues/25) `fix-existing-repo-gitignore`: protect `.factory/` and `.env` when generating
   into an existing repository. No dependencies; small.
-- [#41](https://github.com/mihaiiova/pi-agent-factory/issues/41) `forge-package`: ship Forge as a Pi package pinned in each project's
+- [#41](https://github.com/mihaiiova/pi-forge/issues/41) `forge-package`: ship Forge as a Pi package pinned in each project's
   `.pi/settings.json`, and delete the bundle, front-door, update-check and
   recovery machinery.
-- [#27](https://github.com/mihaiiova/pi-agent-factory/issues/27) `forge-rename`: **Rename pi-agent-factory to pi-forge and consolidate
+- [#27](https://github.com/mihaiiova/pi-forge/issues/27) `forge-rename`: **Rename pi-agent-factory to pi-forge and consolidate
   commands under /forge.** A plain rename with no aliases. Blocked by
   `forge-package`.
 
-[#26](https://github.com/mihaiiova/pi-agent-factory/issues/26) (the migration bridge) was closed: nothing needs to be migrated.
+#25 and #41 shipped in v0.19.0, #27 in v0.20.0.
+
+[#26](https://github.com/mihaiiova/pi-forge/issues/26) (the migration bridge) was closed: nothing needs to be migrated.
 
 ### Milestone 1: Capability composition
 
-- [#28](https://github.com/mihaiiova/pi-agent-factory/issues/28) `mcp-builtin`: replace `pi-mcp-adapter` with Pi's built-in MCP.
+- [#28](https://github.com/mihaiiova/pi-forge/issues/28) `mcp-builtin`: replace `pi-mcp-adapter` with Pi's built-in MCP.
   *After* `forge-package`, since the approval gate moves into the agent
-  runtime.
-- [#29](https://github.com/mihaiiova/pi-agent-factory/issues/29) `package-discovery`: find candidate Pi packages for a requested capability.
-- [#30](https://github.com/mihaiiova/pi-agent-factory/issues/30) `package-inspection`: inspect an exact package version before proposing it.
-- [#31](https://github.com/mihaiiova/pi-agent-factory/issues/31) `package-resource-selection`: load only the package resources an agent
+  runtime. Shipped in v0.20.0.
+- [#29](https://github.com/mihaiiova/pi-forge/issues/29) `package-discovery`: find candidate Pi packages for a requested capability.
+- [#30](https://github.com/mihaiiova/pi-forge/issues/30) `package-inspection`: inspect an exact package version before proposing it.
+- [#31](https://github.com/mihaiiova/pi-forge/issues/31) `package-resource-selection`: load only the package resources an agent
   needs. Blocked by `package-inspection`.
-- [#32](https://github.com/mihaiiova/pi-agent-factory/issues/32) `capability-check`: verify effective runtime capabilities (`/forge check`).
+- [#32](https://github.com/mihaiiova/pi-forge/issues/32) `capability-check`: verify effective runtime capabilities (`/forge check`).
   *After* `mcp-builtin`.
-- [#33](https://github.com/mihaiiova/pi-agent-factory/issues/33) `coding-harness-context`: opt in to the repository's own `AGENTS.md` (use
+- [#33](https://github.com/mihaiiova/pi-forge/issues/33) `coding-harness-context`: opt in to the repository's own `AGENTS.md` (use
   case C).
 
 ### Milestone 2: Execution and triggers
 
-- [#34](https://github.com/mihaiiova/pi-agent-factory/issues/34) `workflow-invocation`: a headless workflow invocation contract.
-- [#35](https://github.com/mihaiiova/pi-agent-factory/issues/35) `run-index`: record each headless run. Blocked by `workflow-invocation`.
-- [#37](https://github.com/mihaiiova/pi-agent-factory/issues/37) `workflow-schedule`: declare a schedule and install it with `agents-cron`.
+- [#34](https://github.com/mihaiiova/pi-forge/issues/34) `workflow-invocation`: a headless workflow invocation contract.
+- [#35](https://github.com/mihaiiova/pi-forge/issues/35) `run-index`: record each headless run. Blocked by `workflow-invocation`.
+- [#37](https://github.com/mihaiiova/pi-forge/issues/37) `workflow-schedule`: declare a schedule and install it with `agents-cron`.
   Blocked by `workflow-invocation` and `run-index`.
 
-[#36](https://github.com/mihaiiova/pi-agent-factory/issues/36) (choosing the scheduler) was closed with the decision in §6.
+[#36](https://github.com/mihaiiova/pi-forge/issues/36) (choosing the scheduler) was closed with the decision in §6.
 
 ### Milestone 3: Functional verification
 
-- [#38](https://github.com/mihaiiova/pi-agent-factory/issues/38) `acceptance-scenarios`: declare scenarios and evaluate a run against them.
+- [#38](https://github.com/mihaiiova/pi-forge/issues/38) `acceptance-scenarios`: declare scenarios and evaluate a run against them.
   Blocked by `run-index`.
-- [#39](https://github.com/mihaiiova/pi-agent-factory/issues/39) `scenario-runner`: run scenarios safely and report diagnostics. Blocked by
+- [#39](https://github.com/mihaiiova/pi-forge/issues/39) `scenario-runner`: run scenarios safely and report diagnostics. Blocked by
   `workflow-invocation` and `acceptance-scenarios`. *After*
   `capability-check`.
 
 ### Milestone 4: Operational evolution
 
-- [#40](https://github.com/mihaiiova/pi-agent-factory/issues/40) `run-evidence-revision`: revisions and `/forge status` use run evidence.
+- [#40](https://github.com/mihaiiova/pi-forge/issues/40) `run-evidence-revision`: revisions and `/forge status` use run evidence.
   Blocked by `run-index`. *After* `scenario-runner`.
 
 ## 5. Dependency order
@@ -199,23 +217,23 @@ workflow-invocation ─▶ run-index ─▶ acceptance-scenarios ─▶ scenario
 
 | Issue | Milestone | Title |
 |---|---|---|
-| [#24](https://github.com/mihaiiova/pi-agent-factory/issues/24) | — | Epic: Pi Forge roadmap — design, generate, check, and revise specialized Pi agents |
-| [#25](https://github.com/mihaiiova/pi-agent-factory/issues/25) | M0 | Protect .factory/ and .env when generating into an existing repository |
-| [#41](https://github.com/mihaiiova/pi-agent-factory/issues/41) | M0 | Ship Forge as a pinned Pi package and remove the bundle machinery |
-| [#27](https://github.com/mihaiiova/pi-agent-factory/issues/27) | M0 | Rename pi-agent-factory to pi-forge and consolidate commands under /forge |
-| [#28](https://github.com/mihaiiova/pi-agent-factory/issues/28) | M1 | Use Pi's built-in MCP instead of pi-mcp-adapter |
-| [#29](https://github.com/mihaiiova/pi-agent-factory/issues/29) | M1 | Discover Pi packages for a requested capability |
-| [#30](https://github.com/mihaiiova/pi-agent-factory/issues/30) | M1 | Inspect an exact Pi package version before proposing it |
-| [#31](https://github.com/mihaiiova/pi-agent-factory/issues/31) | M1 | Load only the package resources an agent needs |
-| [#32](https://github.com/mihaiiova/pi-agent-factory/issues/32) | M1 | /forge check verifies an agent's effective capabilities |
-| [#33](https://github.com/mihaiiova/pi-agent-factory/issues/33) | M1 | Let a coding harness load its repository's own AGENTS.md |
-| [#34](https://github.com/mihaiiova/pi-agent-factory/issues/34) | M2 | A headless invocation contract for declared workflows |
-| [#35](https://github.com/mihaiiova/pi-agent-factory/issues/35) | M2 | Record each headless run in a run index |
-| [#37](https://github.com/mihaiiova/pi-agent-factory/issues/37) | M2 | Declare a schedule for a workflow and install it with agents-cron |
-| [#38](https://github.com/mihaiiova/pi-agent-factory/issues/38) | M3 | Declare acceptance scenarios and evaluate a run against them |
-| [#39](https://github.com/mihaiiova/pi-agent-factory/issues/39) | M3 | Run acceptance scenarios safely and report diagnostics |
-| [#40](https://github.com/mihaiiova/pi-agent-factory/issues/40) | M4 | Use run evidence in /forge status and in revisions |
+| [#24](https://github.com/mihaiiova/pi-forge/issues/24) | — | Epic: Pi Forge roadmap — design, generate, check, and revise specialized Pi agents |
+| [#25](https://github.com/mihaiiova/pi-forge/issues/25) | M0 | Protect .factory/ and .env when generating into an existing repository |
+| [#41](https://github.com/mihaiiova/pi-forge/issues/41) | M0 | Ship Forge as a pinned Pi package and remove the bundle machinery |
+| [#27](https://github.com/mihaiiova/pi-forge/issues/27) | M0 | Rename pi-agent-factory to pi-forge and consolidate commands under /forge |
+| [#28](https://github.com/mihaiiova/pi-forge/issues/28) | M1 | Use Pi's built-in MCP instead of pi-mcp-adapter |
+| [#29](https://github.com/mihaiiova/pi-forge/issues/29) | M1 | Discover Pi packages for a requested capability |
+| [#30](https://github.com/mihaiiova/pi-forge/issues/30) | M1 | Inspect an exact Pi package version before proposing it |
+| [#31](https://github.com/mihaiiova/pi-forge/issues/31) | M1 | Load only the package resources an agent needs |
+| [#32](https://github.com/mihaiiova/pi-forge/issues/32) | M1 | /forge check verifies an agent's effective capabilities |
+| [#33](https://github.com/mihaiiova/pi-forge/issues/33) | M1 | Let a coding harness load its repository's own AGENTS.md |
+| [#34](https://github.com/mihaiiova/pi-forge/issues/34) | M2 | A headless invocation contract for declared workflows |
+| [#35](https://github.com/mihaiiova/pi-forge/issues/35) | M2 | Record each headless run in a run index |
+| [#37](https://github.com/mihaiiova/pi-forge/issues/37) | M2 | Declare a schedule for a workflow and install it with agents-cron |
+| [#38](https://github.com/mihaiiova/pi-forge/issues/38) | M3 | Declare acceptance scenarios and evaluate a run against them |
+| [#39](https://github.com/mihaiiova/pi-forge/issues/39) | M3 | Run acceptance scenarios safely and report diagnostics |
+| [#40](https://github.com/mihaiiova/pi-forge/issues/40) | M4 | Use run evidence in /forge status and in revisions |
 
-Closed: [#26](https://github.com/mihaiiova/pi-agent-factory/issues/26) (migration bridge, not needed) and [#36](https://github.com/mihaiiova/pi-agent-factory/issues/36) (scheduler, decided).
+Done: [#25](https://github.com/mihaiiova/pi-forge/issues/25) and [#41](https://github.com/mihaiiova/pi-forge/issues/41) (v0.19.0), [#27](https://github.com/mihaiiova/pi-forge/issues/27) and [#28](https://github.com/mihaiiova/pi-forge/issues/28) (v0.20.0). Closed without implementation: [#26](https://github.com/mihaiiova/pi-forge/issues/26) (migration bridge, not needed) and [#36](https://github.com/mihaiiova/pi-forge/issues/36) (scheduler, decided).
 
-**Execute first:** [#25](https://github.com/mihaiiova/pi-agent-factory/issues/25) (security fix, small, unblocked), then [#41](https://github.com/mihaiiova/pi-agent-factory/issues/41) (removes the code the rename would otherwise have to touch), then [#27](https://github.com/mihaiiova/pi-agent-factory/issues/27) (so later work lands under the final names). [#30](https://github.com/mihaiiova/pi-agent-factory/issues/30) and [#34](https://github.com/mihaiiova/pi-agent-factory/issues/34) are unblocked and can run in parallel.
+**Next:** [#34](https://github.com/mihaiiova/pi-forge/issues/34), then [#32](https://github.com/mihaiiova/pi-forge/issues/32) (see Status). [#30](https://github.com/mihaiiova/pi-forge/issues/30) is unblocked and can run in parallel.

@@ -1,0 +1,11 @@
+# forge:generated v1 sha256=d640d1cdc888e8ba10a7d3796105956b11eb1314fc5ff972271519fe0426227a
+data/*
+!data/knowledge/
+data/knowledge/*
+!data/knowledge/.gitkeep
+.env
+.forge/
+.pi/state.json
+.pi/sessions/
+.pi/git/
+.pi/npm/

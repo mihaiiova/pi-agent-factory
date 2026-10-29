@@ -1,0 +1,19 @@
+{
+  "defaultProvider": "provider-a",
+  "defaultModel": "model-large",
+  "defaultThinkingLevel": "medium",
+  "defaultTools": [
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "bash",
+    "edit",
+    "write",
+    "subagent"
+  ],
+  "packages": [
+    "git:github.com/mihaiiova/pi-forge@v0.20.0",
+    "npm:pi-subagents@0.83.1"
+  ]
+}

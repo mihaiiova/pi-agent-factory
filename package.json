@@ -1,6 +1,6 @@
 {
-  "name": "pi-agent-factory",
-  "version": "0.19.1",
+  "name": "pi-forge",
+  "version": "0.20.0",
   "private": true,
   "dependencies": {
     "yaml": "2.8.3"
@@ -19,7 +19,6 @@
       "./skills"
     ],
     "packages": [
-      "npm:pi-mcp-adapter@2.32.1",
       "npm:pi-subagents@0.83.1",
       "npm:yaml@2.8.3"
     ]
