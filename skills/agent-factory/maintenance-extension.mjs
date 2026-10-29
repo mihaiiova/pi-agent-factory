@@ -11,34 +11,6 @@ import { probeClis } from './discover.mjs';
 import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
 import { registerAgent } from './agent-extension.mjs';
-import { selfRuntime, loadPinnedAgent, BUILD_PIN } from './maintenance-bundle.mjs';
-
-// Installed tooling runs from .factory/runtime/<id>/; the agent runtime it
-// loads is pinned in .factory/build.json and is imported here, at module load,
-// because Pi registers an extension's tools synchronously.
-const SELF = selfRuntime();
-const PINNED = SELF ? await loadPinnedAgent(SELF.root, SELF.runtime, registerAgent) : null;
-
-/** The agent runtime for root: the pinned one, or this bundle's own. */
-function pinnedAgent(root) {
-  const own = { registerAgent, pin: null, problem: null };
-  if (!SELF || resolve(SELF.root) !== resolve(root)) return own;
-  let pin = null;
-  try { pin = readText(root, BUILD_PIN) === null ? null : readJson(root, BUILD_PIN); } catch { /* reported by loadPinnedAgent */ }
-  if (!pin || pin.runtime === SELF.runtime) return { ...own, problem: PINNED?.problem && !pin ? PINNED.problem : null };
-  // A rebuild during this process pinned a bundle not loaded at startup.
-  if (PINNED?.pin?.runtime !== pin.runtime) return { ...own, problem: `agents switch to the runtime of Factory ${pin.version ?? pin.runtime} at the next start` };
-  return PINNED;
-}
-
-/** A notice when the build is older than the installed tooling. */
-function buildNotice(root) {
-  let installation, pin;
-  try { installation = readJson(root, '.factory/installation.json'); } catch { return null; }
-  try { pin = readText(root, BUILD_PIN) === null ? null : readJson(root, BUILD_PIN); } catch { pin = null; }
-  if (pin?.runtime === installation.runtime) return null;
-  return `This project was built with ${pin?.version ? `Factory ${pin.version}` : 'an earlier Factory version'}; /factory-update is ${installation.version}. Run /factory-update rebuild to bring agents up to date.`;
-}
 
 export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } = {}) {
   let armed = false;
@@ -154,18 +126,11 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
       const check = launchCheck(root, parsedModel(readText(root, '.pi/system.yaml')), { registeredTools: pi.getAllTools?.().map(t => t.name) });
       if (!check.ok) tell(ctx, `Some agents would start without what they need:\n${check.problems.map(p => `- ${p.agent}: ${p.problem}`).join('\n')}`, 'warning');
     } catch { /* an invalid model is reported by the commands that use it */ }
-    const behind = buildNotice(root);
-    if (behind) tell(ctx, behind, 'info');
-    controller?.abort();
-    controller = new AbortController();
-    void startupCheck(root, message => { if (ctx.hasUI) ctx.ui.notify(message, 'info'); }, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4000)]) });
   });
   pi.on('session_shutdown', () => { controller?.abort(); armed = false; pending = null; });
   // What agents use while working comes from the bundle that built this
   // project, so updating the tooling leaves it unchanged until a rebuild.
-  const agent = pinnedAgent(root);
-  agent.registerAgent(pi, Type, root, { maintaining: () => armed });
-  if (agent.problem) pi.on('session_start', (_event, ctx) => tell(ctx, `Factory: ${agent.problem}.`, 'warning'));
+  registerAgent(pi, Type, root, { maintaining: () => armed });
   /**
    * Regenerate from system.yaml with this version. Text agents read is
    * rewritten without asking; anything that changes what they can run or
