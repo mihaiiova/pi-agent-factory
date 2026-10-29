@@ -65,17 +65,22 @@ child.on('close', code => {
   clearTimeout(killTimer);
   try { blocked ||= readFileSync(approvalFile, 'utf8'); } catch {}
   rmSync(temp, { recursive: true, force: true });
+  let failed = false, sawAssistant = false;
   for (const line of output.split('\n')) {
     try {
       const event = JSON.parse(line);
+      if (event.type === 'tool_execution_end' && event.isError) failed = true;
       if (event.type === 'message_end' && event.message?.role === 'assistant') {
+        sawAssistant = true;
+        if (['error', 'aborted'].includes(event.message.stopReason)) failed = true;
         answer = (event.message.content ?? []).filter(c => c.type === 'text').map(c => c.text).join('\n');
       }
     } catch {}
   }
+  if (!sawAssistant) failed = true;
   const locked = !concurrent && code === 73;
-  const status = blocked ? 'blocked' : timedOut ? 'timeout' : locked ? 'configuration_error' : code === 0 ? 'ok' : 'error';
+  const status = blocked ? 'blocked' : timedOut ? 'timeout' : locked ? 'configuration_error' : code === 0 && !failed ? 'ok' : 'error';
   console.log(JSON.stringify({ workflow: name, runId, status, answer, ...(blocked ? { message: blocked } : locked ? { message: 'Workflow already running' } : {}) }));
-  process.exitCode = blocked ? 3 : timedOut ? 4 : locked ? 2 : code === 0 ? 0 : 1;
+  process.exitCode = blocked ? 3 : timedOut ? 4 : locked ? 2 : code === 0 && !failed ? 0 : 1;
 });
 `;

@@ -90,3 +90,14 @@ setTimeout(() => console.log(JSON.stringify({type:'message_end', message:{role:'
   const parallel = spawnSync(join(root, 'run'), ['--workflow', 'report', '--allow-concurrent'], { env, encoding: 'utf8', timeout: 4000 });
   assert.equal(parallel.status, 0, parallel.stderr);
 });
+
+test('tool and agent failures cannot produce a successful workflow result', t => {
+  const { root, env } = fixture(t);
+  writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+console.log(JSON.stringify({type:'tool_execution_end',toolName:'read',isError:true}));
+console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'Failed to read.'}]}}));
+`, { mode: 0o755 });
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
+  assert.equal(result.status, 1, result.stderr);
+  assert.equal(JSON.parse(result.stdout.trim()).status, 'error');
+});
