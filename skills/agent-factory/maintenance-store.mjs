@@ -47,7 +47,7 @@ export function recoverTransaction(root) {
   if (!journal) return false;
   const { before, after } = JSON.parse(journal);
   for (const p of Object.keys(before)) {
-    if (!(p.startsWith('.pi/') || ['run', 'README.md', '.gitignore', '.env.example', 'data/knowledge/.gitkeep', '.factory/installation.json', '.factory/previous-installation.json', '.factory/capabilities.json'].includes(p))) throw new Error(`Unexpected recovery path: ${p}`);
+    if (!(p.startsWith('.pi/') || ['run', 'README.md', '.gitignore', '.env.example', 'data/knowledge/.gitkeep', '.factory/build.json', '.factory/installation.json', '.factory/previous-installation.json', '.factory/capabilities.json'].includes(p))) throw new Error(`Unexpected recovery path: ${p}`);
     if (before[p] !== null && typeof before[p] !== 'string') throw new Error(`Invalid recovery content: ${p}`);
     const current = readText(root, p);
     if (current !== before[p] && current !== after[p]) throw new Error(`Recovery conflict: ${p}; retain .factory/transaction.json and resolve manually`);

@@ -9,11 +9,10 @@ import { modifyPlan } from './modify.mjs';
 import { effectiveCapabilities, checkCapabilities } from './capabilities.mjs';
 import { diffLines } from './diff.mjs';
 import { infrastructureFiles } from './maintenance-infra.mjs';
-import { pinWrites } from './maintenance-bundle.mjs';
 import { redacted, redactForModel, assertNoNewSecrets } from './maintenance-secrets.mjs';
 import { vendoredSkills } from './skill-sources.mjs';
 import { registrySkills, installedDir, installRegistrySkill, removeRegistrySkill, previewRegistrySkill, SKILLS_CLI } from './registry-skills.mjs';
-import { readText, readJson, fingerprints, transact, json } from './maintenance-store.mjs';
+import { readText, readJson, fingerprints, transact, json, digest } from './maintenance-store.mjs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -151,8 +150,12 @@ export function planChange(root, operations) {
   const beforeCapabilities = effectiveCapabilities(oldModel, opts);
   const afterCapabilities = effectiveCapabilities(model, opts);
   writes['.factory/capabilities.json'] = json(afterCapabilities);
-  // Agents keep using the runtime of the bundle that built these files.
-  Object.assign(writes, pinWrites(root));
+  const version = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+  const fileFingerprints = fingerprints(root, managedPaths(model));
+  for (const path of Object.keys(fileFingerprints)) {
+    if (Object.hasOwn(writes, path)) fileFingerprints[path] = writes[path] === null ? null : digest(writes[path]);
+  }
+  writes['.factory/build.json'] = json({ version, fingerprints: fileFingerprints });
   // Prompts describe roles; a removed capability they still mention keeps
   // steering agents toward something they no longer have.
   const stale = staleMentions(oldModel, model);
@@ -222,7 +225,7 @@ export function rebuildPlan(root) {
   plan.preview.rebuild = {
     ...(version ? { version } : {}),
     files: changed,
-    ...(repinned ? { agentRuntime: `Agents switch to the runtime of Factory ${version} (memory, command tools, request_permission).` } : {}),
+    ...(repinned ? { agentRuntime: `Generated files were built with Factory ${version}.` } : {}),
     ...(reach.length ? { changesReach: reach, note: 'These change what agents can run or reach, so the rebuild asks first.' } : {}),
   };
   return plan;
