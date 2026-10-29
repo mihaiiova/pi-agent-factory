@@ -587,3 +587,13 @@ test('/forge check does not claim unknown capabilities are verified', async t =>
   assert.match(a.notices.at(-1)[0], /not verifiable/);
   assert.doesNotMatch(a.notices.at(-1)[0], /All checks passed|every agent starts with what it needs/);
 });
+
+test('/forge check names the live extension provider', async t => {
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'web_search'] } }));
+  const a = adapter();
+  a.pi.getAllTools = () => [{ name: 'read' }, { name: 'web_search', sourceInfo: { source: 'npm:web-package@1.0.0' } }];
+  await registerMaintenance(a.pi, a.Type, root)('check', a.ctx);
+  const report = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8'));
+  assert.equal(report.capabilities.find(c => c.name === 'web_search').provider, 'npm:web-package@1.0.0');
+});

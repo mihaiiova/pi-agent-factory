@@ -39,7 +39,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
   /** What this session registered: tool names, and MCP tools with their exposure (servers that have connected). */
   const loaded = () => {
     const all = pi.getAllTools?.();
-    return { registeredTools: all?.map(t => t.name), mcpTools: all?.filter(t => t.name.startsWith('mcp__')).map(t => ({ name: t.name, exposure: t.exposure })) };
+    return { registeredTools: all?.map(t => t.name), toolProviders: Object.fromEntries((all ?? []).filter(t => t.sourceInfo?.source || t.sourceInfo?.path).map(t => [t.name, t.sourceInfo.source || t.sourceInfo.path])), mcpTools: all?.filter(t => t.name.startsWith('mcp__')).map(t => ({ name: t.name, exposure: t.exposure })) };
   };
   const tell = (ctx, message, level = 'info') => {
     if (ctx.hasUI) ctx.ui.notify(message, level);

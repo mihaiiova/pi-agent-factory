@@ -65,7 +65,7 @@ export function checkAgent(root, options = {}) {
         capabilities.push({ agent: agent.name, name, provider: `CLI ${command ?? name.slice(4)}`, status: present ? 'verified now' : 'missing', fix: `${present ? 'Presence only' : 'Install the command or add it to PATH'}; authentication is not checked.` });
       } else if (BUILTIN.has(name)) capabilities.push({ agent: agent.name, name, provider: 'built-in', status: 'verified now', fix: 'None.' });
       else if (!name.startsWith('mcp:') && !name.startsWith('cli:') && name !== 'mcp') {
-        const provider = checked?.providers[name];
+        const provider = checked?.providers[name] ?? options.toolProviders?.[name];
         const present = provider || options.registeredTools?.includes(name);
         const known = registeredTools !== undefined;
         capabilities.push({ agent: agent.name, name, provider: provider || 'extension', status: present ? 'verified now' : known ? 'missing' : 'not verifiable', fix: present ? 'None.' : 'Install or enable the providing extension; use /forge check to verify the live session.' });
