@@ -64,11 +64,6 @@ const PROMPT_FILES = [
 ];
 const LAUNCH = 'pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"';
 
-/** The launcher as generated before the prompt files were passed explicitly. */
-export function previousLauncher(script) {
-  return script.replace(`${PROMPT_FILES.join("\n")}\nexec ${LAUNCH}`, 'exec pi --no-context-files "$@"');
-}
-
 export function launcherScript(names = []) {
   return [
     "#!/usr/bin/env bash",
