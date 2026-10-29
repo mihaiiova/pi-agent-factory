@@ -363,3 +363,10 @@ test('README states timeout cleanup ownership and detached-process limit', () =>
   assert.match(readme, /independently detached processes.*survive/i);
   assert.match(readme, /cleanup.*incomplete/i);
 });
+
+test('README describes systemd scope and fallback', () => {
+  const workflowModel = { ...model, workflows: [{ name: 'daily-report', entry: model.orchestrator.name }] };
+  const readme = byPath(generateProject(workflowModel, {}).files, 'README.md').content;
+  assert.match(readme, /systemd.*scope/i);
+  assert.match(readme, /fallback/i);
+});
