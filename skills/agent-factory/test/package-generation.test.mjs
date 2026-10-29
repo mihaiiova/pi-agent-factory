@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { rebuildPlan } from '../maintenance.mjs';
+import { rebuildPlan, planChange } from '../maintenance.mjs';
 
 const repo = resolve(import.meta.dirname, '../../..');
 test('CLI generation installs no copied Factory tooling', t => {
@@ -24,6 +24,16 @@ test('CLI no longer offers bootstrap or recovery commands', () => {
   for (const command of ['bootstrap-update', 'recover']) {
     assert.throws(() => execFileSync(process.execPath, [join(repo, 'skills/agent-factory/factory.mjs'), command, '.'], { stdio: 'pipe' }));
   }
+});
+
+test('package project changes do not rely on legacy installation metadata', t => {
+  const root = mkdtempSync(join(tmpdir(), 'factory-package-change-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, '.pi'));
+  copyFileSync(join(import.meta.dirname, 'fixtures/generate/minimal/.pi/system.yaml'), join(root, '.pi/system.yaml'));
+  execFileSync(process.execPath, [join(repo, 'skills/agent-factory/factory.mjs'), 'generate', root]);
+  writeFileSync(join(root, '.factory/installation.json'), JSON.stringify({ entrypoints: { '.pi/extensions/factory-update/index.ts': 'obsolete' } }));
+  assert.doesNotThrow(() => planChange(root, [{ op: 'reconcile' }]));
 });
 
 test('rebuild identifies the package version used for generated files', t => {

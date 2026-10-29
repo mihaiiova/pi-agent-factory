@@ -8,7 +8,6 @@ import { managedPaths, generateProject } from './generate.mjs';
 import { modifyPlan } from './modify.mjs';
 import { effectiveCapabilities, checkCapabilities } from './capabilities.mjs';
 import { diffLines } from './diff.mjs';
-import { infrastructureFiles } from './maintenance-infra.mjs';
 import { redacted, redactForModel, assertNoNewSecrets } from './maintenance-secrets.mjs';
 import { vendoredSkills } from './skill-sources.mjs';
 import { registrySkills, installedDir, installRegistrySkill, removeRegistrySkill, previewRegistrySkill, SKILLS_CLI } from './registry-skills.mjs';
@@ -96,21 +95,11 @@ export function planChange(root, operations) {
   const opts = { piPackages: pinsAt(root) };
   const paths = [...new Set([...managedPaths(oldModel), ...managedPaths(model)])];
   const existing = Object.fromEntries(paths.map(p => [p, readText(root, p)]).filter(([,v]) => v !== null));
-  const infrastructure = Object.keys(infrastructureFiles());
-  const installed = readText(root, '.factory/installation.json') ? readJson(root, '.factory/installation.json') : {};
-  for (const [path, hash] of Object.entries(installed.entrypoints ?? {})) {
-    if (fingerprints(root, [path])[path] !== hash) throw new Error(`Maintenance infrastructure conflict: ${path}`);
-  }
   const baseline = generateProject(oldModel, existing, opts);
   const drift = baseline.files.filter(f => ['run', '.pi/settings.json', '.pi/mcp.json'].includes(f.path) && f.action !== 'none').map(f => f.path);
   // Configuration this version generates differently (a newer Factory, or a
   // hand edit) is rebuilt with the change and shown in its preview.
   const plan = modifyPlan(model, existing, opts);
-  // Protocol-1 front doors are stable. Their versioned workflow/engine updates
-  // behind the installation pointer; future scaffold copy changes are not
-  // treated as operational conflicts or silently written over the old loader.
-  plan.files = plan.files.filter(f => !infrastructure.includes(f.path));
-  plan.conflicts = plan.conflicts.filter(f => !infrastructure.includes(f.path));
   if (plan.errors.length) throw new Error(plan.errors.join('\n'));
   if (plan.conflicts.length) throw new Error(`Authored file conflicts (nothing applied): ${plan.conflicts.map(f => f.path).join(', ')}`);
   const oldScaffolds = generateProject(oldModel, {}, opts).files;
@@ -164,7 +153,7 @@ export function planChange(root, operations) {
   const restart = restartNeeded(root, writes);
   return {
     kind: 'configuration', writes, skills, restart,
-    expected: fingerprints(root, [...paths, ...Object.keys(writes), '.factory/installation.json']),
+    expected: fingerprints(root, [...paths, ...Object.keys(writes)]),
     preview: {
       reconciliation: drift,
       ...(drift.length ? { rebuilt: `This Factory version generates ${drift.join(', ')} differently from the files on disk (a newer version, or a hand edit, which would be lost). Applying also rebuilds them.` } : {}),
