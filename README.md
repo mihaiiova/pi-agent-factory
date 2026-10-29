@@ -143,12 +143,15 @@ start, so `/forge check` also checks their tools. The last result is saved in
 Outside a session, run `node /path/to/pi-forge/skills/forge/forge.mjs check-agent <project>`.
 It makes no model calls and does not connect MCP by default; `--connect` runs
 `pi mcp list --json` using the project's isolated Pi home and may connect to
-networks and use configured credentials. Pi requires the project to be trusted
-(first run `./run`, then `/trust`) for project MCP servers to appear. CLI
+networks and use configured credentials. Pi's shell commands read project MCP
+servers only for a saved trust decision, so `--connect` saves one in the
+project's own isolated Pi home (which `./run` trusts on every start anyway) and
+reports `trustSaved`; your personal Pi home is not touched. CLI
 checks test command presence only, not authentication or functionality. The
 CLI inspects installed Pi extensions using Pi's SDK without installing missing
-packages. If Pi's SDK cannot safely avoid loading disabled auto-discovered
-extensions, CLI extension results are `not verifiable`; use `/forge check` in
+packages. If the project has auto-discovered extension code that Pi's SDK
+could load even when disabled, CLI extension results are `not verifiable`
+(configuration such as Forge's `subagent/config.json` doesn't count); use `/forge check` in
 a running session. Extension loading runs the installed extensions' registration
 code. Results reflect observations, not a functional or credential test.
 

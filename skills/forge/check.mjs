@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { parsedModel } from './changes.mjs';
@@ -9,17 +9,38 @@ import { probeClis } from './discover.mjs';
 import { skillSourceKind } from './skill-sources.mjs';
 import { enforcedAgentTools } from './policy.mjs';
 import { mcpToolName } from './mcp-gen.mjs';
+import { leadTools } from './asking.mjs';
 
 const BUILTIN = new Set(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
 
+/**
+ * Pi's shell commands read project MCP servers only for a saved trust
+ * decision, and ./run trusts the project per run without saving one. Save it
+ * in the project's own isolated Pi home, which ./run already trusts on every
+ * start; the user's personal Pi home is never touched.
+ */
+function saveProjectTrust(root) {
+  const home = join(root, '.forge/pi-home');
+  const file = join(home, 'trust.json');
+  let decisions = {};
+  try { decisions = JSON.parse(readFileSync(file, 'utf8')); } catch { /* none saved yet */ }
+  const path = realpathSync(root);
+  if (decisions[path] === true) return null;
+  atomicWrite(root, '.forge/pi-home/trust.json', json({ ...decisions, [path]: true }));
+  return file;
+}
+
 /** Explicit opt-in: Pi connects MCP servers using this project's isolated home. */
 export function connectMcp(root) {
+  const trustSaved = saveProjectTrust(root);
   const result = spawnSync('pi', ['mcp', 'list', '--json'], { cwd: root, env: { ...process.env, PI_CODING_AGENT_DIR: join(root, '.forge/pi-home') }, encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024 });
-  let servers;
-  try { servers = JSON.parse(result.stdout).servers; } catch { servers = null; }
-  const diagnostic = [result.error?.message, result.stderr?.trim()].filter(Boolean).join('\n').slice(-2000);
-  if (!Array.isArray(servers)) return { error: diagnostic || 'Could not read pi mcp list output.' };
-  return { servers: servers.map(s => ({ name: s.name, state: s.state, tools: s.tools ?? [], ...(s.error || (s.state !== 'connected' && diagnostic) ? { error: [s.error, diagnostic].filter(Boolean).join('\n').slice(-2000) } : {}) })), ...(diagnostic ? { diagnostic } : {}) };
+  let output;
+  try { output = JSON.parse(result.stdout); } catch { output = null; }
+  // Pi explains in `note` why it read no servers; keep it rather than report nothing.
+  const diagnostic = [result.error?.message, result.stderr?.trim(), output?.note].filter(Boolean).join('\n').slice(-2000);
+  const saved = trustSaved ? { trustSaved } : {};
+  if (!Array.isArray(output?.servers)) return { error: diagnostic || 'Could not read pi mcp list output.', ...saved };
+  return { servers: output.servers.map(s => ({ name: s.name, state: s.state, tools: s.tools ?? [], ...(s.error || (s.state !== 'connected' && diagnostic) ? { error: [s.error, diagnostic].filter(Boolean).join('\n').slice(-2000) } : {}) })), ...(diagnostic ? { diagnostic } : {}), ...saved };
 }
 
 /** Check declarations without making a model call. */
@@ -83,10 +104,12 @@ export function checkAgent(root, options = {}) {
     const present = command.includes('/') ? existsSync(resolve(root, command)) : probeClis([command])[command];
     capabilities.push({ agent: 'project', name: `cli:${name}`, provider: `CLI ${command}`, status: present ? 'verified now' : 'missing', fix: `${present ? 'Presence only' : 'Install the command or add it to PATH'}; authentication is not checked.` });
   }
+  // Servers belong to the orchestrator only when it may use them.
+  const owner = leadTools(model).includes('mcp') ? model.orchestrator.name : 'project';
   for (const { name } of declaredServers) {
     const state = mcpEvidence.find(s => s.name === name);
     const status = state?.state === 'connected' ? (liveMcp ? 'verified now' : `last seen ${mcpTimestamp}`) : state && state.state !== 'unknown' ? 'missing' : 'not verifiable';
-    capabilities.push({ agent: model.orchestrator.name, name: `mcp:${name}`, provider: `MCP ${name}`, status, fix: status === 'missing' ? `Check /mcp.${state?.error ? ` ${state.error}` : ''}` : status === 'not verifiable' ? 'Connect with check-agent --connect or check in a running session.' : 'None.' });
+    capabilities.push({ agent: owner, name: `mcp:${name}`, provider: `MCP ${name}`, status, fix: status === 'missing' ? `Check /mcp.${state?.error ? ` ${state.error}` : ''}` : status === 'not verifiable' ? 'Connect with check-agent --connect or check in a running session.' : 'None.' });
   }
   let build = null;
   try { build = JSON.parse(readFileSync(join(root, '.forge/build.json'), 'utf8')).version ?? null; } catch { /* no build record */ }
@@ -95,6 +118,19 @@ export function checkAgent(root, options = {}) {
   const result = { timestamp, versions, ok: checks.ok && !capabilities.some(c => c.status === 'missing'), capabilities, checks, ...(mcpTimestamp ? { mcpEvidence: { timestamp: mcpTimestamp, servers: mcpEvidence } } : {}), ...(checked?.error ? { extensionDiagnostic: checked.error } : {}), ...(checked?.missing.length ? { unresolvedPackages: checked.missing } : {}) };
   atomicWrite(root, '.forge/check.json', json(result));
   return result;
+}
+
+/**
+ * Whether Pi would auto-load extension code from `dir`: a script file, or a
+ * folder with an index script or package.json. Configuration Forge writes
+ * there for pi-subagents (`subagent/config.json`) is not code.
+ */
+function hasExtensionCode(dir) {
+  const code = /\.(ts|js|mjs|cjs)$/;
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+  return entries.some(e => (e.isFile() && code.test(e.name))
+    || (e.isDirectory() && readdirSync(join(dir, e.name)).some(f => f === 'package.json' || /^index\.(ts|js|mjs|cjs)$/.test(f))));
 }
 
 /** Use Pi's non-installing package resolver; never load ambiguous autodiscovery. */
@@ -118,7 +154,7 @@ export async function loadProjectTools(root) {
     // The SDK's public discoverAndLoadExtensions also auto-loads these paths,
     // bypassing resolver filters. Refuse ambiguity rather than execute disabled code.
     for (const dir of [join(root, '.pi/extensions'), join(agentDir, 'extensions')]) {
-      if (existsSync(dir) && readdirSync(dir).length) throw new Error(`Cannot safely verify extension autoload at ${dir}; use /forge check in a running session`);
+      if (hasExtensionCode(dir)) throw new Error(`Cannot safely verify extension autoload at ${dir}; use /forge check in a running session`);
     }
     const settings = sdk.SettingsManager.create(root, agentDir);
     settings.setProjectTrusted(true);

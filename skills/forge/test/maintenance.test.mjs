@@ -522,7 +522,9 @@ test('check-agent loads an explicitly configured extension without a model call'
   settings.extensions = ['./fixture.mjs'];
   writeFileSync(join(root, '.pi/settings.json'), JSON.stringify(settings));
   writeFileSync(join(root, '.pi/fixture.mjs'), `export default pi => pi.registerTool({name:'fixture_tool',label:'Fixture',description:'Fixture',parameters:{type:'object',properties:{}},execute:async()=>({content:[]})});`);
-  rmSync(join(root, '.forge/pi-home/extensions'), { recursive: true, force: true });
+  // Forge writes this for background specialists; it is configuration, not code.
+  mkdirSync(join(root, '.forge/pi-home/extensions/subagent'), { recursive: true });
+  writeFileSync(join(root, '.forge/pi-home/extensions/subagent/config.json'), '{"forceTopLevelAsync":true}');
   const result = requireResult(process.execPath, [forge, 'check-agent', root], { encoding: 'utf8' });
   const report = JSON.parse(result.stdout);
   assert.ok(report.capabilities.some(c => c.name === 'fixture_tool' && c.status === 'verified now'));
@@ -539,6 +541,16 @@ test('check-agent never loads disabled auto-discovered extensions', t => {
   const result = requireResult(process.execPath, [forge, 'check-agent', root], { encoding: 'utf8' });
   assert.match(JSON.parse(result.stdout).extensionDiagnostic, /Cannot safely verify/);
   assert.equal(existsSync(marker), false);
+});
+
+test('check-agent attributes MCP servers to the orchestrator only when it has mcp', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const root = project(t);
+  const servers = { integrations: { mcp: [{ name: 'docs', config: { url: 'https://example.invalid/mcp' } }] } };
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, ...servers }));
+  assert.equal(checkAgent(root).capabilities.find(c => c.name === 'mcp:docs').agent, 'project');
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, ...servers, orchestrator: { ...model.orchestrator, tools: ['read', 'mcp'] } }));
+  assert.equal(checkAgent(root).capabilities.find(c => c.name === 'mcp:docs').agent, 'lead');
 });
 
 test('check-agent reports missing packages without installing them', t => {

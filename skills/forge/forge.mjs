@@ -630,6 +630,7 @@ async function main(argv) {
     catch (error) { fail(error.message); return; }
     const connected = rest.includes('--connect') ? connectMcp(root) : null;
     const report = checkAgent(root, { toolCheck: await loadProjectTools(root), ...(connected?.servers ? { mcpServers: connected.servers } : {}) });
+    if (connected?.trustSaved) { report.trustSaved = connected.trustSaved; atomicWrite(root, '.forge/check.json', `${JSON.stringify(report, null, 2)}\n`); }
     if (connected?.error) { report.ok = false; report.mcpDiagnostic = connected.error; atomicWrite(root, '.forge/check.json', `${JSON.stringify(report, null, 2)}\n`); }
     console.log(JSON.stringify(report, null, 2));
     process.exitCode = report.ok ? 0 : 1;

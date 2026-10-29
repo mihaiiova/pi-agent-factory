@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { generateProject } from '../generate.mjs';
@@ -107,15 +107,18 @@ test('check-agent --connect verifies a local MCP server without a model call', a
   const { spawnSync } = await import('node:child_process');
   const { fileURLToPath } = await import('node:url');
   const root = project(t);
-  const server = fileURLToPath(new URL('./fixtures/mcp-check-server.mjs', import.meta.url));
+  const server = fileURLToPath(new URL('./fixtures/mcp/server.mjs', import.meta.url));
   const forge = fileURLToPath(new URL('../forge.mjs', import.meta.url));
-  const doc = { ...model, agents: [{ name: 'seo', model: 'p/m', tools: ['mcp:seo/audit'] }], skills: [], integrations: { mcp: [{ name: 'seo', config: { command: process.execPath, args: [server] } }] } };
+  const doc = { ...model, agents: [{ name: 'seo', model: 'p/m', tools: ['mcp:seo/audit'] }], skills: [], integrations: { mcp: [{ name: 'seo', config: { command: process.execPath, args: [server], env: { MCP_TOOLS: 'audit' } } }] } };
   for (const f of generateProject(doc, {}).files) { mkdirSync(dirname(join(root, f.path)), { recursive: true }); writeFileSync(join(root, f.path), f.content); }
   writeFileSync(join(root, '.pi/system.yaml'), loadYaml().stringify(doc));
-  mkdirSync(join(root, '.forge/pi-home'), { recursive: true });
-  writeFileSync(join(root, '.forge/pi-home/trust.json'), JSON.stringify({ [root]: true }));
+  // Like a project ./run has started: trusted per run, never saved. Pi's shell
+  // commands read only saved trust, so --connect saves it in this project's home.
   const run = spawnSync(process.execPath, [forge, 'check-agent', root, '--connect'], { encoding: 'utf8', timeout: 30000 });
-  assert.ok(JSON.parse(run.stdout).capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'verified now'), run.stderr);
+  const connected = JSON.parse(run.stdout);
+  assert.ok(connected.capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'verified now'), run.stderr);
+  assert.match(connected.trustSaved, /\.forge\/pi-home\/trust\.json$/);
+  assert.equal(JSON.parse(readFileSync(join(root, '.forge/pi-home/trust.json'), 'utf8'))[realpathSync(root)], true);
   const mcp = JSON.parse(readFileSync(join(root, '.pi/mcp.json'), 'utf8'));
   mcp.mcpServers.seo.args = ['-e', "console.error('fixture connection failed'); process.exit(1)"];
   writeFileSync(join(root, '.pi/mcp.json'), JSON.stringify(mcp));
