@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSyn
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync as requireResult } from 'node:child_process';
 import { loadYaml } from '../yaml-loader.mjs';
 import { generateProject } from '../generate.mjs';
 import { changeModel } from '../changes.mjs';
@@ -512,4 +512,18 @@ test('check-agent saves a timestamped capability report without a model call', t
   assert.ok(!Number.isNaN(Date.parse(report.timestamp)));
   assert.ok(report.capabilities.some(c => c.agent === 'lead' && c.name === 'read' && c.status === 'verified now'));
   assert.equal(JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8')).timestamp, report.timestamp);
+});
+
+test('check-agent loads an explicitly configured extension without a model call', t => {
+  const root = project(t);
+  const changed = { ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'fixture_tool'] } };
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(changed));
+  const settings = readJson(root, '.pi/settings.json');
+  settings.extensions = ['./fixture.mjs'];
+  writeFileSync(join(root, '.pi/settings.json'), JSON.stringify(settings));
+  writeFileSync(join(root, '.pi/fixture.mjs'), `export default pi => pi.registerTool({name:'fixture_tool',label:'Fixture',description:'Fixture',parameters:{type:'object',properties:{}},execute:async()=>({content:[]})});`);
+  rmSync(join(root, '.forge/pi-home/extensions'), { recursive: true, force: true });
+  const result = requireResult(process.execPath, [forge, 'check-agent', root], { encoding: 'utf8' });
+  const report = JSON.parse(result.stdout);
+  assert.ok(report.capabilities.some(c => c.name === 'fixture_tool' && c.status === 'verified now'));
 });

@@ -41,7 +41,7 @@ import { vendoredSkills } from "./skill-sources.mjs";
 import { registrySkills, installedDir, installRegistrySkill, searchSkills, previewRegistrySkill, resolveRegistrySkill } from "./registry-skills.mjs";
 import { planChange, applyChange, withSkillPreviews } from './maintenance.mjs';
 import { fingerprints } from './maintenance-store.mjs';
-import { checkAgent } from './check.mjs';
+import { checkAgent, loadProjectTools } from './check.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -621,7 +621,7 @@ async function main(argv) {
 
   if (command === 'check-agent') {
     if (!dir) { fail('missing <dir> argument'); return; }
-    const report = checkAgent(resolve(dir));
+    const report = checkAgent(resolve(dir), { toolCheck: await loadProjectTools(resolve(dir)) });
     console.log(JSON.stringify(report, null, 2));
     process.exitCode = report.ok ? 0 : 1;
     return;
