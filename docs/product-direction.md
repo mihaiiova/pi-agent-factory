@@ -4,7 +4,8 @@
 > changes to it. Where an older document disagrees with it, this one wins.
 > Pi Forge was formerly called **Pi Agent Factory** (`pi-agent-factory`,
 > `/agent-factory`, `/factory-update`). The code still uses those names until the
-> rename lands; see [the roadmap](roadmap.md).
+> rename lands; see [the roadmap](roadmap.md). The rename carries no migration:
+> agents built with the old names are rebuilt, not converted.
 
 ## 1. Product definition
 
@@ -23,8 +24,9 @@ change.
 Forge composes Pi's own resources: settings, agent files, skills, packages,
 extensions, MCP servers, sessions. It does not add another agent runtime,
 workflow engine, scheduler, plugin system or memory store. A generated agent
-runs with Pi alone: it never needs Forge running, and keeps working if Forge is
-uninstalled.
+runs with Pi and the packages its project pins. It never needs Forge running:
+the small agent runtime it uses (memory, declared commands, approvals) comes
+from the Forge package version pinned in the project.
 
 ## 3. Target users and reference use cases
 
@@ -37,8 +39,9 @@ products:
 - **A. Owlie marketing agent.** Automates marketing for owlie.io step by step,
   from analysis to drafts, approved publishing and eventually bounded
   autonomous runs. It uses OpenSEO, PostHog, Search Console and social
-  publishing. It already exists, built with the current Forge. Use it to find
-  gaps; don't rebuild it to prove generation works.
+  publishing. A version built with the old Factory exists. It is not
+  maintained forward: it is rebuilt from scratch with Forge, which makes it the
+  first end-to-end test of design, generation, checks and scheduling.
 - **B. Investing research agent.** Takes in processed information from Owlie,
   reads market and company data, keeps hypotheses, and proposes actions.
   Research access and trading authority are separate capabilities. Trade
@@ -86,16 +89,18 @@ native files from it, and the user edits the authored ones directly.
 
 Pi runs the agent: the model loop, tools, extensions, skills, MCP, sessions and
 transcripts, subagents (through `pi-subagents`), and headless execution. Forge
-uses those mechanisms instead of duplicating them, and follows Pi when Pi gains
-a native mechanism Forge currently gets from a package. For example, Pi 1.4 has
-built-in MCP support.
+uses those mechanisms instead of duplicating them. Order of preference: a Pi
+built-in, then an existing package, then Forge's own code. When Pi gains a
+built-in for something Forge gets from a package, Forge moves to the built-in.
+MCP therefore uses Pi's built-in support.
 
 ## 7. Architecture boundaries
 
-- **Generated agent and Forge are separate.** A project carries its own build
-  (generated files plus the agent runtime pinned in its build record) and its
-  own copy of the Forge tooling. Updating the tooling never changes what agents
-  see until the project is rebuilt.
+- **Generated agent and Forge are separate.** A project pins one Forge version
+  as a Pi package in its `.pi/settings.json`. Pi installs it; nothing is copied
+  into the project. Forge changes an agent only through a previewed change or
+  `/forge sync`, which moves the pin and rebuilds in one approved step. Git is
+  the history and the rollback.
 - **Desired state vs native files.** `system.yaml` declares, and Forge derives
   `settings.json`, `mcp.json`, agent frontmatter and the launcher. Prompts,
   skills and README are the user's; Forge creates them once and never silently
@@ -143,20 +148,17 @@ Before adding anything, ask:
 
 ## 10. Evolution strategy
 
-Forge already works, and the Owlie marketing agent was built and maintained
-with it. Change is incremental:
+Forge works today, but there is no installed base to protect. Until 1.0:
 
-- Keep `system.yaml` schema 1 and extend it only additively, adding a field
-  only when a reference use case needs it.
-- Existing generated projects keep running and stay maintainable through every
-  change, including the rename. A migration is previewed, approved and
-  reversible, and compatibility aliases have a stated end.
-- Prefer improving the discovery procedure and checks over adding schema
-  types.
-- When Pi gains a native mechanism for something Forge does, plan the move to
-  it.
-- Simplify the maintenance machinery only where the guarantees it provides are
-  kept or explicitly given up.
+- Breaking changes are allowed. They come with no migrations, bridges or
+  compatibility aliases. An agent built by an older version is regenerated.
+- Prefer deleting code to keeping it compatible. Generation, validation and
+  approvals stay; machinery that only served old projects goes.
+- Extend `system.yaml` only when a reference use case needs a field. Prefer
+  improving the discovery procedure and checks over adding schema types.
+- When Pi gains a built-in for something Forge does, move to it.
+
+From 1.0, an update never breaks or silently changes an existing agent.
 
 ## 11. Definition of success
 
@@ -175,8 +177,9 @@ with it. Change is incremental:
 
 In order (details and issues in [the roadmap](roadmap.md)):
 
-0. **Pi Forge rename and command surface:** one `/forge` command, with old
-   projects migrated rather than recreated.
+0. **Packaging, rename and command surface:** Forge ships as a pinned Pi
+   package under one `/forge` command, and the bundle machinery goes. No
+   migration of existing projects.
 1. **Capability composition:** discover, inspect, select and verify existing
    Pi packages, extensions and MCP servers.
 2. **Execution and triggers:** a headless workflow contract, a run index, and
@@ -184,4 +187,3 @@ In order (details and issues in [the roadmap](roadmap.md)):
 3. **Functional verification:** agent-specific acceptance scenarios with
    diagnostic evidence.
 4. **Operational evolution:** revisions informed by run evidence.
-5. **Simplification:** reduce maintenance machinery where justified.
