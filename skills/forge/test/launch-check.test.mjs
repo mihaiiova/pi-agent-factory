@@ -89,3 +89,15 @@ test('launch check reports missing orchestrator extension tools', t => {
   const configured = { ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'missing_extension'] }, agents: [] };
   assert.ok(launchCheck(root, configured, { registeredTools: ['read'] }).problems.some(p => p.agent === 'lead' && p.problem.includes('missing_extension')));
 });
+
+test('capability report distinguishes connected and cached MCP evidence', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const { loadYaml } = await import('../yaml-loader.mjs');
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), loadYaml().stringify(model));
+  const connected = [{ name: 'seo', state: 'connected', tools: ['audit'] }, { name: 'github', state: 'connected', tools: ['issue_read'] }];
+  const live = checkAgent(root, { mcpServers: connected });
+  assert.ok(live.capabilities.some(c => c.agent === 'seo' && c.name === 'mcp:seo/audit' && c.status === 'verified now'));
+  const cached = checkAgent(root);
+  assert.ok(cached.capabilities.some(c => c.agent === 'seo' && c.name === 'mcp:seo/audit' && c.status.startsWith('last seen ')));
+});

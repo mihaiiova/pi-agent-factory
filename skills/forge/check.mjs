@@ -7,12 +7,24 @@ import { cliEntries } from './cli-tools.mjs';
 import { probeClis } from './discover.mjs';
 import { skillSourceKind } from './skill-sources.mjs';
 import { enforcedAgentTools } from './policy.mjs';
+import { mcpToolName } from './mcp-gen.mjs';
 
 const BUILTIN = new Set(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
 
 /** Check declarations without making a model call. */
 export function checkAgent(root, options = {}) {
   const model = parsedModel(readFileSync(join(root, '.pi/system.yaml'), 'utf8'));
+  let previous;
+  try { previous = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8')); } catch { /* no previous check */ }
+  const timestamp = new Date().toISOString();
+  const declaredServers = model.integrations?.mcp ?? [];
+  let mcpEvidence = options.mcpServers;
+  if (!mcpEvidence && Array.isArray(options.mcpTools)) {
+    mcpEvidence = declaredServers.map(({ name }) => ({ name, state: 'connected', tools: options.mcpTools.filter(t => t.name.startsWith(mcpToolName(name, '')) && t.exposure !== 'hidden').map(t => t.name.slice(mcpToolName(name, '').length)) }));
+  }
+  const liveMcp = Array.isArray(mcpEvidence);
+  if (!liveMcp) mcpEvidence = previous?.mcpEvidence?.servers ?? [];
+  const mcpTimestamp = liveMcp ? timestamp : previous?.mcpEvidence?.timestamp;
   const checked = options.toolCheck;
   const registeredTools = options.registeredTools ?? (checked && !checked.error && !checked.missing.length ? Object.keys(checked.providers) : undefined);
   const checks = checkProject(root, { ...options, registeredTools });
@@ -22,7 +34,13 @@ export function checkAgent(root, options = {}) {
   for (const agent of [model.orchestrator, ...(model.agents ?? [])]) {
     const tools = agent === model.orchestrator ? (agent.tools ?? cliEntries(model).map(c => `cli:${c.name}`)) : enforcedAgentTools(agent.name, model.policies, agent.tools);
     for (const name of tools ?? []) {
-      if (name.startsWith('cli:')) {
+      if (name.startsWith('mcp:')) {
+        const [server, tool] = name.slice(4).split('/');
+        const state = mcpEvidence.find(s => s.name === server);
+        const present = state?.state === 'connected' && (!tool || state.tools?.includes(tool));
+        const status = present ? (liveMcp ? 'verified now' : `last seen ${mcpTimestamp}`) : state ? 'missing' : 'not verifiable';
+        capabilities.push({ agent: agent.name, name, provider: `MCP ${server}`, status, fix: present ? 'None.' : `Check ${server} with /mcp or rerun check-agent --connect.${state?.error ? ` ${state.error}` : ''}` });
+      } else if (name.startsWith('cli:')) {
         const command = commands.get(name.slice(4))?.command;
         const present = command && (command.includes('/') ? existsSync(join(root, command)) : probeClis([command])[command]);
         capabilities.push({ agent: agent.name, name, provider: `CLI ${command ?? name.slice(4)}`, status: present ? 'verified now' : 'missing', fix: `${present ? 'Presence only' : 'Install the command or add it to PATH'}; authentication is not checked.` });
@@ -41,7 +59,12 @@ export function checkAgent(root, options = {}) {
       capabilities.push({ agent: agent.name, name: `skill:${name}`, provider: dir ?? 'Pi package', status: dir ? (present ? 'verified now' : 'missing') : 'not verifiable', fix: present ? 'None.' : 'Install the skill or verify its Pi package in a session.' });
     }
   }
-  const result = { timestamp: new Date().toISOString(), ok: checks.ok && !capabilities.some(c => c.status === 'missing'), capabilities, checks, ...(checked?.error ? { extensionDiagnostic: checked.error } : {}), ...(checked?.missing.length ? { unresolvedPackages: checked.missing } : {}) };
+  for (const { name } of declaredServers) {
+    const state = mcpEvidence.find(s => s.name === name);
+    const status = state?.state === 'connected' ? (liveMcp ? 'verified now' : `last seen ${mcpTimestamp}`) : state ? 'missing' : 'not verifiable';
+    capabilities.push({ agent: model.orchestrator.name, name: `mcp:${name}`, provider: `MCP ${name}`, status, fix: status === 'missing' ? `Check /mcp.${state?.error ? ` ${state.error}` : ''}` : status === 'not verifiable' ? 'Connect with check-agent --connect or check in a running session.' : 'None.' });
+  }
+  const result = { timestamp, ok: checks.ok && !capabilities.some(c => c.status === 'missing'), capabilities, checks, ...(mcpTimestamp ? { mcpEvidence: { timestamp: mcpTimestamp, servers: mcpEvidence } } : {}), ...(checked?.error ? { extensionDiagnostic: checked.error } : {}), ...(checked?.missing.length ? { unresolvedPackages: checked.missing } : {}) };
   atomicWrite(root, '.forge/check.json', json(result));
   return result;
 }
