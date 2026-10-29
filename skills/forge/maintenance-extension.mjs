@@ -14,6 +14,7 @@ import { envStatus, setEnvValue } from './maintenance-env.mjs';
 import { probeClis } from './discover.mjs';
 import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
+import { checkAgent } from './check.mjs';
 import { registerAgent } from './agent-extension.mjs';
 
 export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, updates = {} } = {}) {
@@ -175,14 +176,17 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     await ctx.reload();
   };
   const check = (ctx) => {
-    const result = checkProject(root, loaded());
-    if (result.ok) { tell(ctx, 'All checks passed: system.yaml is valid, the generated files match it, and every agent starts with what it needs.'); return; }
+    const report = checkAgent(root, loaded());
+    const result = report.checks;
+    const evidence = report.capabilities.map(c => `- ${c.agent}: ${c.name} (${c.provider}): ${c.status}; ${c.fix}`).join('\n');
+    if (result.ok && report.ok) { tell(ctx, `All checks passed: system.yaml is valid and the generated files match it.\n${evidence}`); return; }
     const section = (name, problems, fix) => problems === null ? `${name}: skipped until system.yaml is valid`
       : problems.length ? `${name}: ${problems.length} problem${problems.length === 1 ? '' : 's'}\n${problems.map(p => `- ${p}`).join('\n')}${fix ? `\n${fix}` : ''}` : `${name}: ok`;
     tell(ctx, [
       section('Validation', result.validation, 'Describe the fix with /forge <request>.'),
       section('Consistency', result.consistency, 'Run /forge sync to rebuild the generated files from system.yaml.'),
       section('Launch check', result.launch),
+      evidence,
     ].join('\n\n'), 'warning');
   };
   const status = async (ctx) => {

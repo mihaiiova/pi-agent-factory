@@ -552,3 +552,14 @@ test('check-agent reports missing packages without installing them', t => {
   assert.deepEqual(report.unresolvedPackages, ['npm:forge-nonexistent-package-for-test@1.0.0']);
   assert.equal(existsSync(join(root, '.pi/npm')), false);
 });
+
+test('/forge check saves and displays capability evidence', async t => {
+  const root = project(t);
+  const a = adapter();
+  a.pi.getAllTools = () => [{ name: 'read' }];
+  const command = registerMaintenance(a.pi, a.Type, root);
+  await command('check', a.ctx);
+  const report = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8'));
+  assert.ok(report.capabilities.some(c => c.name === 'read' && c.status === 'verified now'));
+  assert.match(a.notices.at(-1)[0], /verified now/);
+});
