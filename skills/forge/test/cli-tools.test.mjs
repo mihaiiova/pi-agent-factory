@@ -284,3 +284,10 @@ test('/forge permissions adds, lists, reviews and removes commands', async (t) =
   assert.equal(doc.integrations.cli.some((c) => c.name === 'create-issue'), false);
   assert.equal(doc.orchestrator.tools.includes('cli:create-issue'), false);
 });
+
+test('capability check reports CLI presence without executing commands', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const root = project(t);
+  const report = checkAgent(root);
+  assert.ok(report.capabilities.some(c => c.name === 'cli:echo-title' && c.status === 'verified now' && /authentication.*not checked/i.test(c.fix)));
+});

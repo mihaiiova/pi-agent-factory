@@ -1,8 +1,12 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parsedModel } from './changes.mjs';
 import { checkProject } from './maintenance.mjs';
 import { atomicWrite, json } from './maintenance-store.mjs';
+import { cliEntries } from './cli-tools.mjs';
+import { probeClis } from './discover.mjs';
+import { skillSourceKind } from './skill-sources.mjs';
+import { enforcedAgentTools } from './policy.mjs';
 
 const BUILTIN = new Set(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
 
@@ -13,15 +17,28 @@ export function checkAgent(root, options = {}) {
   const registeredTools = options.registeredTools ?? (checked && !checked.error && !checked.missing.length ? Object.keys(checked.providers) : undefined);
   const checks = checkProject(root, { ...options, registeredTools });
   const capabilities = [];
+  const commands = new Map(cliEntries(model).map(c => [c.name, c]));
+  const skills = new Map((model.skills ?? []).map(s => [s.name, s]));
   for (const agent of [model.orchestrator, ...(model.agents ?? [])]) {
-    for (const name of agent.tools ?? []) {
-      if (BUILTIN.has(name)) capabilities.push({ agent: agent.name, name, provider: 'built-in', status: 'verified now', fix: 'None.' });
+    const tools = agent === model.orchestrator ? (agent.tools ?? cliEntries(model).map(c => `cli:${c.name}`)) : enforcedAgentTools(agent.name, model.policies, agent.tools);
+    for (const name of tools ?? []) {
+      if (name.startsWith('cli:')) {
+        const command = commands.get(name.slice(4))?.command;
+        const present = command && (command.includes('/') ? existsSync(join(root, command)) : probeClis([command])[command]);
+        capabilities.push({ agent: agent.name, name, provider: `CLI ${command ?? name.slice(4)}`, status: present ? 'verified now' : 'missing', fix: `${present ? 'Presence only' : 'Install the command or add it to PATH'}; authentication is not checked.` });
+      } else if (BUILTIN.has(name)) capabilities.push({ agent: agent.name, name, provider: 'built-in', status: 'verified now', fix: 'None.' });
       else if (!name.startsWith('mcp:') && !name.startsWith('cli:') && name !== 'mcp') {
         const provider = checked?.providers[name];
         const present = provider || options.registeredTools?.includes(name);
         const known = registeredTools !== undefined;
         capabilities.push({ agent: agent.name, name, provider: provider || 'extension', status: present ? 'verified now' : known ? 'missing' : 'not verifiable', fix: present ? 'None.' : 'Install or enable the providing extension; use /forge check to verify the live session.' });
       }
+    }
+    for (const name of agent.skills ?? []) {
+      const kind = skillSourceKind(skills.get(name)?.source);
+      const dir = kind === 'registry' ? `.agents/skills/${name}` : kind === 'package' ? null : `.pi/skills/${name}`;
+      const present = dir && existsSync(join(root, dir, 'SKILL.md'));
+      capabilities.push({ agent: agent.name, name: `skill:${name}`, provider: dir ?? 'Pi package', status: dir ? (present ? 'verified now' : 'missing') : 'not verifiable', fix: present ? 'None.' : 'Install the skill or verify its Pi package in a session.' });
     }
   }
   const result = { timestamp: new Date().toISOString(), ok: checks.ok && !capabilities.some(c => c.status === 'missing'), capabilities, checks, ...(checked?.error ? { extensionDiagnostic: checked.error } : {}), ...(checked?.missing.length ? { unresolvedPackages: checked.missing } : {}) };
