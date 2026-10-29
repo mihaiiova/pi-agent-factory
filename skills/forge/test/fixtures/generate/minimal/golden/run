@@ -17,7 +17,8 @@ cd "$ROOT"
 
 if [[ ! -f ".pi/system.yaml" ]]; then
   if [[ "${1:-}" == "--workflow" ]]; then
-    exec node "$ROOT/.pi/forge-workflow.mjs" 'W10=' -- "$@"
+    if [[ ! -f "$ROOT/.pi/git/github.com/mihaiiova/pi-forge/skills/forge/workflow-runner.mjs" ]]; then echo '{"workflow":null,"runId":null,"status":"configuration_error","answer":"","message":"The Forge package is not installed in this project yet. Run ./run once, then retry."}'; exit 2; fi
+    exec node "$ROOT/.pi/git/github.com/mihaiiova/pi-forge/skills/forge/workflow-runner.mjs" 'W10=' -- "$@"
   fi
   echo "run: .pi/system.yaml not found in $ROOT" >&2
   exit 1
@@ -34,6 +35,7 @@ for f in .pi/APPEND_SYSTEM.md .pi/CAPABILITIES.md; do
   if [[ -f "$f" ]]; then prompts+=(--append-system-prompt "$f"); fi
 done
 if [[ "${1:-}" == "--workflow" ]]; then
-  exec node "$ROOT/.pi/forge-workflow.mjs" 'W10=' "${prompts[@]}" -- "$@"
+  if [[ ! -f "$ROOT/.pi/git/github.com/mihaiiova/pi-forge/skills/forge/workflow-runner.mjs" ]]; then echo '{"workflow":null,"runId":null,"status":"configuration_error","answer":"","message":"The Forge package is not installed in this project yet. Run ./run once, then retry."}'; exit 2; fi
+  exec node "$ROOT/.pi/git/github.com/mihaiiova/pi-forge/skills/forge/workflow-runner.mjs" 'W10=' "${prompts[@]}" -- "$@"
 fi
 exec pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"

@@ -153,15 +153,75 @@ setTimeout(() => console.log(JSON.stringify({type:'message_end', message:{role:'
   assert.equal(parallel.status, 0, parallel.stderr);
 });
 
-test('tool and agent failures cannot produce a successful workflow result', t => {
+test('a lock left by a run that died is taken over, and a finished run releases its lock', async t => {
   const { root, env } = fixture(t);
+  const { createHash } = await import('node:crypto');
+  const { readdirSync } = await import('node:fs');
+  const locks = join(root, '.forge/workflow-locks');
+  mkdirSync(locks, { recursive: true });
+  const dead = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout;
+  writeFileSync(join(locks, createHash('sha256').update('report').digest('hex')), dead);
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8', timeout: 4000 });
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  assert.deepEqual(readdirSync(locks), [], 'released after the run');
+});
+
+test('stopping ./run cancels the workflow and stops Pi', async t => {
+  const { root, env } = fixture(t);
+  const pidFile = join(root, 'pi-pid');
   writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
-console.log(JSON.stringify({type:'tool_execution_end',toolName:'read',isError:true}));
-console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'Failed to read.'}]}}));
+require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+setTimeout(() => {}, 30000);
 `, { mode: 0o755 });
+  const { spawn } = await import('node:child_process');
+  const runner = spawn(join(root, 'run'), ['--workflow', 'report'], { env, stdio: ['ignore', 'pipe', 'ignore'] });
+  let out = '';
+  runner.stdout.on('data', d => { out += d; });
+  for (let i = 0; i < 100 && !existsSync(pidFile); i++) await new Promise(r => setTimeout(r, 20));
+  runner.kill('SIGTERM');
+  const code = await new Promise(done => runner.on('close', done));
+  assert.equal(code, 1);
+  assert.equal(JSON.parse(out.trim().split('\n').at(-1)).status, 'cancelled');
+  assert.throws(() => process.kill(Number(readFileSync(pidFile, 'utf8')), 0), /ESRCH/);
+});
+
+test('the runner comes from the installed Forge package, not a copy in the project', t => {
+  const { root, env } = fixture(t);
+  assert.equal(existsSync(join(root, '.pi/forge-workflow.mjs')), false);
+  assert.match(readFileSync(join(root, 'run'), 'utf8'), /\.pi\/git\/github\.com\/mihaiiova\/pi-forge\/skills\/forge\/workflow-runner\.mjs/);
   const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
-  assert.equal(result.status, 1, result.stderr);
-  assert.equal(JSON.parse(result.stdout.trim()).status, 'error');
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('a project Forge tolerates (a background specialist that can reach an approval) still runs', t => {
+  const { root, env } = fixture(t);
+  const path = join(root, '.pi/system.yaml');
+  writeFileSync(path, readFileSync(path, 'utf8')
+    .replace('    tools: [read]\n    prompt: Research.', '    tools: [read, cli:list-files]\n    prompt: Research.')
+    + 'integrations:\n  cli:\n    - name: list-files\n      command: ls\n');
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+});
+
+test('a recovered tool error is counted, while a failed or empty run is an error', t => {
+  const { root, env } = fixture(t);
+  const run = (events) => {
+    writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+${events.map(e => `console.log(${JSON.stringify(JSON.stringify(e))});`).join('\n')}
+`, { mode: 0o755 });
+    const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
+    return { status: result.status, summary: JSON.parse(result.stdout.trim().split('\n').at(-1)) };
+  };
+  const answer = (text, stopReason = 'stop') => ({ type: 'message_end', message: { role: 'assistant', stopReason, content: [{ type: 'text', text }] } });
+  const recovered = run([{ type: 'tool_execution_end', toolName: 'read', isError: true }, answer('Read the other file instead; the report is ready.')]);
+  assert.equal(recovered.status, 0);
+  assert.equal(recovered.summary.status, 'ok');
+  assert.equal(recovered.summary.toolErrors, 1, 'callers can still see what went wrong');
+  for (const events of [[answer('Partial', 'error')], [answer('Stopped', 'aborted')], [answer('   ')], []]) {
+    const failed = run(events);
+    assert.equal(failed.status, 1, JSON.stringify(events));
+    assert.equal(failed.summary.status, 'error');
+  }
 });
 
 test('workflow validates options and input key-value pairs before invoking Pi', t => {

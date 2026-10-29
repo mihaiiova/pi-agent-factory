@@ -4,16 +4,30 @@ Generated projects run declared workflows with `./run --workflow <name>`.
 Repeat `--input key=value` to pass input data. `--timeout` accepts integer
 seconds, minutes or hours (`30m` by default); `--allow-concurrent` bypasses
 the default per-workflow lock. The last stdout line is JSON with `workflow`,
-`runId`, `status`, `answer`, and, when applicable, `message`. Exit codes are
-0 (success), 1 (agent or tool failure), 2 (configuration or lock failure),
-3 (approval required), and 4 (timeout).
+`runId`, `status` (`ok`, `error`, `blocked`, `timeout`, `cancelled` or
+`configuration_error`), `answer`, `toolErrors`, and, when applicable,
+`message`. Exit codes are 0 (success), 1 (agent failure, or cancelled),
+2 (configuration or lock failure), 3 (approval required), and 4 (timeout).
 
-Before invoking Pi, the launcher parses and validates `.pi/system.yaml` using
-Forge's project-installed, pinned package. Run interactive `./run` once to
-install the project packages before the first headless run. Missing validator
-or YAML dependencies and invalid configuration fail closed with exit 2; no
-model turn is started. After changing declarations, regenerate the project so
-its launcher and other derived files reflect the updated configuration.
+A run fails when Pi exits with an error, its final message ended in an error
+or was aborted, or there is no answer. Tool errors the agent recovered from
+do not fail the run; `toolErrors` counts them. Stopping `./run` (SIGTERM,
+SIGINT or SIGHUP), as a caller cancelling does, stops the workflow and
+reports `cancelled`.
+
+The runner is `skills/forge/workflow-runner.mjs` in the Forge package pinned
+in `.pi/settings.json`, which Pi installs under `.pi/git/`; nothing is copied
+into the project, and the runner changes only when the pin moves. It
+validates `.pi/system.yaml` with that same package, tolerating what Forge
+itself tolerates, before starting Pi. Run interactive `./run` once to install
+the project packages before the first headless run; until then, and when the
+configuration is invalid, a run fails closed with exit 2 and no model turn.
+After changing declarations, regenerate the project so its launcher reflects
+them.
+
+The per-workflow lock is a file in `.forge/workflow-locks/` holding the
+runner's pid, so it works on Linux and macOS alike. A lock whose holder has
+died is taken over.
 
 Pi print mode expands `/skill:<name> ...` before starting the agent. The
 `workflow-print-mode.test.mjs` test verifies this with the installed Pi and a

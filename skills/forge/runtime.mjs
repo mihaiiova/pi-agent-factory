@@ -9,7 +9,7 @@
  * (`~/.agents/skills/`, project `.agents/skills/`) by design. No filesystem or CLI work happens here; `generate.mjs` composes
  * the launcher content into the generated `run` file.
  */
-import { runtimePackages } from "./deps.mjs";
+import { runtimePackages, FORGE_SOURCE } from "./deps.mjs";
 import { declaredPackages } from "./skill-sources.mjs";
 
 /** Project-relative isolated Pi config directory. */
@@ -63,6 +63,14 @@ const PROMPT_FILES = [
   "done",
 ];
 const LAUNCH = 'pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"';
+/** The headless workflow runner, from the Forge package Pi installs into the project. */
+const RUNNER = `.pi/git/${FORGE_SOURCE.slice("git:".length)}/skills/forge/workflow-runner.mjs`;
+const NO_RUNNER = '{"workflow":null,"runId":null,"status":"configuration_error","answer":"","message":"The Forge package is not installed in this project yet. Run ./run once, then retry."}';
+/** Runs a named workflow with the installed runner, or reports that it is missing (exit 2). */
+const runWorkflow = (indent, args) => [
+  `${indent}if [[ ! -f "$ROOT/${RUNNER}" ]]; then echo '${NO_RUNNER}'; exit 2; fi`,
+  `${indent}exec node "$ROOT/${RUNNER}" ${args}`,
+];
 export function launcherScript(names = [], workflows = [], lead = '') {
   const manifest = Buffer.from(JSON.stringify(workflows.map(w => ({ ...w, lead })))).toString('base64');
   return [
@@ -85,7 +93,7 @@ export function launcherScript(names = [], workflows = [], lead = '') {
     "",
     'if [[ ! -f ".pi/system.yaml" ]]; then',
     '  if [[ "${1:-}" == "--workflow" ]]; then',
-    `    exec node "$ROOT/.pi/forge-workflow.mjs" '${manifest}' -- "$@"`,
+    ...runWorkflow('    ', `'${manifest}' -- "$@"`),
     '  fi',
     '  echo "run: .pi/system.yaml not found in $ROOT" >&2',
     "  exit 1",
@@ -101,7 +109,7 @@ export function launcherScript(names = [], workflows = [], lead = '') {
     // APPEND_SYSTEM.md still supplies the project's operational instructions.
     ...PROMPT_FILES,
     'if [[ "${1:-}" == "--workflow" ]]; then',
-    `  exec node "$ROOT/.pi/forge-workflow.mjs" '${manifest}' "\${prompts[@]}" -- "$@"`,
+    ...runWorkflow('  ', `'${manifest}' "\${prompts[@]}" -- "$@"`),
     'fi',
     `exec ${LAUNCH}`,
     "",

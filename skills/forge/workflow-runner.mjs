@@ -1,11 +1,15 @@
-/** Source of the standalone headless runner emitted into generated projects. */
-export const workflowRunner = String.raw`#!/usr/bin/env node
+#!/usr/bin/env node
+/**
+ * Headless workflow runner: `./run --workflow <name>` runs it from the Forge
+ * package pinned in the project (`.pi/git/...`), so it changes with the pin
+ * and nothing is copied into the project. Usage, from the project root:
+ *   node workflow-runner.mjs <base64 workflow manifest> [prompt args] -- <options>
+ */
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, writeFileSync, renameSync, existsSync, readlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 
 const [encoded, ...args] = process.argv.slice(2);
 const workflows = JSON.parse(Buffer.from(encoded, 'base64').toString());
@@ -36,22 +40,13 @@ if (invalid || !workflow || !existsSync('.pi/system.yaml') || !Number.isSafeInte
   console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Unknown workflow or invalid options' }));
   process.exit(2);
 }
-// Pi installs the pinned git package and its npm dependencies here on the
-// first interactive launch. Validate before starting Pi or any model turn.
-const forgeDir = resolve('.pi/git/github.com/mihaiiova/pi-forge/skills/forge');
-let parseSystem, validateSystem;
+// This runner is part of the pinned Forge package, so it validates with that
+// version, tolerating what Forge itself tolerates. Nothing runs if it fails.
 try {
-  ({ parseSystem } = await import(pathToFileURL(join(forgeDir, 'parse.mjs')).href));
-  ({ validateSystem } = await import(pathToFileURL(join(forgeDir, 'validate.mjs')).href));
+  const { parsedModel } = await import('./changes.mjs');
+  parsedModel(readFileSync('.pi/system.yaml', 'utf8'));
 } catch (error) {
-  console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Cannot load the installed Forge validator. Run ./run once to install project packages, then retry: ' + error.message }));
-  process.exit(2);
-}
-try {
-  const result = validateSystem(parseSystem(readFileSync('.pi/system.yaml', 'utf8')));
-  if (!result.ok) throw new Error(result.errors.join('; '));
-} catch (error) {
-  console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Invalid system.yaml or unavailable YAML dependency: ' + error.message }));
+  console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Invalid system.yaml, or the installed Forge package is incomplete (run ./run once): ' + error.message }));
   process.exit(2);
 }
 const prompt = (workflow.skill ? '/skill:' + workflow.skill + ' ' : '') +
@@ -62,8 +57,28 @@ const prompt = (workflow.skill ? '/skill:' + workflow.skill + ' ' : '') +
 const temp = mkdtempSync(join(tmpdir(), 'forge-run-'));
 const approvalFile = join(temp, 'approval');
 let blocked = '', timedOut = false, killTimer;
+// One run per workflow unless --allow-concurrent. The lock file holds this
+// runner's pid; a lock whose holder has died is taken over.
 mkdirSync('.forge/workflow-locks', { recursive: true });
 const lock = join('.forge/workflow-locks', createHash('sha256').update(name).digest('hex'));
+const acquire = () => {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { writeFileSync(lock, String(process.pid), { flag: 'wx' }); return true; }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    let alive = false;
+    try { process.kill(Number(readFileSync(lock, 'utf8')), 0); alive = true; } catch (error) { alive = error.code === 'EPERM'; }
+    if (alive) return false;
+    rmSync(lock, { force: true });
+  }
+  return false;
+};
+if (!concurrent) {
+  if (!acquire()) {
+    console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Workflow already running' }));
+    process.exit(2);
+  }
+  process.on('exit', () => { try { if (readFileSync(lock, 'utf8') === String(process.pid)) rmSync(lock, { force: true }); } catch {} });
+}
 const piArgs = ['--approve', '--no-context-files', ...prompts, '--mode', 'json', '-p', prompt];
 const subagentRoot = join(temp, 'subagents');
 const env = { ...process.env, FORGE_WORKFLOW: workflow.name, FORGE_TRIGGER: 'headless', FORGE_RUN_ID: runId, FORGE_APPROVAL_FILE: approvalFile, PI_SUBAGENTS_TEMP_ROOT: subagentRoot };
@@ -72,7 +87,7 @@ const probe = process.platform === 'linux' ? spawnSync('systemd-run', ['--user',
 const scope = probe?.status === 0 ? 'forge-workflow-' + runId + '.scope' : null;
 const command = scope ? 'systemd-run' : 'pi';
 const commandArgs = scope ? ['--user', '--scope', '--quiet', '--unit', scope, '--', 'pi', ...piArgs] : piArgs;
-const child = spawn(concurrent ? command : 'flock', concurrent ? commandArgs : ['-n', '-E', '73', '-o', lock, command, ...commandArgs], {
+const child = spawn(command, commandArgs, {
   env,
   detached: true,
   stdio: ['ignore', 'pipe', 'inherit'],
@@ -94,6 +109,9 @@ const stop = () => {
   killTimer ||= setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 500);
 };
 const deadline = setTimeout(() => { timedOut = true; stop(); }, timeout);
+// A caller that stops ./run (an MCP wrapper cancelling, Ctrl-C) stops the workflow too.
+let cancelled = false;
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => { cancelled = true; stop(); });
 const poll = setInterval(() => {
   try { blocked = readFileSync(approvalFile, 'utf8'); } catch { return; }
   if (blocked) stop();
@@ -154,27 +172,27 @@ child.on('close', async code => {
   try { blocked ||= readFileSync(approvalFile, 'utf8'); } catch {}
   stopScope();
   let cleanup = scopeClean;
-  if (timedOut || blocked) {
+  if (timedOut || blocked || cancelled) {
     try { if (!await stopSubagents()) cleanup = false; } catch (error) { cleanup = false; console.error('Workflow cleanup: ' + error.message); }
   }
   if (cleanup) rmSync(temp, { recursive: true, force: true });
   else console.error('Workflow cleanup incomplete; run state retained at ' + temp);
-  let failed = false, sawAssistant = false;
+  // The run failed when Pi failed, its final message ended in an error or was
+  // aborted, or there is no answer. Tool errors the agent recovered from are
+  // only counted, so a good answer is not reported as a failure.
+  let stopReason = null, toolErrors = 0;
   for (const line of output.split('\n')) {
     try {
       const event = JSON.parse(line);
-      if (event.type === 'tool_execution_end' && event.isError) failed = true;
+      if (event.type === 'tool_execution_end' && event.isError) toolErrors++;
       if (event.type === 'message_end' && event.message?.role === 'assistant') {
-        sawAssistant = true;
-        if (['error', 'aborted'].includes(event.message.stopReason)) failed = true;
+        stopReason = event.message.stopReason;
         answer = (event.message.content ?? []).filter(c => c.type === 'text').map(c => c.text).join('\n');
       }
     } catch {}
   }
-  if (!sawAssistant) failed = true;
-  const locked = !concurrent && code === 73;
-  const status = blocked ? 'blocked' : timedOut ? 'timeout' : locked ? 'configuration_error' : code === 0 && !failed ? 'ok' : 'error';
-  console.log(JSON.stringify({ workflow: name, runId, status, answer, ...(blocked ? { message: blocked } : locked ? { message: 'Workflow already running' } : {}), ...(!cleanup ? { cleanup: 'incomplete', stateDir: temp } : {}) }));
-  process.exitCode = blocked ? 3 : timedOut ? 4 : locked ? 2 : code === 0 && !failed ? 0 : 1;
+  const failed = code !== 0 || ['error', 'aborted'].includes(stopReason) || !answer.trim();
+  const status = blocked ? 'blocked' : timedOut ? 'timeout' : cancelled ? 'cancelled' : failed ? 'error' : 'ok';
+  console.log(JSON.stringify({ workflow: name, runId, status, answer, toolErrors, ...(blocked ? { message: blocked } : cancelled ? { message: 'Stopped by the caller' } : {}), ...(!cleanup ? { cleanup: 'incomplete', stateDir: temp } : {}) }));
+  process.exitCode = blocked ? 3 : timedOut ? 4 : cancelled || failed ? 1 : 0;
 });
-`;

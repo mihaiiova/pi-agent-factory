@@ -16,7 +16,6 @@ const EXPECTED_PATHS = [
   ".gitignore",
   ".pi/APPEND_SYSTEM.md",
   ".pi/CAPABILITIES.md",
-  ".pi/forge-workflow.mjs",
   ".pi/mcp.json",
   ".pi/settings.json",
   "README.md",
