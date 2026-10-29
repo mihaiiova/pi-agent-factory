@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { generateProject } from '../generate.mjs';
@@ -116,4 +116,11 @@ test('check-agent --connect verifies a local MCP server without a model call', a
   writeFileSync(join(root, '.forge/pi-home/trust.json'), JSON.stringify({ [root]: true }));
   const run = spawnSync(process.execPath, [forge, 'check-agent', root, '--connect'], { encoding: 'utf8', timeout: 30000 });
   assert.ok(JSON.parse(run.stdout).capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'verified now'), run.stderr);
+  const mcp = JSON.parse(readFileSync(join(root, '.pi/mcp.json'), 'utf8'));
+  mcp.mcpServers.seo.args = ['-e', "console.error('fixture connection failed'); process.exit(1)"];
+  writeFileSync(join(root, '.pi/mcp.json'), JSON.stringify(mcp));
+  const broken = spawnSync(process.execPath, [forge, 'check-agent', root, '--connect'], { encoding: 'utf8', timeout: 30000 });
+  const report = JSON.parse(broken.stdout);
+  assert.equal(broken.status, 1);
+  assert.ok(report.capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'missing' && c.fix.includes('fixture connection failed')));
 });

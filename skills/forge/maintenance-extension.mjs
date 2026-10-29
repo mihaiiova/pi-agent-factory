@@ -207,6 +207,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
       `MCP servers: ${list(s.mcpServers)}\nCommands: ${list(s.commands)}\nSkills: ${list(s.skills)}`,
       ...(s.env.length ? [`Environment: ${s.env.map(e => `${e.name} (${e.set})`).join(', ')}`] : []),
       `Forge: ${forge}`,
+      (() => { try { const last = readJson(root, '.forge/check.json'); return `Last capability check: ${last.timestamp} (${last.ok ? 'no missing capabilities' : 'problems found'}).`; } catch { return 'Last capability check: not run.'; } })(),
       s.pendingRequests ? `${s.pendingRequests} pending permission request${s.pendingRequests === 1 ? '' : 's'}: /forge permissions review` : 'No pending permission requests.',
     ].join('\n'));
   };

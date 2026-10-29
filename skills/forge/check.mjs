@@ -75,7 +75,11 @@ export function checkAgent(root, options = {}) {
     const status = state?.state === 'connected' ? (liveMcp ? 'verified now' : `last seen ${mcpTimestamp}`) : state ? 'missing' : 'not verifiable';
     capabilities.push({ agent: model.orchestrator.name, name: `mcp:${name}`, provider: `MCP ${name}`, status, fix: status === 'missing' ? `Check /mcp.${state?.error ? ` ${state.error}` : ''}` : status === 'not verifiable' ? 'Connect with check-agent --connect or check in a running session.' : 'None.' });
   }
-  const result = { timestamp, ok: checks.ok && !capabilities.some(c => c.status === 'missing'), capabilities, checks, ...(mcpTimestamp ? { mcpEvidence: { timestamp: mcpTimestamp, servers: mcpEvidence } } : {}), ...(checked?.error ? { extensionDiagnostic: checked.error } : {}), ...(checked?.missing.length ? { unresolvedPackages: checked.missing } : {}) };
+  let build = null;
+  try { build = JSON.parse(readFileSync(join(root, '.forge/build.json'), 'utf8')).version ?? null; } catch { /* no build record */ }
+  const tooling = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+  const versions = { build, tooling, ...(build !== tooling ? { fix: 'Run /forge sync to rebuild with the installed tooling.' } : {}) };
+  const result = { timestamp, versions, ok: checks.ok && !capabilities.some(c => c.status === 'missing'), capabilities, checks, ...(mcpTimestamp ? { mcpEvidence: { timestamp: mcpTimestamp, servers: mcpEvidence } } : {}), ...(checked?.error ? { extensionDiagnostic: checked.error } : {}), ...(checked?.missing.length ? { unresolvedPackages: checked.missing } : {}) };
   atomicWrite(root, '.forge/check.json', json(result));
   return result;
 }

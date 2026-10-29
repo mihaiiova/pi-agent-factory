@@ -563,3 +563,16 @@ test('/forge check saves and displays capability evidence', async t => {
   assert.ok(report.capabilities.some(c => c.name === 'read' && c.status === 'verified now'));
   assert.match(a.notices.at(-1)[0], /verified now/);
 });
+
+test('/forge status reports the last capability check and build version', async t => {
+  const root = project(t);
+  const a = adapter();
+  a.pi.getAllTools = () => [{ name: 'read' }];
+  const command = registerMaintenance(a.pi, a.Type, root, { updates: { fetch: async () => { throw new Error('offline'); } } });
+  await command('check', a.ctx);
+  const report = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8'));
+  assert.equal(report.versions.build, pkg.version);
+  assert.equal(report.versions.tooling, pkg.version);
+  await command('status', a.ctx);
+  assert.match(a.notices.at(-1)[0], /Last capability check:/);
+});
