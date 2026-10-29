@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -55,4 +55,19 @@ setTimeout(() => {}, 30000);
   const summary = JSON.parse(result.stdout.trim().split('\n').at(-1));
   assert.equal(summary.status, 'blocked');
   assert.match(summary.message, /seo: run_audit/);
+});
+
+test('timeout terminates the workflow and its child processes', t => {
+  const { root, env } = fixture(t);
+  writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+const child = require('child_process').spawn('sleep', ['30'], {stdio:'ignore'});
+require('fs').writeFileSync(${JSON.stringify(join(root, 'child-pid'))}, String(child.pid));
+setTimeout(() => {}, 30000);
+`, { mode: 0o755 });
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report', '--timeout', '1s'], { env, encoding: 'utf8', timeout: 5000 });
+  assert.equal(result.status, 4, result.stderr);
+  const summary = JSON.parse(result.stdout.trim().split('\n').at(-1));
+  assert.equal(summary.status, 'timeout');
+  const pid = Number(readFileSync(join(root, 'child-pid'), 'utf8'));
+  assert.throws(() => process.kill(pid, 0), /ESRCH/);
 });

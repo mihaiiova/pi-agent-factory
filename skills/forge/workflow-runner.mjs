@@ -11,15 +11,20 @@ const workflows = JSON.parse(Buffer.from(encoded, 'base64').toString());
 const separator = args.indexOf('--');
 const prompts = args.slice(0, separator);
 const options = args.slice(separator + 1);
-let name, inputs = [];
+let name, inputs = [], timeout = 1800000;
 for (let i = 0; i < options.length; i++) {
   if (options[i] === '--workflow') name = options[++i];
   else if (options[i] === '--input') inputs.push(options[++i]);
+  else if (options[i] === '--timeout') {
+    const value = options[++i] ?? '';
+    const match = /^(\d+)(s|m|h)$/.exec(value);
+    timeout = match ? Number(match[1]) * ({ s: 1000, m: 60000, h: 3600000 })[match[2]] : 0;
+  }
 }
 const workflow = workflows.find(w => w.name === name);
 const runId = randomUUID();
 let answer = '';
-if (!workflow) {
+if (!workflow || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2147483647) {
   console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Unknown workflow' }));
   process.exit(2);
 }
@@ -29,15 +34,20 @@ const prompt = (workflow.skill ? '/skill:' + workflow.skill + ' ' : '') +
   '\nInputs (JSON): ' + JSON.stringify(inputs);
 const temp = mkdtempSync(join(tmpdir(), 'forge-run-'));
 const approvalFile = join(temp, 'approval');
-let blocked = '';
+let blocked = '', timedOut = false, killTimer;
 const child = spawn('pi', ['--approve', '--no-context-files', ...prompts, '--mode', 'json', '-p', prompt], {
   env: { ...process.env, FORGE_WORKFLOW: workflow.name, FORGE_TRIGGER: 'headless', FORGE_RUN_ID: runId, FORGE_APPROVAL_FILE: approvalFile },
   detached: true,
   stdio: ['ignore', 'pipe', 'inherit'],
 });
+const stop = () => {
+  try { process.kill(-child.pid, 'SIGTERM'); } catch {}
+  killTimer ||= setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 500);
+};
+const deadline = setTimeout(() => { timedOut = true; stop(); }, timeout);
 const poll = setInterval(() => {
   try { blocked = readFileSync(approvalFile, 'utf8'); } catch { return; }
-  if (blocked) { try { process.kill(-child.pid, 'SIGTERM'); } catch {} }
+  if (blocked) stop();
 }, 50);
 let output = '';
 child.stdout.setEncoding('utf8');
@@ -45,6 +55,8 @@ child.stdout.on('data', chunk => { output += chunk; });
 child.on('error', error => { console.error(error.message); });
 child.on('close', code => {
   clearInterval(poll);
+  clearTimeout(deadline);
+  clearTimeout(killTimer);
   try { blocked ||= readFileSync(approvalFile, 'utf8'); } catch {}
   rmSync(temp, { recursive: true, force: true });
   for (const line of output.split('\n')) {
@@ -55,8 +67,8 @@ child.on('close', code => {
       }
     } catch {}
   }
-  const status = blocked ? 'blocked' : code === 0 ? 'ok' : 'error';
+  const status = blocked ? 'blocked' : timedOut ? 'timeout' : code === 0 ? 'ok' : 'error';
   console.log(JSON.stringify({ workflow: name, runId, status, answer, ...(blocked ? { message: blocked } : {}) }));
-  process.exitCode = blocked ? 3 : code === 0 ? 0 : 1;
+  process.exitCode = blocked ? 3 : timedOut ? 4 : code === 0 ? 0 : 1;
 });
 `;
