@@ -43,3 +43,16 @@ test('declared workflow returns its final answer in a machine-readable result', 
   assert.equal(summary.answer, 'The report is ready.');
   assert.equal(summary.workflow, 'report');
 });
+
+test('an approval block ends the workflow promptly with the named call', t => {
+  const { root, env } = fixture(t);
+  writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+require('fs').writeFileSync(process.env.FORGE_APPROVAL_FILE, 'seo: run_audit');
+setTimeout(() => {}, 30000);
+`, { mode: 0o755 });
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8', timeout: 5000 });
+  assert.equal(result.status, 3, result.stderr);
+  const summary = JSON.parse(result.stdout.trim().split('\n').at(-1));
+  assert.equal(summary.status, 'blocked');
+  assert.match(summary.message, /seo: run_audit/);
+});
