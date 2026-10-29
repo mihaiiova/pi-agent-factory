@@ -8,6 +8,7 @@
  * is reported before a workflow depends on it.
  */
 import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { enforcedAgentTools } from './policy.mjs';
 import { needsBackground, SUBAGENT_CONFIG } from './generate.mjs';
@@ -44,6 +45,14 @@ function serverTools(server, config, cache) {
  */
 export function launchCheck(root, model, { registeredTools, probe } = {}) {
   const problems = [];
+  const git = (args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const workTree = git(['rev-parse', '--is-inside-work-tree']);
+  if (workTree.status === 0 && workTree.stdout.trim() === 'true') {
+    for (const path of ['.env', '.factory/']) {
+      const ignored = git(['check-ignore', '--no-index', '-q', '--', path]);
+      if (ignored.status === 1) problems.push({ agent: model?.orchestrator?.name ?? 'project', problem: `${path} is not ignored by git; credentials or state may be committed` });
+    }
+  }
   const mcpServers = readJson(root, '.pi/mcp.json')?.mcpServers ?? {};
   const cache = readJson(root, '.factory/pi-home/mcp-cache.json');
   const registered = Array.isArray(registeredTools) ? new Set(registeredTools) : null;

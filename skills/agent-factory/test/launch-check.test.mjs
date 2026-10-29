@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -51,4 +52,15 @@ test('launch check reports missing MCP tools, extension tools, skills and backgr
   // A project generated before background launch is told to reconcile.
   rmSync(join(root, '.factory/pi-home/extensions'), { recursive: true });
   assert.ok(problems(root, {}).some((p) => p.startsWith('seo: uses MCP or extension tools but is not set to run in the background')));
+});
+
+test('launch check warns about unignored secrets in a git work tree', t => {
+  const root = project(t);
+  execFileSync('git', ['init', '-q', root]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const found = problems(root, {});
+  assert.ok(found.some(p => p.includes('.env') && p.includes('not ignored')));
+  assert.ok(found.some(p => p.includes('.factory/') && p.includes('not ignored')));
+  writeFileSync(join(root, '.gitignore'), '.env\n.factory/\n');
+  assert.ok(!problems(root, {}).some(p => p.includes('not ignored')));
 });
