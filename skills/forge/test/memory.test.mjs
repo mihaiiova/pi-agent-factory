@@ -135,13 +135,12 @@ test('the loaded prompt is bounded by the cap and frames notes as data', (t) => 
 test('maintenance turns keep the nudge and are not counted', async (t) => {
   const root = project(t);
   const mock = adapter();
-  mock.pi.registerCommand = (name, command) => { mock.command = command; };
-  registerMaintenance(mock.pi, mock.Type, root);
+  const forge = registerMaintenance(mock.pi, mock.Type, root);
   mock.fire('session_start');
   mock.fire('agent_end', { messages: [{ role: 'toolResult', toolName: 'subagent', isError: true }] });
   // A maintenance turn: the nudge is kept and its blocked calls are not counted.
   mock.pi.getActiveTools = () => ['read'];
-  await mock.command.handler('review', { hasUI: true, waitForIdle: async () => {}, ui: { notify: () => {} } });
+  await forge('review', { hasUI: true, waitForIdle: async () => {}, ui: { notify: () => {} } });
   assert.doesNotMatch(mock.fire('before_agent_start', { systemPrompt: 'BASE' }).systemPrompt, /failed tool calls/);
   mock.fire('agent_end', { messages: [{ role: 'toolResult', toolName: 'read', isError: true }] });
   assert.match(mock.fire('before_agent_start', { systemPrompt: 'BASE' }).systemPrompt, /failed tool calls \(subagent\)\./);

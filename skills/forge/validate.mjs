@@ -247,7 +247,7 @@ export function validateSystem(doc, { tolerate = [] } = {}) {
       checkUnknownKeys(skill, SKILL_KEYS, `document.skills[${i}]`, errors);
       checkNonEmptyString(skill.name, `document.skills[${i}].name`, errors);
       checkKebabCase(skill.name, `document.skills[${i}].name`, errors);
-      if (skill.name === 'factory-update') errors.push(`document.skills[${i}].name factory-update is reserved maintenance infrastructure`);
+      if (skill.name === 'forge') errors.push(`document.skills[${i}].name forge is reserved: it is the Forge skill`);
       if (skill.description !== undefined && !isNonEmptyString(skill.description)) {
         errors.push(`document.skills[${i}].description must be a non-empty string`);
       }

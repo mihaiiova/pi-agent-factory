@@ -32,7 +32,7 @@ test('package project changes do not rely on legacy installation metadata', t =>
   mkdirSync(join(root, '.pi'));
   copyFileSync(join(import.meta.dirname, 'fixtures/generate/minimal/.pi/system.yaml'), join(root, '.pi/system.yaml'));
   execFileSync(process.execPath, [join(repo, 'skills/forge/forge.mjs'), 'generate', root]);
-  writeFileSync(join(root, '.forge/installation.json'), JSON.stringify({ entrypoints: { '.pi/extensions/factory-update/index.ts': 'obsolete' } }));
+  writeFileSync(join(root, '.forge/installation.json'), JSON.stringify({ entrypoints: { '.pi/extensions/maintenance/index.ts': 'obsolete' } }));
   assert.doesNotThrow(() => planChange(root, [{ op: 'reconcile' }]));
 });
 

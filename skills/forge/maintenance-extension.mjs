@@ -1,9 +1,13 @@
-/** Thin Pi adapter: command-owned authority, model-owned proposals only. */
+/**
+ * /forge inside a Forge project. Thin Pi adapter: command-owned authority,
+ * model-owned proposals only. registerMaintenance returns the command handler;
+ * the package extension registers /forge and routes to it.
+ */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { inspectProject, planChange, applyChange, publicChangePreview, withSkillPreviews, rebuildPlan } from './maintenance.mjs';
+import { inspectProject, planChange, applyChange, publicChangePreview, withSkillPreviews, rebuildPlan, checkProject, projectStatus } from './maintenance.mjs';
 import { searchSkills, resolveRegistrySkill } from './registry-skills.mjs';
-import { checkRelease, proposeUpdate, previewUpdate, applyUpdate, discardUpdate } from './package-update.mjs';
+import { checkRelease, proposeUpdate, previewUpdate, applyUpdate, discardUpdate, forgePin } from './package-update.mjs';
 import { json, readText, readJson } from './maintenance-store.mjs';
 import { fetchDocument, documentSlice, checkUrl, fetchJson } from './maintenance-fetch.mjs';
 import { envStatus, setEnvValue } from './maintenance-env.mjs';
@@ -46,10 +50,10 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
   });
   const tool = {
     name: 'forge_plan', label: 'Forge proposal',
-    description: 'Inspect the local declarative system, discover public skills (skills.sh), packages and MCP servers, available models and local CLIs, fetch public documentation, or preview structured changes. Cannot apply, install, authenticate or run anything. Only available during a direct /factory-update request.',
+    description: 'Inspect the local declarative system, discover public skills (skills.sh), packages and MCP servers, available models and local CLIs, fetch public documentation, or preview structured changes. Cannot apply, install, authenticate or run anything. Only available during a direct /forge request.',
     parameters,
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      if (!armed) throw new Error('Invoke /factory-update directly to authorize a maintenance proposal');
+      if (!armed) throw new Error('Invoke /forge directly to authorize a maintenance proposal');
       if (planning) throw new Error('A Forge proposal is already being computed');
       planning = true;
       try {
@@ -92,12 +96,12 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
           }
           value = documentSlice(doc, offset);
         } else if (params.action === 'propose') {
-          if (review) throw new Error('Review mode is read-only. Request a specific change with /factory-update before proposing edits.');
+          if (review) throw new Error('Review mode is read-only. Request a specific change with /forge before proposing edits.');
           pending = null;
           const ops = JSON.parse(params.operations ?? 'null');
-          if (ops?.some(o => o.op === 'reconcile')) throw new Error('Use the direct /factory-update rebuild command to regenerate the project');
+          if (ops?.some(o => o.op === 'reconcile')) throw new Error('Use /forge sync to regenerate the project');
           pending = await withSkillPreviews(planChange(root, ops), { fetcher: href => approvedFetch(ctx, href) });
-          value = { ...publicChangePreview(root, pending), next: 'Nothing applied. The human must invoke /factory-update apply and approve the preview.' };
+          value = { ...publicChangePreview(root, pending), next: 'Nothing applied. When this turn ends, Forge shows the human this preview to approve or decline; you cannot apply it.' };
         }
         const text = json(value);
         if (text.length > 160000) throw new Error('Inspection/proposal too large; split the requested change into smaller batches');
@@ -115,7 +119,20 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     savedTools = null;
   };
   pi.registerTool({ ...tool, exposure: 'hidden' });
-  pi.on('agent_end', hide);
+  // A revision turn ends with its proposal in front of the human, so nobody
+  // types "apply". Only a direct /forge request arms the planner, the dialog
+  // is the approval, and a session without a UI never applies.
+  pi.on('agent_end', async (_event, ctx) => {
+    const plan = armed && !review ? pending : null;
+    pending = null;
+    hide();
+    if (!plan) return;
+    try {
+      if (!ctx.hasUI) throw new Error('The proposal was not applied: approving it needs an interactive session');
+      if (!await ctx.ui.confirm('Apply this change?', json(plan.preview))) { tell(ctx, 'Declined; nothing applied.'); return; }
+      tell(ctx, applyChange(root, plan, true));
+    } catch (error) { tell(ctx, error.message, 'error'); }
+  });
   pi.on('tool_call', event => {
     if (armed && event.toolName !== 'forge_plan') return { block: true, reason: 'Maintenance uses only forge_plan; operational tools are suspended for this turn' };
   });
@@ -128,7 +145,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
   });
   pi.on('session_shutdown', () => { armed = false; pending = null; });
   // What agents use while working comes from the pinned Forge package.
-  registerAgent(pi, Type, root, { maintaining: () => armed });
+  const permissions = registerAgent(pi, Type, root, { maintaining: () => armed });
   /**
    * Regenerate from system.yaml with this version. Text agents read is
    * rewritten without asking; anything that changes what they can run or
@@ -152,92 +169,105 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     tell(ctx, `${message.replace(/ ?Takes effect after \/reload; no restart needed\./, '')} Reloading.`.trim());
     await ctx.reload();
   };
-  pi.registerCommand('factory-update', {
-    description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rebuild | done',
-    handler: async (args, ctx) => {
-      try {
-        const request = args.trim();
-        if (request === 'done') { pending = null; hide(); tell(ctx, 'Forge maintenance closed.'); return; }
-        if (request === 'rollback' || request === 'recover') { tell(ctx, 'These commands were removed. Restore the desired settings and generated files with git, then reload.'); return; }
-        const env = request.match(/^env(?:\s+set\s+(\S+))?$/);
-        if (env) {
-          // Values are typed by the human here and written straight to .env;
-          // they never pass through the model, a tool result or the session.
-          const model = parsedModel(readText(root, '.pi/system.yaml'));
-          if (!env[1]) {
-            const status = envStatus(root, model);
-            tell(ctx, status.length ? status.map(e => `${e.name}${e.secret ? ' (secret)' : ''}: ${e.set}`).join('\n') + '\nSet a value with /factory-update env set NAME, then restart ./run.' : 'No integrations.env variables are declared.');
-            return;
-          }
-          if (!ctx.hasUI) throw new Error('Interactive input is required to set a value');
-          await ctx.waitForIdle();
-          const value = await ctx.ui.input(`Value for ${env[1]} (stored in .env, gitignored; visible while typing)`, '');
-          if (value === undefined || value === '') { tell(ctx, 'Cancelled; .env unchanged.'); return; }
-          setEnvValue(root, model, env[1], value);
-          tell(ctx, `${env[1]} saved to .env. Restart ./run to load it.`);
-          return;
-        }
-        if (request === 'check') {
-          const release = await checkRelease(root, updates);
-          tell(ctx, `Installed Forge: ${release.installed}\nLatest release: ${release.latest}\n${release.newer ? 'Update available: /factory-update update' : 'No newer release available.'}`);
-          return;
-        }
-        if (request === 'update') {
-          // Both approvals come from the human's dialog; a headless session
-          // can grant neither, so it stops before contacting the remote.
-          if (!ctx.hasUI) throw new Error('Updating needs interactive confirmation; nothing was fetched or run');
-          await ctx.waitForIdle();
-          hide();
-          pending = null;
-          const proposal = await proposeUpdate(root, updates);
-          if (proposal.kind === 'current') { tell(ctx, `Forge ${proposal.installed} is up to date.`); return; }
-          const run = await ctx.ui.confirm(`Run Forge ${proposal.tag} to preview the update?`, json({
-            pin: { from: proposal.from, to: proposal.to }, commit: proposal.commit, changes: proposal.changes,
-            note: `Approving downloads ${proposal.tag} at this commit and runs its generator on this project to compute the preview. Nothing is written; applying asks separately.`,
-          }));
-          if (!run) { tell(ctx, 'Cancelled; the new release was not downloaded or run.'); return; }
-          const plan = await previewUpdate(root, proposal, true);
-          if (!await ctx.ui.confirm(`Apply Forge ${proposal.tag}?`, json(plan.preview))) { discardUpdate(plan); tell(ctx, 'Cancelled; nothing applied.'); return; }
-          const applied = await applyUpdate(root, plan, true, updates.install ? { install: updates.install } : {});
-          tell(ctx, `Updated to Forge ${proposal.tag}${applied.changed?.length ? `; rebuilt ${applied.changed.join(', ')}` : ''}. Restart ./run to load it.`);
-          return;
-        }
-        if (request === 'rebuild' || request === 'reconcile') {
-          await ctx.waitForIdle();
-          hide();
-          pending = null;
-          const { message, plan } = await rebuild(ctx);
-          if (plan?.applied && !plan.restart) { await reload(ctx, message); return; }
-          tell(ctx, message);
-          return;
-        }
-        if (request === 'apply') {
-          // No model tool can reach this branch or manufacture a confirmation.
-          if (!ctx.hasUI) throw new Error('Interactive user confirmation is required; nothing applied');
-          await ctx.waitForIdle();
-          const plan = pending;
-          if (!plan) throw new Error('No pending proposal; request a change first');
-          if (!await ctx.ui.confirm('Approve Forge maintenance?', json(plan.preview))) { tell(ctx, 'Cancelled; nothing applied.'); return; }
-          const message = applyChange(root, plan, true);
-          pending = null;
-          hide();
-          if (!plan.restart) { await reload(ctx, message); return; }
-          tell(ctx, message);
-          return;
-        }
-        await ctx.waitForIdle();
-        hide();
-        pending = null;
-        review = !request || /^review(?:\s|$)/i.test(request) || /how (?:can|could) we improve/i.test(request);
-        armed = true;
-        savedTools = pi.getActiveTools().filter(n => n !== 'forge_plan');
-        pi.registerTool({ ...tool, exposure: 'model-only' });
-        // Maintenance is a separate loadout, not an expansion of operational
-        // authority. Review cannot reach Bash/write/edit, MCP or subagents.
-        pi.setActiveTools(['forge_plan']);
-        const workflow = readFileSync(new URL('./SKILL.md', import.meta.url), 'utf8').split('## Project maintenance workflow\n')[1];
-        pi.sendUserMessage(`${workflow}\n\nMode: ${review ? 'READ-ONLY REVIEW' : 'CHANGE PROPOSAL'}.\nUser request: ${request || 'review'}\n\nUse forge_plan inspect first. The command grants no Bash/write privileges. Follow-up maintenance turns must also start with /factory-update.`);
-      } catch (error) { hide(); tell(ctx, error.message, 'error'); }
-    },
-  });
+  const check = (ctx) => {
+    const result = checkProject(root, { registeredTools: pi.getAllTools?.().map(t => t.name) });
+    if (result.ok) { tell(ctx, 'All checks passed: system.yaml is valid, the generated files match it, and every agent starts with what it needs.'); return; }
+    const section = (name, problems, fix) => problems === null ? `${name}: skipped until system.yaml is valid`
+      : problems.length ? `${name}: ${problems.length} problem${problems.length === 1 ? '' : 's'}\n${problems.map(p => `- ${p}`).join('\n')}${fix ? `\n${fix}` : ''}` : `${name}: ok`;
+    tell(ctx, [
+      section('Validation', result.validation, 'Describe the fix with /forge <request>.'),
+      section('Consistency', result.consistency, 'Run /forge sync to rebuild the generated files from system.yaml.'),
+      section('Launch check', result.launch),
+    ].join('\n\n'), 'warning');
+  };
+  const status = async (ctx) => {
+    const s = projectStatus(root);
+    let forge;
+    try {
+      const release = await checkRelease(root, updates);
+      forge = `${release.installed} (${release.newer ? `${release.latest} available: /forge sync` : 'newest release'})`;
+    } catch (error) {
+      let pin;
+      try { pin = forgePin(root).tag; } catch { pin = 'not pinned'; }
+      forge = `${pin} (could not check for newer releases: ${error.message})`;
+    }
+    const list = items => items.join(', ') || 'none';
+    tell(ctx, [
+      `${s.name}: ${s.description}`,
+      `Agents:\n${s.agents.map(a => `- ${a.name}${a.role ? ` (${a.role})` : ''}: ${a.model}`).join('\n')}`,
+      `MCP servers: ${list(s.mcpServers)}\nCommands: ${list(s.commands)}\nSkills: ${list(s.skills)}`,
+      ...(s.env.length ? [`Environment: ${s.env.map(e => `${e.name} (${e.set})`).join(', ')}`] : []),
+      `Forge: ${forge}`,
+      s.pendingRequests ? `${s.pendingRequests} pending permission request${s.pendingRequests === 1 ? '' : 's'}: /forge permissions review` : 'No pending permission requests.',
+    ].join('\n'));
+  };
+  /** Move the pin to the newest release, or rebuild with this one when it is the newest. */
+  const sync = async (ctx) => {
+    // Every approval comes from the human's dialog; a headless session can
+    // grant none, so it stops before contacting the remote.
+    if (!ctx.hasUI) throw new Error('Syncing needs interactive confirmation; nothing was fetched or run');
+    await ctx.waitForIdle();
+    hide();
+    pending = null;
+    const proposal = await proposeUpdate(root, updates);
+    if (proposal.kind === 'current') {
+      const { message, plan } = await rebuild(ctx);
+      const text = `Forge ${proposal.installed} is the newest release. ${message}`;
+      if (plan?.applied && !plan.restart) { await reload(ctx, text); return; }
+      tell(ctx, text);
+      return;
+    }
+    const run = await ctx.ui.confirm(`Run Forge ${proposal.tag} to preview the update?`, json({
+      pin: { from: proposal.from, to: proposal.to }, commit: proposal.commit, changes: proposal.changes,
+      note: `Approving downloads ${proposal.tag} at this commit and runs its generator on this project to compute the preview. Nothing is written; applying asks separately.`,
+    }));
+    if (!run) { tell(ctx, 'Cancelled; the new release was not downloaded or run.'); return; }
+    const plan = await previewUpdate(root, proposal, true);
+    if (!await ctx.ui.confirm(`Apply Forge ${proposal.tag}?`, json(plan.preview))) { discardUpdate(plan); tell(ctx, 'Cancelled; nothing applied.'); return; }
+    const applied = await applyUpdate(root, plan, true, updates.install ? { install: updates.install } : {});
+    tell(ctx, `Updated to Forge ${proposal.tag}${applied.changed?.length ? `; rebuilt ${applied.changed.join(', ')}` : ''}. Restart ./run to load it.`);
+  };
+  /** Values are typed by the human and written straight to .env; they never pass through the model, a tool result or the session. */
+  const env = async (ctx, name) => {
+    const model = parsedModel(readText(root, '.pi/system.yaml'));
+    if (!name) {
+      const list = envStatus(root, model);
+      tell(ctx, list.length ? list.map(e => `${e.name}${e.secret ? ' (secret)' : ''}: ${e.set}`).join('\n') + '\nSet a value with /forge env set NAME, then restart ./run.' : 'No integrations.env variables are declared.');
+      return;
+    }
+    if (!ctx.hasUI) throw new Error('Interactive input is required to set a value');
+    await ctx.waitForIdle();
+    const value = await ctx.ui.input(`Value for ${name} (stored in .env, gitignored; visible while typing)`, '');
+    if (value === undefined || value === '') { tell(ctx, 'Cancelled; .env unchanged.'); return; }
+    setEnvValue(root, model, name, value);
+    tell(ctx, `${name} saved to .env. Restart ./run to load it.`);
+  };
+  /** A conversational revision (or a read-only review): the model may only inspect and propose. */
+  const revise = async (ctx, request) => {
+    await ctx.waitForIdle();
+    hide();
+    pending = null;
+    review = !request || /^review(?:\s|$)/i.test(request) || /how (?:can|could) we improve/i.test(request);
+    armed = true;
+    savedTools = pi.getActiveTools().filter(n => n !== 'forge_plan');
+    pi.registerTool({ ...tool, exposure: 'model-only' });
+    // Maintenance is a separate loadout, not an expansion of operational
+    // authority. Review cannot reach Bash/write/edit, MCP or subagents.
+    pi.setActiveTools(['forge_plan']);
+    const workflow = readFileSync(new URL('./SKILL.md', import.meta.url), 'utf8').split('## Project maintenance workflow\n')[1];
+    pi.sendUserMessage(`${workflow}\n\nMode: ${review ? 'READ-ONLY REVIEW' : 'CHANGE PROPOSAL'}.\nUser request: ${request || 'review'}\n\nUse forge_plan inspect first. The command grants no Bash/write privileges. Follow-up maintenance turns must also start with /forge.`);
+  };
+  return async (args, ctx) => {
+    try {
+      const request = (args ?? '').trim();
+      if (request === 'check') return check(ctx);
+      if (request === 'status') return await status(ctx);
+      if (request === 'sync') return await sync(ctx);
+      const envArgs = request.match(/^env(?:\s+set\s+(\S+))?$/);
+      if (envArgs) return await env(ctx, envArgs[1]);
+      const permissionArgs = request.match(/^permissions?(?:\s+(.*))?$/);
+      if (permissionArgs) return await permissions(permissionArgs[1] ?? '', ctx);
+      await revise(ctx, request);
+    } catch (error) { hide(); tell(ctx, error.message, 'error'); }
+  };
 }

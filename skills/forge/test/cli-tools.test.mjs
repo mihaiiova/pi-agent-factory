@@ -169,15 +169,15 @@ test('launch check reports a missing command once per agent, and approval a suba
 test('the orchestrator gets only its commands; a subagent process gets all, bounded by its allowlist', (t) => {
   const root = project(t);
   const lead = adapter();
-  registerPermissions(lead.pi, lead.Type, root);
+  const permissions = registerPermissions(lead.pi, lead.Type, root);
   assert.deepEqual(Object.keys(lead.tools).sort(), [cliToolName('echo-title'), 'request_permission']);
-  assert.ok(lead.commands['factory-permission']);
+  assert.equal(typeof permissions, 'function', '/forge permissions');
+  assert.deepEqual(lead.commands, {}, 'no command of its own');
   process.env.PI_SUBAGENT_CHILD = '1';
   t.after(() => { delete process.env.PI_SUBAGENT_CHILD; });
   const child = adapter();
-  registerPermissions(child.pi, child.Type, root);
+  assert.equal(registerPermissions(child.pi, child.Type, root), undefined);
   assert.deepEqual(Object.keys(child.tools).sort(), ['cli_echo_title', 'cli_show_body', 'cli_unused']);
-  assert.equal(child.commands['factory-permission'], undefined);
 });
 
 test('approval: allow once, allow for session, deny, and fail closed without a UI', async (t) => {
@@ -237,12 +237,12 @@ test('an interactive request can run once, or be saved through the preview and r
   assert.match((await again.tools.request_permission.execute('id', { name: 'say2', command: 'node', args: [...echoArg, '{word}'], reason: 'x' }, undefined, undefined, again.ctx)).content[0].text, /already declared as cli_say/);
 });
 
-test('/factory-permission adds, lists, reviews and removes commands', async (t) => {
+test('/forge permissions adds, lists, reviews and removes commands', async (t) => {
   const root = project(t);
   // Asking before each run, for a subagent: routed to the orchestrator.
   const mock = adapter({ choices: [0, 0] });
-  registerPermissions(mock.pi, mock.Type, root);
-  const command = (args) => mock.commands['factory-permission'].handler(args, mock.ctx);
+  const permissions = registerPermissions(mock.pi, mock.Type, root);
+  const command = (args) => permissions(args, mock.ctx);
   mock.inputs.push('create-issue', 'gh issue create --repo o/r --title {title} --body-file {body:file}', 'writer');
   await command('add');
   assert.match(mock.asked[1].title, /writer run in the background, where nobody can answer/);
@@ -256,9 +256,8 @@ test('/factory-permission adds, lists, reviews and removes commands', async (t) 
 
   // Or kept for the subagent, without asking.
   const quiet = adapter({ choices: [0, 1] });
-  registerPermissions(quiet.pi, quiet.Type, root);
   quiet.inputs.push('list-issues', 'gh issue list --repo o/r', 'writer');
-  await quiet.commands['factory-permission'].handler('add', quiet.ctx);
+  await registerPermissions(quiet.pi, quiet.Type, root)('add', quiet.ctx);
   doc = yaml.parse(readFileSync(join(root, '.pi/system.yaml'), 'utf8'));
   assert.equal(doc.integrations.cli.find((c) => c.name === 'list-issues').approve, false);
   assert.ok(doc.agents[0].tools.includes('cli:list-issues'));
@@ -270,8 +269,7 @@ test('/factory-permission adds, lists, reviews and removes commands', async (t) 
   // A request that can't be saved stays pending; the review keeps going.
   await headless.tools.request_permission.execute('id', { name: 'echo-title', command: 'node', args: ['-p', '1'], reason: 'Name clash' }, undefined, undefined, headless.ctx);
   const reviewer = adapter({ choices: [0, 0] });
-  registerPermissions(reviewer.pi, reviewer.Type, root);
-  await reviewer.commands['factory-permission'].handler('review', reviewer.ctx);
+  await registerPermissions(reviewer.pi, reviewer.Type, root)('review', reviewer.ctx);
   assert.deepEqual(readRequests(root).map((r) => r.name), ['echo-title']);
   assert.match(reviewer.notices.find((n) => n.level === 'error').m, /echo-title: .*already exists; kept for later/);
   doc = yaml.parse(readFileSync(join(root, '.pi/system.yaml'), 'utf8'));
@@ -279,8 +277,7 @@ test('/factory-permission adds, lists, reviews and removes commands', async (t) 
   assert.ok(doc.orchestrator.tools.includes('cli:list-files'));
 
   const declining = adapter({ confirm: false });
-  registerPermissions(declining.pi, declining.Type, root);
-  await declining.commands['factory-permission'].handler('remove create-issue', declining.ctx);
+  await registerPermissions(declining.pi, declining.Type, root)('remove create-issue', declining.ctx);
   assert.ok(yaml.parse(readFileSync(join(root, '.pi/system.yaml'), 'utf8')).integrations.cli.some((c) => c.name === 'create-issue'), 'declined preview changes nothing');
   await command('remove create-issue');
   doc = yaml.parse(readFileSync(join(root, '.pi/system.yaml'), 'utf8'));

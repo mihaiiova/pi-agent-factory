@@ -33,15 +33,36 @@ test('Pi loads a generated project from the Forge package', async t => {
   try {
     await session.bindExtensions({ onError: error => { throw new Error(JSON.stringify(error)); } });
     const commands = session.extensionRunner.getRegisteredCommands().map(c => c.name);
-    assert.equal(commands.filter(name => name === 'factory-update').length, 1);
-    assert.equal(commands.filter(name => name === 'factory-permission').length, 1);
     assert.equal(commands.filter(name => name === 'forge').length, 1);
+    assert.deepEqual(commands.filter(name => /factory/.test(name)), [], 'no old command names');
     assert.ok(session.extensionRunner.getAllRegisteredTools().some(t => t.definition.name === 'memory'));
     assert.ok(session.extensionRunner.getAllRegisteredTools().some(t => t.definition.name === 'request_permission'));
     const notices = [];
-    const command = session.extensionRunner.getCommand('factory-update');
-    assert.doesNotMatch(command.description, /rollback|recover/);
-    await command.handler('rollback', { hasUI: true, ui: { notify: message => notices.push(message) } });
-    assert.match(notices.join('\n'), /git/i);
+    const command = session.extensionRunner.getCommand('forge');
+    assert.match(command.description, /check \| status \| sync/);
+    await command.handler('check', { hasUI: true, ui: { notify: message => notices.push(message) } });
+    assert.match(notices.join('\n'), /Validation/, 'inside a project /forge checks this agent');
+  } finally { session.dispose(); }
+});
+
+test('outside a Forge project, /forge designs a new agent and has nothing to check', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'forge-outside-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const binary = execFileSync('which', ['pi'], { encoding: 'utf8' }).trim();
+  const sdk = await import(pathToFileURL(resolve(dirname(realpathSync(binary)), '../index.js')).href);
+  const agentDir = join(root, 'home');
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ packages: [repo], defaultTools: ['read'] }));
+  const settingsManager = sdk.SettingsManager.create(root, agentDir, { projectTrusted: true });
+  const loader = new sdk.DefaultResourceLoader({ cwd: root, agentDir, settingsManager, noContextFiles: true });
+  await loader.reload();
+  const { session } = await sdk.createAgentSession({ cwd: root, agentDir, resourceLoader: loader, settingsManager, sessionManager: sdk.SessionManager.inMemory(root), tools: ['read'] });
+  try {
+    await session.bindExtensions({ onError: error => { throw new Error(JSON.stringify(error)); } });
+    const commands = session.extensionRunner.getRegisteredCommands().map(c => c.name);
+    assert.deepEqual(commands.filter(name => name === 'forge' || /factory/.test(name)), ['forge']);
+    const notices = [];
+    await session.extensionRunner.getCommand('forge').handler('status', { hasUI: true, cwd: root, ui: { notify: message => notices.push(message) } });
+    assert.match(notices.join('\n'), /not a Forge project/i);
   } finally { session.dispose(); }
 });

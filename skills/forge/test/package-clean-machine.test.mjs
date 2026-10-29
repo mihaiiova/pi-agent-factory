@@ -55,10 +55,10 @@ test('clean launcher installs the pinned package and registers its commands', {
   });
   assert.equal(response.success, true, stderr);
   const names = response.data.commands.map(command => command.name);
-  assert.equal(names.filter(name => name === 'factory-update').length, 1, stderr);
-  assert.equal(names.filter(name => name === 'factory-permission').length, 1, stderr);
+  assert.equal(names.filter(name => name === 'forge').length, 1, stderr);
+  assert.deepEqual(names.filter(name => /factory/.test(name)), [], stderr);
   // Installed from the pinned tag into the project, where git ignores it.
-  const source = response.data.commands.find(command => command.name === 'factory-update').sourceInfo;
+  const source = response.data.commands.find(command => command.name === 'forge').sourceInfo;
   assert.match(source.source, /^git:github\.com\/mihaiiova\/pi-forge@v\d+\.\d+\.\d+$/);
   assert.equal(source.baseDir, join(project, '.pi/git/github.com/mihaiiova/pi-forge'));
 });

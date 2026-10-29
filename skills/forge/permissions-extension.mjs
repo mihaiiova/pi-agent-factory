@@ -1,6 +1,6 @@
 /**
  * Command permissions at runtime: declared command tools, the orchestrator's
- * request_permission tool, and the /factory-permission command.
+ * request_permission tool, and the handler for /forge permissions.
  *
  * Declared commands (integrations.cli) register when the extension loads. In
  * the orchestrator process only the ones it may run are registered (all of
@@ -35,7 +35,7 @@ const checkValues = (args, values) => buildArgv(args, values, null);
 async function confirmChange(root, ctx, title, ops) {
   const plan = planChange(root, ops);
   const stale = plan.preview.staleMentions?.mentions ?? [];
-  const warning = stale.length ? `\n\nStill mentioned after this change (edit with /factory-update):\n${stale.map((m) => `- ${m.removed} in ${m.where}: ${m.lines[0]}${m.lines.length > 1 || m.more ? ` (+${m.lines.length - 1 + (m.more ?? 0)} more lines)` : ''}`).join('\n')}` : '';
+  const warning = stale.length ? `\n\nStill mentioned after this change (edit with /forge):\n${stale.map((m) => `- ${m.removed} in ${m.where}: ${m.lines[0]}${m.lines.length > 1 || m.more ? ` (+${m.lines.length - 1 + (m.more ?? 0)} more lines)` : ''}`).join('\n')}` : '';
   const summary = `${plan.preview.modelDiff}\n\nFiles: ${plan.preview.files.map((f) => `${f.action} ${f.path}`).join(', ') || 'none'}${warning}`;
   if (!await ctx.ui.confirm(title, summary)) return null;
   return applyChange(root, plan, true);
@@ -97,7 +97,7 @@ export function registerPermissions(pi, Type, root) {
       if (!ctx?.hasUI) {
         const requests = readRequests(root).filter((r) => !(r.command === entry.command && JSON.stringify(r.args) === JSON.stringify(entry.args)));
         writeRequests(root, [...requests, { name: entry.name, command: entry.command, args: entry.args, reason: params.reason, requestedAt: new Date().toISOString() }]);
-        return text('Saved as a pending request; nothing ran. Tell the user what is blocked. They can approve it with /factory-permission review.', true);
+        return text('Saved as a pending request; nothing ran. Tell the user what is blocked. They can approve it with /forge permissions review.', true);
       }
       const choice = await ctx.ui.select(`The agent asks to run a command:\n\n${describeCall(entry, params.values)}\n\nWhy: ${params.reason}\nAs a saved command: ${shape(entry)}`, ['Allow once', `Always allow (save "${entry.name}" to system.yaml)`, 'Deny']);
       if (!choice || choice === 'Deny') return text('The user denied this command. Do not try to run it another way.', true);
@@ -113,80 +113,78 @@ export function registerPermissions(pi, Type, root) {
     },
   });
 
-  pi.registerCommand('factory-permission', {
-    description: 'Commands agents may run: list | add | remove <name> | review',
-    handler: async (args, ctx) => {
-      const tell = (message, level = 'info') => (ctx.hasUI ? ctx.ui.notify(message, level) : process.stderr.write(`Forge (${level}): ${message}\n`));
-      try {
-        const [action = 'list', ...rest] = args.trim().split(/\s+/).filter(Boolean);
-        const current = parsedModel(readText(root, '.pi/system.yaml'));
-        if (action === 'list') {
-          const enforced = (agent) => enforcedAgentTools(agent.name, current.policies, agent.tools);
-          const lines = cliEntries(current).map((c) => `${c.name}: ${shape(c)}\n  agents: ${cliAgents(current, c.name, enforced).join(', ') || 'none'}; ${c.approve === false ? 'runs without asking' : 'asks before each run'}`);
-          const pending = readRequests(root).length;
-          tell(`${lines.join('\n') || 'No commands declared.'}${pending ? `\n\n${pending} pending request(s): /factory-permission review` : ''}\n\nadd | remove <name> | review`);
-          return;
+  /** /forge permissions: list | add | remove <name> | review */
+  return async (args, ctx) => {
+    const tell = (message, level = 'info') => (ctx.hasUI ? ctx.ui.notify(message, level) : process.stderr.write(`Forge (${level}): ${message}\n`));
+    try {
+      const [action = 'list', ...rest] = args.trim().split(/\s+/).filter(Boolean);
+      const current = parsedModel(readText(root, '.pi/system.yaml'));
+      if (action === 'list') {
+        const enforced = (agent) => enforcedAgentTools(agent.name, current.policies, agent.tools);
+        const lines = cliEntries(current).map((c) => `${c.name}: ${shape(c)}\n  agents: ${cliAgents(current, c.name, enforced).join(', ') || 'none'}; ${c.approve === false ? 'runs without asking' : 'asks before each run'}`);
+        const pending = readRequests(root).length;
+        tell(`${lines.join('\n') || 'No commands declared.'}${pending ? `\n\n${pending} pending request(s): /forge permissions review` : ''}\n\nadd | remove <name> | review`);
+        return;
+      }
+      if (!ctx.hasUI) throw new Error('Interactive input is required');
+      await ctx.waitForIdle();
+      if (action === 'add') {
+        const name = (await ctx.ui.input('Name for the command (kebab-case)', 'create-issue'))?.trim();
+        if (!name) return tell('Cancelled.');
+        const line = await ctx.ui.input('Command line. Use {name} for a value the agent fills in, {name:file} for long text passed as a file', 'gh issue create --repo owner/repo --title {title} --body-file {body:file}');
+        if (!line?.trim()) return tell('Cancelled.');
+        const [command, ...cmdArgs] = splitCommandLine(line);
+        const names = [current.orchestrator.name, ...(current.agents ?? []).map((a) => a.name)];
+        const who = await ctx.ui.input(`Agents that may run it, comma-separated (${names.join(', ')})`, current.orchestrator.name);
+        if (!who?.trim()) return tell('Cancelled.');
+        const agents = who.split(',').map((s) => s.trim()).filter(Boolean);
+        const unknown = agents.filter((a) => !names.includes(a));
+        if (unknown.length) throw new Error(`Unknown agent(s): ${unknown.join(', ')}`);
+        const ask = await ctx.ui.select('Approval', ['Ask before every run (recommended)', 'Run without asking']);
+        if (!ask) return tell('Cancelled.');
+        const subagents = agents.filter((a) => a !== current.orchestrator.name);
+        let approve = ask.startsWith('Ask');
+        if (approve && subagents.length) {
+          // A command that asks can't run in a background subagent; the orchestrator runs it for them.
+          const lead = `Only ${current.orchestrator.name}, which runs it when a subagent asks`;
+          const route = await ctx.ui.select(`${subagents.join(', ')} run in the background, where nobody can answer the approval prompt, so every run would be refused.`, [lead, 'Run without asking', 'Cancel']);
+          if (!route || route === 'Cancel') return tell('Cancelled.');
+          if (route === lead) agents.splice(0, agents.length, current.orchestrator.name);
+          else approve = false;
         }
-        if (!ctx.hasUI) throw new Error('Interactive input is required');
-        await ctx.waitForIdle();
-        if (action === 'add') {
-          const name = (await ctx.ui.input('Name for the command (kebab-case)', 'create-issue'))?.trim();
-          if (!name) return tell('Cancelled.');
-          const line = await ctx.ui.input('Command line. Use {name} for a value the agent fills in, {name:file} for long text passed as a file', 'gh issue create --repo owner/repo --title {title} --body-file {body:file}');
-          if (!line?.trim()) return tell('Cancelled.');
-          const [command, ...cmdArgs] = splitCommandLine(line);
-          const names = [current.orchestrator.name, ...(current.agents ?? []).map((a) => a.name)];
-          const who = await ctx.ui.input(`Agents that may run it, comma-separated (${names.join(', ')})`, current.orchestrator.name);
-          if (!who?.trim()) return tell('Cancelled.');
-          const agents = who.split(',').map((s) => s.trim()).filter(Boolean);
-          const unknown = agents.filter((a) => !names.includes(a));
-          if (unknown.length) throw new Error(`Unknown agent(s): ${unknown.join(', ')}`);
-          const ask = await ctx.ui.select('Approval', ['Ask before every run (recommended)', 'Run without asking']);
-          if (!ask) return tell('Cancelled.');
-          const subagents = agents.filter((a) => a !== current.orchestrator.name);
-          let approve = ask.startsWith('Ask');
-          if (approve && subagents.length) {
-            // A command that asks can't run in a background subagent; the orchestrator runs it for them.
-            const lead = `Only ${current.orchestrator.name}, which runs it when a subagent asks`;
-            const route = await ctx.ui.select(`${subagents.join(', ')} run in the background, where nobody can answer the approval prompt, so every run would be refused.`, [lead, 'Run without asking', 'Cancel']);
-            if (!route || route === 'Cancel') return tell('Cancelled.');
-            if (route === lead) agents.splice(0, agents.length, current.orchestrator.name);
-            else approve = false;
+        const entry = { name, command, args: cmdArgs, approve };
+        checkShape(entry);
+        const applied = await confirmChange(root, ctx, `Add the command "${name}"?`, grantOps(current, entry, agents));
+        return tell(applied === null ? 'Cancelled; nothing changed.' : applied);
+      }
+      if (action === 'remove') {
+        const name = rest[0];
+        if (!name || !cliEntries(current).some((c) => c.name === name)) throw new Error(`No declared command "${name ?? ''}"`);
+        const applied = await confirmChange(root, ctx, `Remove the command "${name}" from every agent?`, revokeOps(current, name));
+        return tell(applied === null ? 'Cancelled; nothing changed.' : applied);
+      }
+      if (action === 'review') {
+        const requests = readRequests(root);
+        if (!requests.length) return tell('No pending requests.');
+        const left = [];
+        let seen = 0;
+        try {
+          for (const request of requests) {
+            const choice = await ctx.ui.select(`Pending request (${request.requestedAt}):\n\n${shape(request)}\n\nWhy: ${request.reason}`, [`Save as "${request.name}" for ${current.orchestrator.name}`, 'Discard', 'Keep for later', 'Stop reviewing']);
+            if (!choice || choice === 'Stop reviewing') break;
+            seen++;
+            if (choice.startsWith('Save')) {
+              try {
+                const model = parsedModel(readText(root, '.pi/system.yaml'));
+                const applied = await confirmChange(root, ctx, `Save the command "${request.name}"?`, grantOps(model, { ...request, description: request.reason, approve: true }, [model.orchestrator.name]));
+                if (applied === null) left.push(request); else tell(applied);
+              } catch (error) { left.push(request); tell(`${request.name}: ${error.message}; kept for later`, 'error'); }
+            } else if (choice !== 'Discard') left.push(request);
           }
-          const entry = { name, command, args: cmdArgs, approve };
-          checkShape(entry);
-          const applied = await confirmChange(root, ctx, `Add the command "${name}"?`, grantOps(current, entry, agents));
-          return tell(applied === null ? 'Cancelled; nothing changed.' : applied);
-        }
-        if (action === 'remove') {
-          const name = rest[0];
-          if (!name || !cliEntries(current).some((c) => c.name === name)) throw new Error(`No declared command "${name ?? ''}"`);
-          const applied = await confirmChange(root, ctx, `Remove the command "${name}" from every agent?`, revokeOps(current, name));
-          return tell(applied === null ? 'Cancelled; nothing changed.' : applied);
-        }
-        if (action === 'review') {
-          const requests = readRequests(root);
-          if (!requests.length) return tell('No pending requests.');
-          const left = [];
-          let seen = 0;
-          try {
-            for (const request of requests) {
-              const choice = await ctx.ui.select(`Pending request (${request.requestedAt}):\n\n${shape(request)}\n\nWhy: ${request.reason}`, [`Save as "${request.name}" for ${current.orchestrator.name}`, 'Discard', 'Keep for later', 'Stop reviewing']);
-              if (!choice || choice === 'Stop reviewing') break;
-              seen++;
-              if (choice.startsWith('Save')) {
-                try {
-                  const model = parsedModel(readText(root, '.pi/system.yaml'));
-                  const applied = await confirmChange(root, ctx, `Save the command "${request.name}"?`, grantOps(model, { ...request, description: request.reason, approve: true }, [model.orchestrator.name]));
-                  if (applied === null) left.push(request); else tell(applied);
-                } catch (error) { left.push(request); tell(`${request.name}: ${error.message}; kept for later`, 'error'); }
-              } else if (choice !== 'Discard') left.push(request);
-            }
-          } finally { writeRequests(root, [...left, ...requests.slice(seen)]); }
-          return tell(`${seen - left.length} handled, ${requests.length - seen + left.length} pending.`);
-        }
-        throw new Error('Use: /factory-permission [list | add | remove <name> | review]');
-      } catch (error) { tell(error.message, 'error'); }
-    },
-  });
+        } finally { writeRequests(root, [...left, ...requests.slice(seen)]); }
+        return tell(`${seen - left.length} handled, ${requests.length - seen + left.length} pending.`);
+      }
+      throw new Error('Use: /forge permissions [list | add | remove <name> | review]');
+    } catch (error) { tell(error.message, 'error'); }
+  };
 }

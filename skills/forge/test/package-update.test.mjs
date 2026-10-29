@@ -47,7 +47,7 @@ function releases(t) {
 }
 
 function project(t) {
-  const root = mkdtempSync(join(tmpdir(), 'factory-update-'));
+  const root = mkdtempSync(join(tmpdir(), 'forge-update-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, '.pi'));
   copyFileSync(join(import.meta.dirname, 'fixtures/generate/minimal/.pi/system.yaml'), join(root, '.pi/system.yaml'));
@@ -63,18 +63,19 @@ function adapter(answers = []) {
     hasUI: true, waitForIdle: async () => {},
     ui: { notify: (...v) => notices.push(v), confirm: async (title, body) => { dialogs.push({ title, body }); return answers.shift() ?? false; } },
   };
-  return { pi, Type, ctx, commands, notices, dialogs, run: arg => commands['factory-update'].handler(arg, ctx) };
+  const mock = { pi, Type, ctx, commands, notices, dialogs, run: arg => mock.forge(arg, ctx) };
+  return mock;
 }
 
 const pin = root => JSON.parse(readFileSync(join(root, '.pi/settings.json'), 'utf8')).packages.find(p => p.includes('pi-forge'));
 const files = root => ['.pi/settings.json', 'README.md', '.forge/build.json', 'run'].map(p => readFileSync(join(root, p), 'utf8'));
 
-test('check reports the pinned and the newest release without running either', async t => {
+test('status reports the pinned and the newest release without running either', async t => {
   const { remote, executed } = releases(t);
   const root = project(t);
   const mock = adapter();
-  registerMaintenance(mock.pi, mock.Type, root, { updates: { remote } });
-  await mock.run('check');
+  mock.forge = registerMaintenance(mock.pi, mock.Type, root, { updates: { remote } });
+  await mock.run('status');
   const text = mock.notices.map(([m]) => m).join('\n');
   assert.match(text, new RegExp(`v${version}`));
   assert.match(text, new RegExp(`v${next}`));
@@ -82,17 +83,17 @@ test('check reports the pinned and the newest release without running either', a
   assert.deepEqual(executed(), []);
 });
 
-test('headless update fails closed before contacting the remote', async t => {
+test('headless sync fails closed before contacting the remote', async t => {
   const root = project(t);
   const before = files(root);
   const mock = adapter([true, true]);
   mock.ctx.hasUI = false;
   const installs = [];
-  registerMaintenance(mock.pi, mock.Type, root, { updates: { remote: 'file:///nonexistent/forge.git', install: async r => installs.push(r) } });
+  mock.forge = registerMaintenance(mock.pi, mock.Type, root, { updates: { remote: 'file:///nonexistent/forge.git', install: async r => installs.push(r) } });
   const stderr = process.stderr.write;
   const lines = [];
   process.stderr.write = text => { lines.push(String(text)); return true; };
-  try { await mock.run('update'); } finally { process.stderr.write = stderr; }
+  try { await mock.run('sync'); } finally { process.stderr.write = stderr; }
   assert.match(lines.join(''), /interactive/i);
   assert.doesNotMatch(lines.join(''), /nonexistent/);
   assert.deepEqual(files(root), before);
@@ -104,8 +105,8 @@ test('declining to run the new release leaves it unexecuted and the project unch
   const root = project(t);
   const before = files(root);
   const mock = adapter([false]);
-  registerMaintenance(mock.pi, mock.Type, root, { updates: { remote, install: async () => assert.fail('installed') } });
-  await mock.run('update');
+  mock.forge = registerMaintenance(mock.pi, mock.Type, root, { updates: { remote, install: async () => assert.fail('installed') } });
+  await mock.run('sync');
   assert.equal(mock.dialogs.length, 1);
   assert.match(mock.dialogs[0].title, new RegExp(`v${next}`));
   assert.match(mock.dialogs[0].body, new RegExp(`v${version}`));
@@ -119,8 +120,8 @@ test('the preview comes from the new release, and declining it writes nothing', 
   const root = project(t);
   const before = files(root);
   const mock = adapter([true, false]);
-  registerMaintenance(mock.pi, mock.Type, root, { updates: { remote, install: async () => assert.fail('installed') } });
-  await mock.run('update');
+  mock.forge = registerMaintenance(mock.pi, mock.Type, root, { updates: { remote, install: async () => assert.fail('installed') } });
+  await mock.run('sync');
   assert.equal(mock.dialogs.length, 2, JSON.stringify(mock.notices));
   assert.deepEqual(executed(), ['plan']);
   const preview = mock.dialogs[1].body;
@@ -129,13 +130,13 @@ test('the preview comes from the new release, and declining it writes nothing', 
   assert.deepEqual(files(root), before);
 });
 
-test('an approved update moves the pin, rebuilds with the new release and installs it', async t => {
+test('an approved sync moves the pin, rebuilds with the new release and installs it', async t => {
   const { remote, executed } = releases(t);
   const root = project(t);
   const mock = adapter([true, true]);
   const installs = [];
-  registerMaintenance(mock.pi, mock.Type, root, { updates: { remote, install: async r => installs.push(r) } });
-  await mock.run('update');
+  mock.forge = registerMaintenance(mock.pi, mock.Type, root, { updates: { remote, install: async r => installs.push(r) } });
+  await mock.run('sync');
   assert.deepEqual(executed(), ['plan', 'apply']);
   assert.equal(pin(root), `git:github.com/mihaiiova/pi-forge@v${next}`);
   assert.equal(JSON.parse(readFileSync(join(root, '.forge/build.json'), 'utf8')).version, next);
@@ -151,15 +152,15 @@ test('restoring the previous files with git rolls the pin back', async t => {
   git(root, 'add', '-A');
   git(root, 'commit', '--quiet', '-m', 'generated');
   const mock = adapter([true, true]);
-  registerMaintenance(mock.pi, mock.Type, root, { updates: { remote, install: async () => {} } });
-  await mock.run('update');
+  mock.forge = registerMaintenance(mock.pi, mock.Type, root, { updates: { remote, install: async () => {} } });
+  await mock.run('sync');
   assert.equal(pin(root), `git:github.com/mihaiiova/pi-forge@v${next}`);
   git(root, 'checkout', 'HEAD', '--', '.pi', 'run', 'README.md');
   assert.equal(pin(root), `git:github.com/mihaiiova/pi-forge@v${version}`);
   const check = adapter();
-  registerMaintenance(check.pi, check.Type, root, { updates: { remote } });
-  await check.run('check');
-  assert.match(check.notices.map(([m]) => m).join('\n'), new RegExp(`Installed Forge: v${version}`));
+  check.forge = registerMaintenance(check.pi, check.Type, root, { updates: { remote } });
+  await check.run('status');
+  assert.match(check.notices.map(([m]) => m).join('\n'), new RegExp(`Forge: v${version} \\(v${next} available`));
 });
 
 test('a project already on the newest release is up to date without dialogs', async t => {
@@ -167,10 +168,10 @@ test('a project already on the newest release is up to date without dialogs', as
   git(work, 'push', '--quiet', remote.slice('file://'.length), `:refs/tags/v${next}`);
   const root = project(t);
   const mock = adapter([true, true]);
-  registerMaintenance(mock.pi, mock.Type, root, { updates: { remote } });
-  await mock.run('update');
+  mock.forge = registerMaintenance(mock.pi, mock.Type, root, { updates: { remote } });
+  await mock.run('sync');
   assert.deepEqual(mock.dialogs, []);
-  assert.match(mock.notices.map(([m]) => m).join('\n'), /up to date/i);
+  assert.match(mock.notices.map(([m]) => m).join('\n'), new RegExp(`v${version} is the newest release[\\s\\S]*nothing to rebuild`));
 });
 
 test('a release tag that moves after approval is refused', async t => {

@@ -1,4 +1,4 @@
-<!-- forge:generated v1 sha256=16a0a6af8a2f901f2ada97f524360231787db99a7b04bc16114d13813158f04d -->
+<!-- forge:generated v1 sha256=148803792051c4d3280eb3dd6b552869f9c6ba0d98127fba691881ee4dd0786e -->
 # seo-agent-system
 
 SEO analysis + article drafting
@@ -21,13 +21,13 @@ capabilities are enforced vs advisory.
 
 ## Maintain
 
-Use `/factory-update <request>` to propose a declarative change, then
-`/factory-update apply` to preview and approve it. `/factory-update review`
-is read-only. `/factory-update check` reports a newer Forge release;
-`update` moves the pin after two confirmations. Roll back with git.
-`/factory-permission` lists the commands agents may run and adds, removes or
-reviews them; agents ask for a command they need with `request_permission`.
-Restart `./run` when the launcher or packages change.
+`/forge <request>` proposes a change; when the turn ends, Forge shows the
+preview for you to approve or decline. `/forge review` is read-only.
+`/forge check` verifies the agent, `/forge status` summarizes it, and
+`/forge sync` moves to the newest Forge release after two confirmations.
+Roll back with git. `/forge permissions` lists the commands agents may run
+and adds, removes or reviews them; agents ask for a command they need with
+`request_permission`. Restart `./run` when the launcher or packages change.
 
 ## Policy
 

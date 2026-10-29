@@ -7,11 +7,11 @@ const collections = { agent: ['agents'], skill: ['skills'], mcp: ['integrations'
 const blocks = { orchestrator: ['orchestrator'], policies: ['policies'], integrations: ['integrations'], packages: ['packages'] };
 const safeName = (s) => typeof s === 'string' && /^[a-zA-Z0-9_-]+$/.test(s) && !['__proto__', 'constructor', 'prototype'].includes(s);
 /** Issues a project may already have; a change may keep them but not add new ones. */
-const askingMessages = (model) => { try { return backgroundAskingIssues(model).map(i => i.message); } catch { return []; } };
+export const askingMessages = (model) => { try { return backgroundAskingIssues(model).map(i => i.message); } catch { return []; } };
 export function assertValid(model, { tolerate = [] } = {}) {
   const result = validateSystem(model, { tolerate });
   if (!result.ok) throw new Error(result.errors.join('\n'));
-  if (model.skills?.some(s => s.name === 'factory-update')) throw new Error('factory-update is reserved maintenance infrastructure');
+  if (model.skills?.some(s => s.name === 'forge')) throw new Error('forge is reserved: it is the Forge skill');
   return model;
 }
 
