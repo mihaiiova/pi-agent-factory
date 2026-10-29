@@ -11,6 +11,10 @@
  * never emitted; local-path and secret-shaped entries are rejected.
  */
 
+import { readFileSync } from 'node:fs';
+
+const VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+const FACTORY_PACKAGE = `git:github.com/mihaiiova/pi-agent-factory@v${VERSION}`;
 const LOCAL_PATH_RE = /^(file:|link:|\/|\.\.?\/)/;
 const RUNTIME_PRIMITIVES = ["pi-subagents", "pi-mcp-adapter"];
 
@@ -63,7 +67,7 @@ function declaredSpecError(spec) {
  */
 export function runtimePackages(piPackages, declared = []) {
   const errors = [];
-  const pins = [];
+  const pins = [FACTORY_PACKAGE];
 
   const byName = new Map();
   for (const entry of Array.isArray(piPackages) ? piPackages : []) {

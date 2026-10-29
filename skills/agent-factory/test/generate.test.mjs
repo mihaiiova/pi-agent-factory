@@ -53,6 +53,12 @@ test("fresh generate creates the full single-agent tree", () => {
   assert.deepEqual(mcp, { mcpServers: {} });
 });
 
+test("generated project pins the Factory package to its release", () => {
+  const { files } = generateProject(model, {});
+  const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
+  assert.ok(settings.packages.includes("git:github.com/mihaiiova/pi-agent-factory@v0.19.0"));
+});
+
 test("re-running generate is a no-op (idempotent)", () => {
   const first = generateProject(model, {});
   const existing = Object.fromEntries(first.files.map((f) => [f.path, f.content]));
