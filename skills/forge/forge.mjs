@@ -49,6 +49,9 @@ const USAGE = `Usage: forge <command> [options]
 
 Commands:
   validate <dir>             validate <dir>/.pi/system.yaml against schema v1
+  check-agent <dir> [--connect]
+                             report effective capabilities (no model calls);
+                             --connect starts configured MCP servers
   generate <dir> [--dry-run] generate the project from system.yaml
   discover [dir] [--cli <name>]...
                              print a read-only capability inventory as JSON;

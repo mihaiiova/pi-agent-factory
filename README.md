@@ -41,10 +41,10 @@ you ──▶ /forge (builder, conversational)
   `system.yaml`, previews the generated files and writes them only after you
   confirm. Generation is deterministic and idempotent, and never silently
   overwrites your edits.
-- **Check:** `/forge check` validates `system.yaml`, compares the generated
-  files with it, and checks that each agent will get its declared tools, MCP
-  tools and skills (also done on every start). Checking actual behavior is on
-  the [roadmap](docs/roadmap.md).
+- **Check:** `/forge check` validates `system.yaml`, compares generated files,
+  and reports capability evidence for every agent. A configured capability is
+  not necessarily verified; results distinguish live, last seen, missing and
+  not verifiable. Checking actual behavior is on the [roadmap](docs/roadmap.md).
 - **Revise:** inside a project, `/forge <request>` proposes a small structured
   change. When the turn ends, Forge shows the diff and applies it only if you
   approve.
@@ -137,7 +137,20 @@ Subagents that use MCP or extension tools (web search, for example) always
 run in the background, where those tools load; the forge sets this up. On
 every start, `./run` checks that each agent will get the tools and skills it is
 declared to have, and names any that are missing. MCP servers connect after
-start, so `/forge check` also checks their tools.
+start, so `/forge check` also checks their tools. The last result is saved in
+`.forge/check.json` and shown by `/forge status`.
+
+Outside a session, run `node /path/to/pi-forge/skills/forge/forge.mjs check-agent <project>`.
+It makes no model calls and does not connect MCP by default; `--connect` runs
+`pi mcp list --json` using the project's isolated Pi home and may connect to
+networks and use configured credentials. Pi requires the project to be trusted
+(first run `./run`, then `/trust`) for project MCP servers to appear. CLI
+checks test command presence only, not authentication or functionality. The
+CLI inspects installed Pi extensions using Pi's SDK without installing missing
+packages. If Pi's SDK cannot safely avoid loading disabled auto-discovered
+extensions, CLI extension results are `not verifiable`; use `/forge check` in
+a running session. Extension loading runs the installed extensions' registration
+code. Results reflect observations, not a functional or credential test.
 
 ### MCP: Pi's built-in support
 
