@@ -16,8 +16,6 @@ const EXPECTED_PATHS = [
   ".gitignore",
   ".pi/APPEND_SYSTEM.md",
   ".pi/CAPABILITIES.md",
-  ".pi/extensions/factory-update/index.ts",
-  ".pi/skills/factory-update/SKILL.md",
   ".pi/mcp.json",
   ".pi/settings.json",
   "README.md",
@@ -129,7 +127,7 @@ test("sourced skills generate no SKILL.md and packaged sources join runtime pack
   });
   assert.ok(!files.some((f) => f.path.startsWith(".pi/skills/packaged") || f.path.startsWith(".pi/skills/local")));
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.deepEqual(settings.packages, ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:@acme/skills@1.0.0"]);
+  assert.deepEqual(settings.packages, ["git:github.com/mihaiiova/pi-agent-factory@v0.19.0", "npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:@acme/skills@1.0.0"]);
 });
 
 test("unrelated keys in .pi/mcp.json survive regeneration", () => {
@@ -245,22 +243,23 @@ test("runtime packages are computed from piPackages + declared model packages", 
   );
   const settings = JSON.parse(byPath(withDeclared.files, ".pi/settings.json").content);
   assert.deepEqual(settings.packages, [
+    "git:github.com/mihaiiova/pi-agent-factory@v0.19.0",
     "npm:pi-subagents@0.83.1",
     "npm:pi-mcp-adapter@2.32.1",
     "npm:foo@1.0.0",
   ]);
 
-  // Without piPackages, only declared packages are emitted (no primitives).
+  // Without piPackages, the Factory pin is still present (but primitives are missing).
   const plain = generateProject(model, {});
   const plainSettings = JSON.parse(byPath(plain.files, ".pi/settings.json").content);
-  assert.equal(plainSettings.packages, undefined);
+  assert.deepEqual(plainSettings.packages, ["git:github.com/mihaiiova/pi-agent-factory@v0.19.0"]);
 });
 
 test("generateProject reports missing runtime primitives as errors", () => {
   const { files, errors } = generateProject(model, {}, { piPackages: [] });
   assert.ok(errors.length >= 2, "both required primitives are reported missing");
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.equal(settings.packages, undefined, "no incomplete packages list is emitted");
+  assert.deepEqual(settings.packages, ["git:github.com/mihaiiova/pi-agent-factory@v0.19.0"]);
 });
 
 test("generateProject emits the executable run launcher", () => {
