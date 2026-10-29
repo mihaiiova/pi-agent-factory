@@ -20,9 +20,9 @@ own. A generated agent runs with Pi alone and does not need Forge running.
 > **Naming.** The rename is planned but not done yet. This repository, the
 > package (`pi-agent-factory`) and the commands (`/agent-factory`,
 > `/factory-update`, `/factory-permission`) still use the old names. They will
-> become `mihaiiova/pi-forge`, `pi-forge` and a single `/forge` command, and
-> existing projects will be migrated rather than recreated. See
-> [Milestone 0](docs/roadmap.md#milestone-0-pi-forge-rename-command-surface-and-a-security-fix).
+> become `mihaiiova/pi-forge`, `pi-forge` and a single `/forge` command. There
+> is no migration: projects built with the old names are regenerated. See
+> [Milestone 0](docs/roadmap.md#milestone-0-packaging-rename-command-surface-and-a-security-fix).
 
 ### Architecture in brief
 
