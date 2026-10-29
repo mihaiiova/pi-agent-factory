@@ -1,0 +1,53 @@
+# Headless workflow invocation
+
+Generated projects run declared workflows with `./run --workflow <name>`.
+Repeat `--input key=value` to pass input data. `--timeout` accepts integer
+seconds, minutes or hours (`30m` by default); `--allow-concurrent` bypasses
+the default per-workflow lock. The last stdout line is JSON with `workflow`,
+`runId`, `status`, `answer`, and, when applicable, `message`. Exit codes are
+0 (success), 1 (agent or tool failure), 2 (configuration or lock failure),
+3 (approval required), and 4 (timeout).
+
+Pi print mode expands `/skill:<name> ...` before starting the agent. The
+`workflow-print-mode.test.mjs` test verifies this with the installed Pi and a
+scripted provider. Pi's built-in MCP has no Forge approval gate of its own:
+Forge's runtime blocks `approveTools` calls without a UI, as verified with the
+stdio MCP fixture in `mcp-runtime.test.mjs`. Named invocation is handled by
+the launcher to validate the workflow, inputs, timeout and concurrency and to
+return a structured result. When a workflow has a skill it is invoked through
+Pi's skill command; a specialist entry and the declared boundaries are passed
+to the orchestrator as instructions. Delegation is model-directed, not a hard
+guarantee.
+
+The launcher exports `FORGE_WORKFLOW`, `FORGE_TRIGGER=headless`, and a unique
+`FORGE_RUN_ID`. pi-subagents 0.83.1 does not consume the Forge run ID: its
+`status.json` uses the Pi session file path, or the Pi session UUID when no
+session file exists. Forge instead gives every invocation a private
+`PI_SUBAGENTS_TEMP_ROOT`; both top-level and nested pi-subagents runs use that
+root. Timeout and approval cleanup requests stop through the pinned version's
+stop-request inbox and waits for recorded runs to stop. Unconfirmed cleanup is
+reported as `cleanup: "incomplete"`, with the retained `stateDir` for diagnosis.
+The inbox protocol and status layout are version-specific and must be rechecked
+when the pi-subagents pin changes.
+
+On Linux, when a test invocation of `systemd-run --user --scope` succeeds,
+Forge runs Pi in its own uniquely named user scope and stops that scope on
+exit. Otherwise it terminates the process group and stops the invocation-owned
+pi-subagents runs. Independently detached processes outside pi-subagents can
+survive the fallback. Neither a scope nor the cleanup protocol can guarantee
+termination of work moved to another machine or outside its ownership boundary.
+
+To exercise the actual pinned pi-subagents runner without a model call, point
+`FORGE_SUBAGENTS_PACKAGE` at an installed or extracted pi-subagents 0.83.1
+package, with its dependencies available, and run:
+
+```sh
+FORGE_SUBAGENTS_PACKAGE=/path/to/pi-subagents node --test \
+  --test-name-pattern='timeout stops a real' skills/forge/test/workflow-launcher.test.mjs
+FORGE_TEST_SCOPE=1 FORGE_SUBAGENTS_PACKAGE=/path/to/pi-subagents node --test \
+  --test-name-pattern='timeout stops a real' skills/forge/test/workflow-launcher.test.mjs
+```
+
+The first command forces the fallback; the second requires a usable user
+systemd scope. The ordinary launcher tests also exercise fallback isolation,
+process-group termination, and scope cleanup when a user scope is available.

@@ -172,6 +172,7 @@ setTimeout(()=>{},30000);
 });
 
 test('timeout stops a real pi-subagents background run', { skip: !process.env.FORGE_SUBAGENTS_PACKAGE, timeout: 30000 }, async t => {
+  if (process.env.FORGE_TEST_SCOPE && spawnSync('systemd-run', ['--user', '--scope', '--quiet', '--', 'true'], { stdio: 'ignore', timeout: 3000 }).status !== 0) return t.skip('systemd user scopes are unavailable');
   const { root } = fixture(t);
   const { realpathSync } = await import('node:fs');
   const { dirname } = await import('node:path');
