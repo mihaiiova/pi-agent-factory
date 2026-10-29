@@ -49,20 +49,20 @@ function project(t, doc = model) {
 test("each agent's section lists exactly what it has", () => {
   const lead = capabilitySection(model, 'lead');
   assert.match(lead, /- \*\*Built-in tools:\*\* read\n/);
-  assert.match(lead, /`openseo` \(all tools\) — SEO data; asks the user before: run_\*/);
-  assert.match(lead, /`github-issues` \(all tools\) — asks the user before: issue_write/);
+  assert.match(lead, /`openseo` \(all tools; tools named `mcp__openseo__<tool>`, found with tool_search\) — SEO data; asks the user before: run_\*/);
+  assert.match(lead, /`github-issues` \(all tools; tools named `mcp__github_issues__<tool>`\) — asks the user before: issue_write/, 'includeTools are declared directly');
   assert.match(lead, /`cli_create_issue` — Open an issue: `gh issue create --title \{title\}`; the user approves each run/);
   assert.match(lead, /\*\*Specialists\*\* \(delegate with the subagent tool\):\n  - `seo` — Finds search opportunities\n  - `quiet`/);
   assert.match(lead, /ask with request_permission/);
   const seo = capabilitySection(model, 'seo');
-  assert.match(seo, /`openseo` \(only get_report\) — SEO data\n/, 'approval shown only for the selected tool');
+  assert.match(seo, /`openseo` \(only get_report; tools named `mcp__openseo__<tool>`\) — SEO data\n/, 'approval shown only for the selected tool');
   assert.doesNotMatch(seo, /github-issues|cli_create_issue|Specialists/);
   assert.match(seo, /- \*\*Other tools:\*\* web_search/);
   assert.match(seo, /- \*\*Skills:\*\*\n  - `audit` — Audit a site/);
   assert.match(seo, /report what is missing to the orchestrator/);
   const several = { ...model, agents: [{ name: 'seo', model: 'fixture/small', tools: ['mcp:openseo/get_report', 'mcp:openseo/run_audit', 'mcp:github-issues/list_issues'] }] };
-  assert.match(capabilitySection(several, 'seo'), /  - `openseo` \(only get_report, run_audit\) — SEO data; asks the user before: run_audit\n  - `github-issues` \(only list_issues\)\n/, 'one line per server');
-  assert.match(capabilitySection({ ...several, agents: [{ ...several.agents[0], tools: ['mcp:openseo/get_report', 'mcp:openseo'] }] }, 'seo'), /`openseo` \(all tools\)/);
+  assert.match(capabilitySection(several, 'seo'), /  - `openseo` \(only get_report, run_audit; tools named `mcp__openseo__<tool>`\) — SEO data; asks the user before: run_audit\n  - `github-issues` \(only list_issues; tools named `mcp__github_issues__<tool>`\)\n/, 'one line per server');
+  assert.match(capabilitySection({ ...several, agents: [{ ...several.agents[0], tools: ['mcp:openseo/get_report', 'mcp:openseo'] }] }, 'seo'), /`openseo` \(all tools; /);
   assert.match(capabilitySection(model, 'quiet'), /- \*\*Built-in tools:\*\* none\n\nIf a task/);
   assert.equal(capabilitySection(model, 'nobody'), '');
 });
@@ -126,10 +126,11 @@ test("the orchestrator's section is build output, added at session start only wh
   assert.match(start(['node', 'pi']), /## What you can use\n[\s\S]*`cli_create_issue`/, 'a project from before the file: rendered');
 });
 
-test("settings switch off Pi's built-in MCP and keep the user's other extension entries", () => {
+test("settings keep Pi's built-in MCP on and the user's other extension entries", () => {
   const first = JSON.parse(generateProject(model, {}, { piPackages: pkg.pi.packages }).files.find((f) => f.path === '.pi/settings.json').content);
-  assert.deepEqual(first.extensions, ['-builtin:mcp']);
-  const existing = { '.pi/settings.json': JSON.stringify({ extensions: ['+builtin:mcp', './my-ext.ts'] }) };
+  assert.equal(first.extensions, undefined);
+  assert.ok(!first.packages.some((p) => p.includes('pi-mcp-adapter')));
+  const existing = { '.pi/settings.json': JSON.stringify({ extensions: ['-builtin:mcp', './my-ext.ts'] }) };
   const merged = JSON.parse(generateProject(model, existing, { piPackages: pkg.pi.packages }).files.find((f) => f.path === '.pi/settings.json').content);
-  assert.deepEqual(merged.extensions, ['./my-ext.ts', '-builtin:mcp']);
+  assert.deepEqual(merged.extensions, ['./my-ext.ts']);
 });

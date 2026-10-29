@@ -86,7 +86,7 @@ test('structured changes preserve comments, add/update/remove all schema entitie
   assert.match(readText(root, '.pi/system.yaml'), /^# Preserve this purpose comment/);
   assert.match(readText(root, '.pi/agents/reviewer.md'), /model: fixture\/budget\nthinking: low/);
   assert.equal(readJson(root, '.pi/settings.json').subagents, undefined, 'agents carry their own models; no routing overrides');
-  assert.deepEqual(readJson(root, '.pi/mcp.json').mcpServers.search.excludeTools, ['write']);
+  assert.deepEqual(readJson(root, '.pi/mcp.json').mcpServers.search.toolExposure, { write: 'hidden' });
   assert.equal(inspectProject(root).consistency.ok, true);
   applyChange(root, planChange(root, [
     { op: 'update', target: 'skill', name: 'keywords', value: { body: 'Find and prioritize keywords.' } },

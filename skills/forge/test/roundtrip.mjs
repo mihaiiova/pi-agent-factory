@@ -31,15 +31,14 @@ const DETECTED = {
 const PINS = [
   `git:github.com/mihaiiova/pi-forge@v${VERSION}`,
   "npm:pi-subagents@0.83.1",
-  "npm:pi-mcp-adapter@2.32.1",
-];
+  ];
 
 test("round-trip: import → generate preserves each agent's model, skills and MCP", () => {
   const { system } = importSystem(SETTINGS, DETECTED);
   const { ok, errors } = validateSystem(system);
   assert.equal(ok, true, `imported system must validate: ${errors.join("; ")}`);
 
-  const { files } = generateProject(system, {}, { piPackages: ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:pi-web-access@0.27.0"] });
+  const { files } = generateProject(system, {}, { piPackages: ["npm:pi-subagents@0.83.1", "npm:pi-web-access@0.27.0"] });
 
   const settings = JSON.parse(files.find((f) => f.path === ".pi/settings.json").content);
   assert.equal(settings.defaultProvider, "provider-a");
@@ -63,7 +62,7 @@ test("round-trip: modify adds an agent and preserves unrelated authored content"
   const { system } = importSystem(SETTINGS, DETECTED);
 
   // First generate, then simulate a user edit to an authored file.
-  const first = generateProject(system, {}, { piPackages: ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"] });
+  const first = generateProject(system, {}, { piPackages: ["npm:pi-subagents@0.83.1"] });
   const existing = Object.fromEntries(first.files.map((f) => [f.path, f.content]));
   const appendMarker = existing[".pi/APPEND_SYSTEM.md"].split("\n", 1)[0];
   existing[".pi/APPEND_SYSTEM.md"] = `${appendMarker}\nUser-added orchestrator line.\n`;

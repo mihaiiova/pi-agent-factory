@@ -5,8 +5,8 @@
  *
  * A generated system is self-contained by declaration, not by wholesale
  * package inheritance. The runtime keeps only the two Pi runtime primitives it
- * needs — `pi-subagents` (subagent support) and `pi-mcp-adapter` (MCP support)
- * — plus whatever the model explicitly declares. The forge's own dev-only
+ * needs — `pi-subagents` (subagent support; MCP is Pi's built-in) — plus
+ * whatever the model explicitly declares. The forge's own dev-only
  * packages (web access, the YAML parser, question helpers) and any git pin are
  * never emitted; local-path and secret-shaped entries are rejected.
  */
@@ -18,7 +18,9 @@ const VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.met
 export const FORGE_SOURCE = 'git:github.com/mihaiiova/pi-forge';
 const FORGE_PACKAGE = `${FORGE_SOURCE}@v${VERSION}`;
 const LOCAL_PATH_RE = /^(file:|link:|\/|\.\.?\/)/;
-const RUNTIME_PRIMITIVES = ["pi-subagents", "pi-mcp-adapter"];
+const RUNTIME_PRIMITIVES = ["pi-subagents"];
+/** Packages that replace a Pi built-in the generated system relies on. */
+const REPLACES_BUILTIN = { "pi-mcp-adapter": "Pi's built-in MCP support" };
 
 function isString(value) {
   return typeof value === "string";
@@ -99,6 +101,10 @@ export function runtimePackages(piPackages, declared = []) {
         errors.push(`declared package "${spec}" conflicts with the pinned runtime primitive "${pinned}"`);
       }
       continue; // primitive already pinned above; never re-emit
+    }
+    if (parsed && REPLACES_BUILTIN[parsed.name]) {
+      errors.push(`declared package "${spec}" would replace ${REPLACES_BUILTIN[parsed.name]}, which generated systems use`);
+      continue;
     }
     const err = declaredSpecError(spec);
     if (err) errors.push(err);

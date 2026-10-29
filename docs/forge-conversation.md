@@ -74,8 +74,8 @@ notes that sending is an external action (see scenario 5).
 tool or MCP scope gets write access, whether every post needs a human
 confirmation or drafts only, and which agent holds that capability. The
 decision is listed as **Unresolved** in the synthesis until the user answers.
-Prose approvals are described as advisory, and tool allowlists or MCP
-`excludeTools` as enforced.
+Prose approvals are described as advisory, and tool allowlists, MCP
+`excludeTools` and `approveTools` as enforced.
 
 **Fail.** Silently giving an agent write access to the site, or picking an
 approval policy on the user's behalf.

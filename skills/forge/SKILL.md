@@ -231,9 +231,10 @@ Acceptance scenarios for this conversational behavior:
 
 ## Policy and ownership contract
 
-- **Enforced (cannot be bypassed):** agent `tools:` allowlists and MCP
-  `excludeTools` — a child agent literally lacks unlisted tools, and a hidden MCP
-  tool is registered but unreachable.
+- **Enforced (cannot be bypassed):** agent `tools:` allowlists, MCP
+  `excludeTools` and `approveTools` — a child agent literally lacks unlisted
+  tools, a hidden MCP tool is registered but unreachable, and each call to an
+  `approveTools` tool asks the user first (and fails without a UI).
 - **Advisory (guidance only):** README and workflow/skill prose stating approval
   requirements (e.g. "publishing requires human confirmation"). Prose is never
   mistaken for enforcement.
@@ -301,15 +302,21 @@ prior approvals cannot grant that authority.
      secret into the conversation: tell them to run
      /forge env set GITHUB_PAT after applying, which stores it
      without the model seeing it. /forge env lists what is set.
-   - MCP scope is the user's choice; ask rather than assume. The config
-     passes through to the MCP adapter: "includeTools" selects which tools
-     exist (omit it for all), and "approveTools" lists tools that need a
-     confirmation on each call (omit it for none). Say which tools create,
-     change or delete things and what the credential can reach, then ask.
+   - MCP scope is the user's choice; ask rather than assume. Generated
+     systems use Pi's built-in MCP. In the config, "includeTools" lists the
+     tools agents may use (omit it for all; the orchestrator then finds them
+     with tool_search), "excludeTools" hides tools from everyone, and
+     "approveTools" lists tools that need a confirmation on each call (omit
+     it for none). Forge sets Pi's exposure from these; never write exposure
+     or toolExposure. Say which tools create, change or delete things and
+     what the credential can reach, then ask. OAuth servers need no
+     credentials in the config: the user signs in with /mcp inside ./run.
    - Reach: a subagent's tools list is a strict allowlist. Add
      "mcp:<server>/<tool>" for each MCP tool it should have (or
-     "mcp:<server>" for the whole server); the orchestrator reaches MCP
-     through the "mcp" tool. Give each agent what the user wants it to have.
+     "mcp:<server>" for the whole server); the orchestrator reaches every
+     server's tools with "mcp" in its tools, and none without it. Pi names
+     the tools mcp__<server>__<tool>. Give each agent what the user wants it
+     to have.
    - bash reaches any CLI with the user's own logins. That is a valid choice;
      mention it when an MCP server would offer a narrower alternative.
 4. Submit operations to forge_plan action=propose as a JSON array in the

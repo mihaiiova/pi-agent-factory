@@ -63,7 +63,6 @@ const PROMPT_FILES = [
   "done",
 ];
 const LAUNCH = 'pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"';
-
 export function launcherScript(names = []) {
   return [
     "#!/usr/bin/env bash",

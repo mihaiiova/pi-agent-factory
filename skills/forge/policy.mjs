@@ -37,8 +37,8 @@ export function enforcedAgentTools(agentName, policies, declaredTools) {
 
 /**
  * The list of tool-name globs to hide for an MCP server, from an enforced
- * `{ mcp, hide }` rule. Materialized as `excludeTools` (the pi-mcp-adapter
- * mechanism for making tools unreachable — see docs/agent-factory.md §C.5).
+ * `{ mcp, hide }` rule. Materialized as hidden tools in `.pi/mcp.json`
+ * (registered but unreachable in Pi's built-in MCP).
  *
  * @param {string} serverName
  * @param {object|undefined} policies

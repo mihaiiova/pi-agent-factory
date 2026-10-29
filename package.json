@@ -19,7 +19,6 @@
       "./skills"
     ],
     "packages": [
-      "npm:pi-mcp-adapter@2.32.1",
       "npm:pi-subagents@0.83.1",
       "npm:yaml@2.8.3"
     ]

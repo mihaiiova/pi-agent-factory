@@ -2,10 +2,12 @@
  * launch-check — will each subagent actually get what it is declared to have?
  *
  * Deterministic and model-free: compares each agent's tools and skills with
- * what this project provides (MCP tool lists cached by pi-mcp-adapter, tools
- * registered by loaded extensions, installed skill directories, background
- * launch setup). Run at session start and on inspection so a broken specialist
- * is reported before a workflow depends on it.
+ * what this project provides (the MCP tools Pi registered for connected
+ * servers, tools registered by loaded extensions, installed skill
+ * directories, background launch setup). Run at session start and by
+ * /forge check so a broken specialist is reported before a workflow depends
+ * on it. MCP servers connect after session start, so their tools are checked
+ * only when `mcpTools` is given.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -16,6 +18,7 @@ import { skillSourceKind } from './skill-sources.mjs';
 import { cliEntries, cliRef } from './cli-tools.mjs';
 import { probeClis } from './discover.mjs';
 import { backgroundAskingIssues } from './asking.mjs';
+import { mcpToolName } from './mcp-gen.mjs';
 
 const BUILTIN = new Set(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
 
@@ -23,27 +26,18 @@ function readJson(root, rel) {
   try { return JSON.parse(readFileSync(join(root, rel), 'utf8')); } catch { return null; }
 }
 
-const glob = (pattern) => new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
-
-/** Tool names a server exposes after its include/exclude filters, or null when never cached. */
-function serverTools(server, config, cache) {
-  const cached = cache?.servers?.[server]?.tools;
-  if (!Array.isArray(cached)) return null;
-  const names = cached.map((t) => t?.name).filter((n) => typeof n === 'string');
-  const include = Array.isArray(config?.includeTools) ? config.includeTools.map(glob) : null;
-  const exclude = Array.isArray(config?.excludeTools) ? config.excludeTools.map(glob) : [];
-  return names.filter((n) => (!include || include.some((r) => r.test(n))) && !exclude.some((r) => r.test(n)));
-}
 
 /**
  * @param {string} root project directory
  * @param {object} model validated system.yaml
- * @param {{ registeredTools?: string[], probe?: (cli: string) => boolean }} [opts]
+ * @param {{ registeredTools?: string[], mcpTools?: Array<{ name: string, exposure?: string }>, probe?: (cli: string) => boolean }} [opts]
  *   tool names registered in this session (from pi.getAllTools()); extension
- *   tools are checked only when given. `probe` checks a command is on PATH.
+ *   tools are checked only when given. `mcpTools` are the registered MCP tools
+ *   with their exposure; MCP selections are checked only when given. `probe`
+ *   checks a command is on PATH.
  * @returns {{ ok: boolean, problems: Array<{ agent: string, problem: string }> }}
  */
-export function launchCheck(root, model, { registeredTools, probe } = {}) {
+export function launchCheck(root, model, { registeredTools, mcpTools, probe } = {}) {
   const problems = [];
   const git = (args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   const workTree = git(['rev-parse', '--is-inside-work-tree']);
@@ -54,7 +48,6 @@ export function launchCheck(root, model, { registeredTools, probe } = {}) {
     }
   }
   const mcpServers = readJson(root, '.pi/mcp.json')?.mcpServers ?? {};
-  const cache = readJson(root, '.forge/pi-home/mcp-cache.json');
   const registered = Array.isArray(registeredTools) ? new Set(registeredTools) : null;
   const forced = readJson(root, SUBAGENT_CONFIG)?.forceTopLevelAsync === true;
   const skills = new Map((Array.isArray(model?.skills) ? model.skills : []).map((s) => [s.name, s]));
@@ -80,10 +73,15 @@ export function launchCheck(root, model, { registeredTools, probe } = {}) {
       if (tool.startsWith('mcp:')) {
         const [server, name] = tool.slice(4).split('/');
         if (!mcpServers[server]) { report(`${tool}: MCP server "${server}" is not configured in .pi/mcp.json`); continue; }
-        const available = serverTools(server, mcpServers[server], cache);
-        if (available === null) report(`${tool}: "${server}" has never connected, so its tools are unknown; use it once in ./run, then restart`);
-        else if (name && !available.includes(name)) report(`${tool}: "${server}" does not expose "${name}" (after includeTools/excludeTools)`);
-        else if (!name && available.length === 0) report(`${tool}: "${server}" exposes no tools after includeTools/excludeTools`);
+        if (!Array.isArray(mcpTools)) continue;
+        const prefix = mcpToolName(server, '');
+        const offered = mcpTools.filter((t) => t?.name?.startsWith(prefix));
+        const usable = offered.filter((t) => t.exposure !== 'hidden');
+        const wanted = name && offered.find((t) => t.name === mcpToolName(server, name));
+        if (!offered.length) report(`${tool}: "${server}" has not connected or offers no tools; /mcp shows why`);
+        else if (name && !wanted) report(`${tool}: "${server}" does not offer "${name}"`);
+        else if (name && wanted.exposure === 'hidden') report(`${tool}: "${name}" is hidden by includeTools, excludeTools or a hide policy`);
+        else if (!name && !usable.length) report(`${tool}: every tool of "${server}" is hidden by includeTools, excludeTools or a hide policy`);
         continue;
       }
       if (registered && !registered.has(tool)) report(`${tool}: no loaded extension registers this tool`);
