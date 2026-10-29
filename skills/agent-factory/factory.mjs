@@ -13,8 +13,6 @@
  *   preview-skill <spec>       pin owner/repo@name, or show a skills: source
  *   import <dir>               reconstruct system.yaml from an existing project
  *   change <dir> --operations <file> [--dry-run] [--yes] declarative change batch
- *   bootstrap-update <dir> [--dry-run] [--yes] add standalone maintenance
- *   recover <dir> [--dry-run] [--yes] repair an interrupted transaction
  *
  * Exit codes:
  *   0  valid / generated / discovered / modified / imported (reported conflicts do not fail)
@@ -41,9 +39,8 @@ import { importSystem } from "./import.mjs";
 import { parseModelList, unavailableModelWarnings } from "./models.mjs";
 import { vendoredSkills } from "./skill-sources.mjs";
 import { registrySkills, installedDir, installRegistrySkill, searchSkills, previewRegistrySkill, resolveRegistrySkill } from "./registry-skills.mjs";
-import { localBundle, bootstrapPlan, applyBootstrap } from './maintenance-bundle.mjs';
 import { planChange, applyChange, withSkillPreviews } from './maintenance.mjs';
-import { recoveryPlan, applyRecovery, fingerprints } from './maintenance-store.mjs';
+import { fingerprints } from './maintenance-store.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -57,10 +54,6 @@ Commands:
                              probes only the CLIs named with --cli
   modify <dir> [--dry-run] [--yes]
                              diff project vs model and apply confirmed changes
-  recover <dir> [--dry-run] [--yes]
-                             recover an interrupted maintenance transaction
-  bootstrap-update <dir> [--dry-run] [--yes]
-                             install standalone maintenance in an older project
   change <dir> --operations <json-file> [--dry-run] [--yes]
                              validate/preview a structured system.yaml change
   search-skills <query...>   search the open skills registry (skills.sh) as JSON
@@ -533,7 +526,7 @@ function runImport(dir) {
   }
   mkdirSync(join(target, ".pi", "agents"), { recursive: true });
 
-  console.log('Import preserved existing configuration. Preview factory generate, then apply it to include standalone maintenance (or use bootstrap-update after reconciling conflicts).');
+  console.log('Import preserved existing configuration. Preview factory generate, then apply it to include package-based maintenance.');
   for (const flag of report.flagged) {
     console.error(`flagged - ${flag.key}: ${flag.reason}`);
   }
@@ -676,12 +669,12 @@ async function main(argv) {
     return;
   }
 
-  if (command === 'bootstrap-update' || command === 'change' || command === 'recover') {
+  if (command === 'change') {
     if (!dir) { fail('missing <dir> argument'); return; }
     const root = resolve(dir);
     const index = rest.indexOf('--operations');
-    if (command === 'change' && (index < 0 || !rest[index + 1])) { fail('change requires --operations <json-file>'); return; }
-    const plan = command === 'bootstrap-update' ? bootstrapPlan(root) : command === 'recover' ? recoveryPlan(root) : await withSkillPreviews(planChange(root, JSON.parse(readFileSync(rest[index + 1], 'utf8'))));
+    if (index < 0 || !rest[index + 1]) { fail('change requires --operations <json-file>'); return; }
+    const plan = await withSkillPreviews(planChange(root, JSON.parse(readFileSync(rest[index + 1], 'utf8'))));
     console.log(JSON.stringify(plan.preview, null, 2));
     if (dryRun) { console.log('Dry run — nothing written.'); return; }
     let approved = rest.includes('--yes');
@@ -691,9 +684,7 @@ async function main(argv) {
       rl.close();
     }
     if (!approved) { console.log('Not approved — nothing written.'); return; }
-    if (command === 'bootstrap-update') applyBootstrap(root, plan, true);
-    else if (command === 'recover') applyRecovery(root, plan, true);
-    else applyChange(root, plan, true);
+    applyChange(root, plan, true);
     console.log('Applied. Restart ./run.');
     return;
   }

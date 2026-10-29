@@ -18,6 +18,14 @@ test('CLI generation installs no copied Factory tooling', t => {
   assert.deepEqual(readdirSync(join(root, '.factory')).sort(), ['build.json', 'capabilities.json']);
 });
 
+test('CLI no longer offers bootstrap or recovery commands', () => {
+  const output = execFileSync(process.execPath, [join(repo, 'skills/agent-factory/factory.mjs'), '--help'], { encoding: 'utf8' });
+  assert.doesNotMatch(output, /bootstrap-update|recover/);
+  for (const command of ['bootstrap-update', 'recover']) {
+    assert.throws(() => execFileSync(process.execPath, [join(repo, 'skills/agent-factory/factory.mjs'), command, '.'], { stdio: 'pipe' }));
+  }
+});
+
 test('rebuild identifies the package version used for generated files', t => {
   const root = mkdtempSync(join(tmpdir(), 'factory-package-rebuild-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
