@@ -3,7 +3,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, writeFileSync, renameSync, existsSync, readlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const [encoded, ...args] = process.argv.slice(2);
 const workflows = JSON.parse(Buffer.from(encoded, 'base64').toString());
@@ -32,6 +33,24 @@ const runId = randomUUID();
 let answer = '';
 if (invalid || !workflow || !existsSync('.pi/system.yaml') || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2147483647) {
   console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Unknown workflow or invalid options' }));
+  process.exit(2);
+}
+// Pi installs the pinned git package and its npm dependencies here on the
+// first interactive launch. Validate before starting Pi or any model turn.
+const forgeDir = resolve('.pi/git/github.com/mihaiiova/pi-forge/skills/forge');
+let parseSystem, validateSystem;
+try {
+  ({ parseSystem } = await import(pathToFileURL(join(forgeDir, 'parse.mjs')).href));
+  ({ validateSystem } = await import(pathToFileURL(join(forgeDir, 'validate.mjs')).href));
+} catch (error) {
+  console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Cannot load the installed Forge validator. Run ./run once to install project packages, then retry: ' + error.message }));
+  process.exit(2);
+}
+try {
+  const result = validateSystem(parseSystem(readFileSync('.pi/system.yaml', 'utf8')));
+  if (!result.ok) throw new Error(result.errors.join('; '));
+} catch (error) {
+  console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Invalid system.yaml or unavailable YAML dependency: ' + error.message }));
   process.exit(2);
 }
 const prompt = (workflow.skill ? '/skill:' + workflow.skill + ' ' : '') +

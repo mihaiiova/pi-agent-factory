@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -31,6 +31,8 @@ workflows:
 `);
   const generated = spawnSync(process.execPath, [join(repo, 'skills/forge/forge.mjs'), 'generate', root], { encoding: 'utf8' });
   assert.equal(generated.status, 0, generated.stderr);
+  mkdirSync(join(root, '.pi/git/github.com/mihaiiova'), { recursive: true });
+  symlinkSync(repo, join(root, '.pi/git/github.com/mihaiiova/pi-forge'));
   const settingsPath = join(root, '.pi/settings.json');
   const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
   settings.packages = [repo];

@@ -8,6 +8,13 @@ the default per-workflow lock. The last stdout line is JSON with `workflow`,
 0 (success), 1 (agent or tool failure), 2 (configuration or lock failure),
 3 (approval required), and 4 (timeout).
 
+Before invoking Pi, the launcher parses and validates `.pi/system.yaml` using
+Forge's project-installed, pinned package. Run interactive `./run` once to
+install the project packages before the first headless run. Missing validator
+or YAML dependencies and invalid configuration fail closed with exit 2; no
+model turn is started. After changing declarations, regenerate the project so
+its launcher and other derived files reflect the updated configuration.
+
 Pi print mode expands `/skill:<name> ...` before starting the agent. The
 `workflow-print-mode.test.mjs` test verifies this with the installed Pi and a
 scripted provider. Pi's built-in MCP has no Forge approval gate of its own:

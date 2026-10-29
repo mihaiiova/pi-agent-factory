@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -45,6 +45,8 @@ workflows:
 `);
   const generated = spawnSync(process.execPath, [forge, 'generate', root], { encoding: 'utf8' });
   assert.equal(generated.status, 0, generated.stderr);
+  mkdirSync(join(root, '.pi/git/github.com/mihaiiova'), { recursive: true });
+  symlinkSync(repo, join(root, '.pi/git/github.com/mihaiiova/pi-forge'));
   const provider = join(root, '.pi/provider.mjs');
   writeFileSync(provider, `import {createFauxCore,fauxAssistantMessage,fauxToolCall} from ${JSON.stringify(ai)};
 export default pi => {

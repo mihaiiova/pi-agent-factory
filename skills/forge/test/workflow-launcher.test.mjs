@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -39,6 +39,8 @@ workflows:
 `);
   const generated = spawnSync(process.execPath, [forge, 'generate', root], { encoding: 'utf8' });
   assert.equal(generated.status, 0, generated.stderr);
+  mkdirSync(join(root, '.pi/git/github.com/mihaiiova'), { recursive: true });
+  symlinkSync(resolve(import.meta.dirname, '../../..'), join(root, '.pi/git/github.com/mihaiiova/pi-forge'));
   writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
 console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'The report is ready.'}]}}));
 `, { mode: 0o755 });
@@ -48,6 +50,7 @@ console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopRea
 test('missing installed Forge package fails before starting Pi', t => {
   const { root, env } = fixture(t);
   const marker = join(root, 'pi-started');
+  rmSync(join(root, '.pi/git/github.com/mihaiiova/pi-forge'));
   writeFileSync(join(root, 'bin/pi'), `#!/bin/sh\ntouch ${JSON.stringify(marker)}\n`, { mode: 0o755 });
   const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
   assert.equal(result.status, 2, result.stderr);
@@ -55,6 +58,42 @@ test('missing installed Forge package fails before starting Pi', t => {
   assert.equal(summary.status, 'configuration_error');
   assert.match(summary.message, /\.\/run/);
   assert.equal(existsSync(marker), false);
+});
+
+test('invalid YAML and schema fail before starting Pi', t => {
+  const { root, env } = fixture(t);
+  const path = join(root, '.pi/system.yaml');
+  const original = readFileSync(path, 'utf8');
+  const marker = join(root, 'pi-started');
+  writeFileSync(join(root, 'bin/pi'), `#!/bin/sh\ntouch ${JSON.stringify(marker)}\n`, { mode: 0o755 });
+  for (const text of ['schema: [\n', original.replace('schema: 1', 'schema: 9')]) {
+    writeFileSync(path, text);
+    const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
+    assert.equal(result.status, 2, result.stderr);
+    assert.equal(JSON.parse(result.stdout.trim()).status, 'configuration_error');
+    assert.equal(existsSync(marker), false);
+  }
+});
+
+test('a harmless system.yaml comment does not prevent a workflow', t => {
+  const { root, env } = fixture(t);
+  const path = join(root, '.pi/system.yaml');
+  writeFileSync(path, readFileSync(path, 'utf8') + '\n# harmless comment\n');
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout.trim()).status, 'ok');
+});
+
+test('an installed pinned Forge package validates with its own YAML dependency', { skip: !process.env.FORGE_VALIDATOR_PACKAGE }, t => {
+  const { root, env } = fixture(t);
+  const installed = join(root, '.pi/git/github.com/mihaiiova/pi-forge');
+  rmSync(installed);
+  symlinkSync(resolve(process.env.FORGE_VALIDATOR_PACKAGE), installed);
+  const home = join(root, 'empty-home');
+  mkdirSync(home);
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env: { ...env, HOME: home }, encoding: 'utf8' });
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  assert.equal(JSON.parse(result.stdout.trim()).status, 'ok');
 });
 
 test('declared workflow returns its final answer in a machine-readable result', t => {
