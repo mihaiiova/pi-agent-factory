@@ -977,4 +977,8 @@ test('change and rebuild preview missing gitignore safety entries', t => {
     assert.equal(plan.writes['.gitignore'], original + '# agent-factory: required ignores\n.factory/\n.pi/state.json\n.pi/sessions/\n');
     assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), original);
   }
+  const plan = rebuildPlan(root);
+  applyChange(root, plan, true);
+  assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), plan.writes['.gitignore']);
+  assert.ok(!rebuildPlan(root).preview.files.some(f => f.path === '.gitignore'));
 });

@@ -101,3 +101,13 @@ test("conflict-detection: user edit + model change on an authored file is a conf
   assert.equal(append.content, userEdited, "conflict must not overwrite the user edit");
   assert.ok(append.diff.length > 0, "conflict carries a diff (user vs model)");
 });
+
+test('modify previews missing gitignore entries without changing existing rules', () => {
+  const existing = baseline();
+  existing['.gitignore'] = 'node_modules\n.env\n';
+  const file = byPath(modifyPlan(baseModel, existing).files, '.gitignore');
+  assert.equal(file.action, 'write');
+  assert.match(file.diff, /\+ # agent-factory: required ignores/);
+  assert.match(file.diff, /\+ \.factory\//);
+  assert.equal(existing['.gitignore'], 'node_modules\n.env\n');
+});
