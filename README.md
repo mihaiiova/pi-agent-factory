@@ -17,38 +17,37 @@ own. A generated agent runs with Pi alone and does not need Forge running.
   changes, and its non-goals. This is the authoritative document.
 - [Roadmap](docs/roadmap.md): the current audit, gaps, milestones and issues.
 
-> **Naming.** The rename is planned but not done yet. This repository, the
-> package (`pi-forge`) and the commands (`/agent-factory`,
-> `/factory-update`, `/factory-permission`) still use the old names. They will
-> become `mihaiiova/pi-forge`, `pi-forge` and a single `/forge` command. There
-> is no migration: projects built with the old names are regenerated. See
-> [Milestone 0](docs/roadmap.md#milestone-0-packaging-rename-command-surface-and-a-security-fix).
+> **Renamed in 1.0.0.** The repository is `mihaiiova/pi-forge`, the package
+> `pi-forge`, and `/forge` replaces `/agent-factory`, `/factory-update` and
+> `/factory-permission`. There is no migration: regenerate projects built with
+> the old names from their `.pi/system.yaml`.
 
 ### Architecture in brief
 
 ```text
-you ──▶ /agent-factory (builder, conversational)
+you ──▶ /forge (builder, conversational)
           │  forge CLI: discover · validate · generate --dry-run · generate
           ▼
    <project>/.pi/system.yaml   compact desired state (schema 1)
    <project>/.pi/…             native Pi files: settings, agents, skills, mcp.json, prompts
    <project>/run               isolated launcher (own Pi home and credentials)
-   <project>/.forge/         build record, capability manifest, isolated Pi home
+   <project>/.forge/           build record, capability manifest, isolated Pi home
           │
           ▼
-   ./run, ./run -p "…"   Pi runs the agent; /factory-update revises it in place
+   ./run, ./run -p "…"   Pi runs the agent; /forge revises it in place
 ```
 
-- **Design and generate:** `/agent-factory` holds a design conversation, writes
+- **Design and generate:** `/forge` holds a design conversation, writes
   `system.yaml`, previews the generated files and writes them only after you
   confirm. Generation is deterministic and idempotent, and never silently
   overwrites your edits.
-- **Check:** `forge validate`, a capability manifest
-  (`.forge/capabilities.json`) and a launch check on every start that each
-  agent will get its declared tools, MCP tools and skills. Checking actual
-  behavior is on the [roadmap](docs/roadmap.md).
-- **Revise:** inside a project, `/factory-update <request>` proposes a small
-  structured change, shows the diff, and applies it after your approval.
+- **Check:** `/forge check` validates `system.yaml`, compares the generated
+  files with it, and checks that each agent will get its declared tools, MCP
+  tools and skills (also done on every start). Checking actual behavior is on
+  the [roadmap](docs/roadmap.md).
+- **Revise:** inside a project, `/forge <request>` proposes a small structured
+  change. When the turn ends, Forge shows the diff and applies it only if you
+  approve.
 
 The former personal Pi setup (spec lifecycle, domain skills, sync/state
 extensions) now lives in the private
@@ -57,8 +56,8 @@ extensions) now lives in the private
 
 ## Using Forge today
 
-Start it from any Pi session with `/agent-factory <outcome>` (or
-`/skill:forge`). The builder works as a design conversation, not an
+Start it from any Pi session outside a Forge project with `/forge <outcome>`
+(or `/skill:forge`). The builder works as a design conversation, not an
 interview: it uses what you've already said, recommends the simplest system
 that fits, and asks only questions that change the design. When you say
 "build it", it runs `forge discover`, writes a `.pi/system.yaml`, previews
@@ -132,7 +131,7 @@ few rules — and you add, remove or change sections before it is recorded in
 run produces the same shape. Any agent can have any number of documents, and a
 document can be delivered anywhere an MCP tool reaches — Google Drive, Notion,
 Slack — with `deliver: [{ mcp, tool, with }]`. Change formats later with
-`/factory-update`.
+`/forge`.
 
 Subagents that use MCP or extension tools (web search, for example) always
 run in the background, where those tools load; the forge sets this up. On
@@ -141,7 +140,7 @@ skills it is declared to have, and names any that are missing.
 
 See [`schema.md`](skills/forge/schema.md) for every field, validation
 rule and the file-ownership contract, and [docs/agent-factory.md](docs/agent-factory.md)
-for the architecture.
+for the original architecture and MVP plan (kept as history).
 
 ### Memory: the orchestrator learns across sessions
 
@@ -150,7 +149,7 @@ Always on. The orchestrator keeps short notes (up to 4000 characters) in
 corrections, preferences, and tools or specialists that failed and what worked
 instead. It writes them itself with a `memory` tool, is reminded to after a task
 with failed tool calls, and loads them at the start of each session. Subagents
-don't see them. The file is plain Markdown you can edit. `/factory-update review`
+don't see them. The file is plain Markdown you can edit. `/forge review`
 reads it, so a lesson that should always hold can become a previewed change to a
 prompt, skill or tool.
 
@@ -166,7 +165,7 @@ Forge tooling was updated. The same holds for the runtime agents use (memory,
 command tools, `request_permission`): it comes from the Forge version that
 last built the project, recorded in `.forge/build.json`. A change that removes
 a capability lists any prompt, workflow or policy that still mentions it, and
-`/factory-update review` flags prompts that describe specific tools.
+`/forge review` flags prompts that describe specific tools.
 
 ### Commands: CLI permissions per agent
 
@@ -186,23 +185,31 @@ integrations:
 Give it to an agent with `cli:create-issue` in its `tools`. Commands run
 without a shell, with your own CLI logins. In a running system:
 
-- `/factory-permission` lists commands and who may run them; `add`, `remove
+- `/forge permissions` lists commands and who may run them; `add`, `remove
   <name>` and `review` change them through a preview you confirm.
 - When the orchestrator needs a command it has no tool for, it asks with
   `request_permission`: allow once, always (saved to `system.yaml`), or deny.
-  In a headless run the request waits for `/factory-permission review`.
+  In a headless run the request waits for `/forge permissions review`.
 
 ### Running and maintaining a generated system
 
 A generated project starts with `./run`, which isolates it from your global Pi
 configuration (own config dir, own credentials: `/login` once per project).
-Inside it, `/factory-update <request>` previews declarative changes —
-including switching an agent's model — and `/factory-update apply` confirms
-them.
+Inside it, `/forge` is the one command:
+
+| Command | What it does |
+|---|---|
+| `/forge [request]` | Revise the agent, for example `/forge add a research specialist` or `/forge use a cheaper model for the writer`. When the turn ends with a proposal, Forge shows the preview; approving applies it, declining discards it. Without a request, or with `review`, it is a read-only review. |
+| `/forge check` | Validate `system.yaml`, compare the generated files with it, and run the launch check. |
+| `/forge status` | Agents and models, capabilities, the pinned Forge release and whether a newer one exists, and pending permission requests. |
+| `/forge sync` | Move to the newest Forge release after two confirmations (below), or rebuild with the current one. |
+
+Lower-level: `/forge env [set NAME]` and `/forge permissions [add | remove
+<name> | review]`. Headless sessions never apply a change.
 While preparing a change, the maintainer can read public documentation (for
 example an MCP server's README and releases) to verify versions, tools and
 auth, and can declare the environment variables an integration needs. You set
-their values with `/factory-update env set NAME`; `./run` loads them from the
+their values with `/forge env set NAME`; `./run` loads them from the
 project's gitignored `.env`. Generation and change previews also add missing
 secret and state paths to an existing `.gitignore` without rewriting your rules.
 Ignoring files does not remove credentials already committed to git: rotate any
@@ -216,13 +223,13 @@ Nothing is copied into the project. On the first `./run`, Pi installs that
 exact tag under `.pi/git/` in the project (ignored by the generated
 `.gitignore`, like `.pi/npm/`) and loads the
 agent runtime (memory, declared commands, `request_permission`) and
-`/factory-update` from it. The first start therefore needs network access to
+`/forge` from it. The first start therefore needs network access to
 GitHub. Pi never moves a pinned tag by itself.
 
-`/factory-update check` lists the release tags on GitHub and says whether a
-newer one exists. It downloads and runs nothing. Startup does not check.
+`/forge status` lists the release tags on GitHub and says whether a newer one
+exists. It downloads and runs nothing. Startup does not check.
 
-`/factory-update update` asks twice:
+`/forge sync` asks twice:
 
 1. **Run the new release to preview it?** The dialog names the tag, the commit
    it points to and a link to the changes. Only after you agree does Forge
@@ -234,14 +241,15 @@ newer one exists. It downloads and runs nothing. Startup does not check.
    `./run`.
 
 Declining either step leaves the project unchanged. A headless session can
-grant neither, so `update` stops there before contacting GitHub.
+grant neither, so `sync` stops there before contacting GitHub. On the newest
+release, `sync` rebuilds the generated files with it instead.
 
 To roll back, use git: restore the previous `.pi/settings.json` and generated
 files (for example `git checkout <commit> -- .pi run README.md`), then restart
 `./run`. Pi installs the older pin again.
 
-Projects generated before v0.19.0 carried a copied maintenance bundle. They
-are not migrated: regenerate them from their `.pi/system.yaml`.
+Projects generated before 1.0.0 pin `pi-agent-factory`. They are not
+migrated: regenerate them from their `.pi/system.yaml`.
 
 ### Tests
 
@@ -262,7 +270,11 @@ git clone https://github.com/mihaiiova/pi-forge.git /path/to/pi-forge
 pi install /path/to/pi-forge
 ```
 
-`/agent-factory` is then available in any Pi session. The forge pins only what
+`/forge` is then available in any Pi session. Pi treats a local checkout and a
+project's git pin as different packages, so inside a generated project both
+load and each command appears twice. Install from the tag instead
+(`pi install git:github.com/mihaiiova/pi-forge@vX.Y.Z`) to let the project pin
+replace it. Forge pins only what
 generated systems need (`pi-subagents`, `pi-mcp-adapter`, and `yaml` for its own
 parser) in `package.json` under `pi.packages`.
 

@@ -63,7 +63,7 @@ The orchestrator always has memory: notes it keeps across sessions in
 into its prompt at session start. It writes them freely with the `memory` tool
 (add, replace, remove), and is told to record lessons before finishing a task,
 and after a task with failed tool calls. Subagents neither see nor write them.
-`/factory-update review` reads the notes; making a lesson permanent (a prompt,
+`/forge review` reads the notes; making a lesson permanent (a prompt,
 skill or tool change) is a normal previewed change. The file is the user's to
 edit, and no generated file depends on it.
 
@@ -123,7 +123,7 @@ Allowed keys: `name` (required string), `description`, and at most one of:
   project directory.
 - `source: skills:<owner>/<repo>/<skill-dir>@<commit>` — one skill directory
   from the open Agent Skills ecosystem (skills.sh), pinned to a full 40-character
-  commit. `forge generate`/`modify` and `/factory-update apply` install it
+  commit. `forge generate`/`modify` and an approved `/forge` change install it
   with the `skills` CLI (`npx skills@1.7.4 add <github tree URL> --agent pi
   --copy -y`) into the project's `.agents/skills/<name>/` — never globally —
   and `skills-lock.json` records the commit. The installed `SKILL.md` must
@@ -163,12 +163,12 @@ Allowed keys: `mcp` (array), `env` (array) and `cli` (array).
   entry. In Pi the tool is `cli_<name>` (hyphens become underscores). The
   orchestrator gets the commands its `tools` list, or all of them when its
   `tools` is omitted; a subagent gets exactly the ones in its allowlist, and
-  runs in the background. `/factory-permission` (list, add, remove, review)
+  runs in the background. `/forge permissions` (list, add, remove, review)
   edits these declarations through the normal preview. The orchestrator can
   also ask for a command it has no tool for with `request_permission`: the
   user allows it once, saves it here, or denies it; in a headless run the
   request waits in `.forge/permission-requests.json` for
-  `/factory-permission review`.
+  `/forge permissions review`.
 
   ```yaml
   integrations:
@@ -261,9 +261,9 @@ path/key and the expected value. Rejected conditions:
 - duplicate `name` within `agents[]`, `skills[]`, `integrations.mcp[]`, `documents[]`, or
   `workflows[]`.
 
-The skill name `factory-update` is reserved and cannot be declared in
+The skill name `forge` is reserved (it is the Forge skill) and cannot be declared in
 `skills[]`. Operational model edits use the structured operations of
-`/factory-update`, which reuse this validator and reject dangling references.
+`/forge`, which reuse this validator and reject dangling references.
 The Forge version is the pinned package in `.pi/settings.json` (recorded in
 `.forge/build.json`), never part of this operational model. An explicit empty orchestrator `tools: []`
 remains an empty allowlist; omitted tools use Pi defaults.

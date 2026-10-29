@@ -3,8 +3,8 @@
 > This is the authoritative statement of what Pi Forge is and how to judge
 > changes to it. Where an older document disagrees with it, this one wins.
 > Pi Forge was formerly called **Pi Agent Factory** (`pi-agent-factory`,
-> `/agent-factory`, `/factory-update`). The code still uses those names until the
-> rename lands; see [the roadmap](roadmap.md). The rename carries no migration:
+> `/agent-factory`, `/factory-update`). The rename landed in 1.0.0 (#27). It
+> carries no migration:
 > agents built with the old names are rebuilt, not converted.
 
 ## 1. Product definition
