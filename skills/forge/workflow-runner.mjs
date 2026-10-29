@@ -65,8 +65,12 @@ const acquire = () => {
   for (let attempt = 0; attempt < 2; attempt++) {
     try { writeFileSync(lock, String(process.pid), { flag: 'wx' }); return true; }
     catch (error) { if (error.code !== 'EEXIST') throw error; }
+    // An empty or garbled lock has no holder; kill(0) would signal our own group.
+    const holder = Number(readFileSync(lock, 'utf8'));
     let alive = false;
-    try { process.kill(Number(readFileSync(lock, 'utf8')), 0); alive = true; } catch (error) { alive = error.code === 'EPERM'; }
+    if (Number.isSafeInteger(holder) && holder > 1) {
+      try { process.kill(holder, 0); alive = true; } catch (error) { alive = error.code === 'EPERM'; }
+    }
     if (alive) return false;
     rmSync(lock, { force: true });
   }

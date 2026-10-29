@@ -160,10 +160,14 @@ test('a lock left by a run that died is taken over, and a finished run releases 
   const locks = join(root, '.forge/workflow-locks');
   mkdirSync(locks, { recursive: true });
   const dead = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout;
-  writeFileSync(join(locks, createHash('sha256').update('report').digest('hex')), dead);
-  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8', timeout: 4000 });
-  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
-  assert.deepEqual(readdirSync(locks), [], 'released after the run');
+  const lock = join(locks, createHash('sha256').update('report').digest('hex'));
+  // A dead holder, and an empty or garbled lock (an older version, or a crash mid-write).
+  for (const content of [dead, '', 'not a pid']) {
+    writeFileSync(lock, content);
+    const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8', timeout: 4000 });
+    assert.equal(result.status, 0, `${JSON.stringify(content)}: ${result.stderr}\n${result.stdout}`);
+    assert.deepEqual(readdirSync(locks), [], 'released after the run');
+  }
 });
 
 test('stopping ./run cancels the workflow and stops Pi', async t => {
