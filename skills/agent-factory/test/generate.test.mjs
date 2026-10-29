@@ -317,3 +317,13 @@ test("document delivery targets are rendered as steps for the writer", () => {
   assert.match(writer, /- MCP server `slack`, tool `post_message` — link only/);
   assert.match(writer, /Report where each delivery landed/);
 });
+
+test("existing gitignore gets only missing safety entries without changing user text", () => {
+  const original = "# user rules\nnode_modules\n.env/\n.pi/sessions";
+  const file = byPath(generateProject(model, { ".gitignore": original }).files, ".gitignore");
+  assert.equal(file.action, "write");
+  assert.equal(file.content, original + "\n# agent-factory: required ignores\n.factory/\n.pi/state.json\n");
+  const again = byPath(generateProject(model, { ".gitignore": file.content }).files, ".gitignore");
+  assert.equal(again.action, "none");
+  assert.equal(again.content, file.content);
+});
