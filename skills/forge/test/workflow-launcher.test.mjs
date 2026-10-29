@@ -187,7 +187,7 @@ test('timeout stops a real pi-subagents background run', { skip: !process.env.FO
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 export default pi => {
- pi.events.on('subagent:async-started', event => { const capture=()=>{ try { const status=JSON.parse(readFileSync(join(event.asyncDir,'status.json'),'utf8')); writeFileSync(${JSON.stringify(join(root, 'actual-subagent.json'))},JSON.stringify({event,status,at:Date.now()})); } catch(e) { writeFileSync(${JSON.stringify(join(root, 'actual-subagent-error'))},String(e)); } }; capture(); setInterval(capture,50).unref(); });
+ pi.events.on('subagent:async-started', event => { const capture=()=>{ try { const status=JSON.parse(readFileSync(join(event.asyncDir,'status.json'),'utf8')); writeFileSync(${JSON.stringify(join(root, 'actual-subagent.json'))},JSON.stringify({event,status,at:Date.now(),forgeRunId:process.env.FORGE_RUN_ID,subagentRoot:process.env.PI_SUBAGENTS_TEMP_ROOT})); } catch(e) { writeFileSync(${JSON.stringify(join(root, 'actual-subagent-error'))},String(e)); } }; capture(); setInterval(capture,50).unref(); });
  const faux=createFauxCore({api:'faux-test',provider:'faux',models:[{id:'faux'}]});
  faux.setResponses(process.env.PI_SUBAGENT_CHILD === '1'
   ? [fauxAssistantMessage([fauxToolCall('bash',{command:'sleep 30'})]), fauxAssistantMessage('done')]
@@ -214,6 +214,8 @@ export default pi => {
   assert.ok(existsSync(join(root, 'actual-subagent.json')), existsSync(join(root, 'actual-subagent-error')) ? readFileSync(join(root, 'actual-subagent-error'), 'utf8') : result.stderr);
   const record = JSON.parse(readFileSync(join(root, 'actual-subagent.json'), 'utf8'));
   assert.equal(record.status.state, 'running');
+  assert.equal(record.forgeRunId, JSON.parse(result.stdout.trim()).runId);
+  assert.ok(record.event.asyncDir.startsWith(`${record.subagentRoot}/async-subagent-runs/`));
   assert.ok(Date.now() - record.at < 2500, 'background run was active until timeout');
   assert.ok(record.status.pid);
   assert.throws(() => process.kill(record.status.pid, 0), /ESRCH/);
