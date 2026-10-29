@@ -2,6 +2,9 @@
   "name": "pi-agent-factory",
   "version": "0.19.0",
   "private": true,
+  "dependencies": {
+    "yaml": "2.8.3"
+  },
   "keywords": [
     "pi-package"
   ],
