@@ -101,3 +101,19 @@ test('capability report distinguishes connected and cached MCP evidence', async 
   const cached = checkAgent(root);
   assert.ok(cached.capabilities.some(c => c.agent === 'seo' && c.name === 'mcp:seo/audit' && c.status.startsWith('last seen ')));
 });
+
+test('check-agent --connect verifies a local MCP server without a model call', async t => {
+  const { loadYaml } = await import('../yaml-loader.mjs');
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const root = project(t);
+  const server = fileURLToPath(new URL('./fixtures/mcp-check-server.mjs', import.meta.url));
+  const forge = fileURLToPath(new URL('../forge.mjs', import.meta.url));
+  const doc = { ...model, agents: [{ name: 'seo', model: 'p/m', tools: ['mcp:seo/audit'] }], skills: [], integrations: { mcp: [{ name: 'seo', config: { command: process.execPath, args: [server] } }] } };
+  for (const f of generateProject(doc, {}).files) { mkdirSync(dirname(join(root, f.path)), { recursive: true }); writeFileSync(join(root, f.path), f.content); }
+  writeFileSync(join(root, '.pi/system.yaml'), loadYaml().stringify(doc));
+  mkdirSync(join(root, '.forge/pi-home'), { recursive: true });
+  writeFileSync(join(root, '.forge/pi-home/trust.json'), JSON.stringify({ [root]: true }));
+  const run = spawnSync(process.execPath, [forge, 'check-agent', root, '--connect'], { encoding: 'utf8', timeout: 30000 });
+  assert.ok(JSON.parse(run.stdout).capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'verified now'), run.stderr);
+});

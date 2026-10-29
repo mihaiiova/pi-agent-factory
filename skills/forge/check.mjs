@@ -1,4 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { parsedModel } from './changes.mjs';
 import { checkProject } from './maintenance.mjs';
@@ -10,6 +11,16 @@ import { enforcedAgentTools } from './policy.mjs';
 import { mcpToolName } from './mcp-gen.mjs';
 
 const BUILTIN = new Set(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
+
+/** Explicit opt-in: Pi connects MCP servers using this project's isolated home. */
+export function connectMcp(root) {
+  const result = spawnSync('pi', ['mcp', 'list', '--json'], { cwd: root, env: { ...process.env, PI_CODING_AGENT_DIR: join(root, '.forge/pi-home') }, encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024 });
+  let servers;
+  try { servers = JSON.parse(result.stdout).servers; } catch { servers = null; }
+  const diagnostic = [result.error?.message, result.stderr?.trim()].filter(Boolean).join('\n').slice(-2000);
+  if (!Array.isArray(servers)) return { error: diagnostic || 'Could not read pi mcp list output.' };
+  return { servers: servers.map(s => ({ name: s.name, state: s.state, tools: s.tools ?? [], ...(s.error || (s.state !== 'connected' && diagnostic) ? { error: [s.error, diagnostic].filter(Boolean).join('\n').slice(-2000) } : {}) })), ...(diagnostic ? { diagnostic } : {}) };
+}
 
 /** Check declarations without making a model call. */
 export function checkAgent(root, options = {}) {
