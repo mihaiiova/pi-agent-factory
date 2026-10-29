@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { rebuildPlan, planChange } from '../maintenance.mjs';
 
 const repo = resolve(import.meta.dirname, '../../..');
+const version = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')).version;
 test('CLI generation installs no copied Forge tooling', t => {
   const root = mkdtempSync(join(tmpdir(), 'forge-package-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -14,7 +15,7 @@ test('CLI generation installs no copied Forge tooling', t => {
   copyFileSync(join(import.meta.dirname, 'fixtures/generate/minimal/.pi/system.yaml'), join(root, '.pi/system.yaml'));
   execFileSync(process.execPath, [join(repo, 'skills/forge/forge.mjs'), 'generate', root]);
   const settings = JSON.parse(readFileSync(join(root, '.pi/settings.json'), 'utf8'));
-  assert.ok(settings.packages.includes('git:github.com/mihaiiova/pi-forge@v0.19.1'));
+  assert.ok(settings.packages.includes('git:github.com/mihaiiova/pi-forge@v0.20.0'));
   assert.deepEqual(readdirSync(join(root, '.forge')).sort(), ['build.json', 'capabilities.json']);
 });
 
@@ -43,7 +44,7 @@ test('rebuild identifies the package version used for generated files', t => {
   copyFileSync(join(import.meta.dirname, 'fixtures/generate/minimal/.pi/system.yaml'), join(root, '.pi/system.yaml'));
   execFileSync(process.execPath, [join(repo, 'skills/forge/forge.mjs'), 'generate', root]);
   const plan = rebuildPlan(root);
-  assert.equal(plan.rebuild.version, '0.19.1');
+  assert.equal(plan.rebuild.version, version);
   assert.equal(plan.rebuild.unchanged, true);
 });
 

@@ -35,7 +35,7 @@ test("effectiveCapabilities derives the full intended surface", () => {
   ]);
   assert.deepEqual(caps.mcpServers, [{ name: "openseo", exposure: "deferred", toolExposure: { "publish_*": "hidden" } }]);
   assert.deepEqual(caps.packages, [
-    "git:github.com/mihaiiova/pi-forge@v0.19.1",
+    "git:github.com/mihaiiova/pi-forge@v0.20.0",
     "npm:pi-subagents@0.83.1",
     "npm:extra@1.0.0",
     "npm:@acme/skills@2.0.0",
