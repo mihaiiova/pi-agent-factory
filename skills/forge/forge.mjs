@@ -40,7 +40,9 @@ import { parseModelList, unavailableModelWarnings } from "./models.mjs";
 import { vendoredSkills } from "./skill-sources.mjs";
 import { registrySkills, installedDir, installRegistrySkill, searchSkills, previewRegistrySkill, resolveRegistrySkill } from "./registry-skills.mjs";
 import { planChange, applyChange, withSkillPreviews } from './maintenance.mjs';
-import { fingerprints } from './maintenance-store.mjs';
+import { fingerprints, atomicWrite } from './maintenance-store.mjs';
+import { checkAgent, loadProjectTools, connectMcp } from './check.mjs';
+import { parsedModel } from './changes.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -48,6 +50,9 @@ const USAGE = `Usage: forge <command> [options]
 
 Commands:
   validate <dir>             validate <dir>/.pi/system.yaml against schema v1
+  check-agent <dir> [--connect]
+                             report effective capabilities (no model calls);
+                             --connect starts configured MCP servers
   generate <dir> [--dry-run] generate the project from system.yaml
   discover [dir] [--cli <name>]...
                              print a read-only capability inventory as JSON;
@@ -615,6 +620,20 @@ async function main(argv) {
   if (command === "-h" || command === "--help" || command === undefined) {
     process.stdout.write(USAGE);
     process.exitCode = command === undefined ? 1 : 0;
+    return;
+  }
+
+  if (command === 'check-agent') {
+    if (!dir) { fail('missing <dir> argument'); return; }
+    const root = resolve(dir);
+    try { parsedModel(readFileSync(join(root, '.pi/system.yaml'), 'utf8')); }
+    catch (error) { fail(error.message); return; }
+    const connected = rest.includes('--connect') ? connectMcp(root) : null;
+    const report = checkAgent(root, { toolCheck: await loadProjectTools(root), ...(connected?.servers ? { mcpServers: connected.servers } : {}) });
+    if (connected?.trustSaved) { report.trustSaved = connected.trustSaved; atomicWrite(root, '.forge/check.json', `${JSON.stringify(report, null, 2)}\n`); }
+    if (connected?.error) { report.ok = false; report.mcpDiagnostic = connected.error; atomicWrite(root, '.forge/check.json', `${JSON.stringify(report, null, 2)}\n`); }
+    console.log(JSON.stringify(report, null, 2));
+    process.exitCode = report.ok ? 0 : 1;
     return;
   }
 

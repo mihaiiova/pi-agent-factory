@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { generateProject } from '../generate.mjs';
@@ -82,4 +82,66 @@ test('launch check respects git negation and skips unavailable git', t => {
     if (oldPath === undefined) delete process.env.PATH;
     else process.env.PATH = oldPath;
   }
+});
+
+test('launch check reports missing orchestrator extension tools', t => {
+  const root = project(t);
+  const configured = { ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'missing_extension'] }, agents: [] };
+  assert.ok(launchCheck(root, configured, { registeredTools: ['read'] }).problems.some(p => p.agent === 'lead' && p.problem.includes('missing_extension')));
+});
+
+test('capability report distinguishes connected and cached MCP evidence', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const { loadYaml } = await import('../yaml-loader.mjs');
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), loadYaml().stringify(model));
+  const connected = [{ name: 'seo', state: 'connected', tools: ['audit'] }, { name: 'github', state: 'connected', tools: ['issue_read'] }];
+  const live = checkAgent(root, { mcpServers: connected });
+  assert.ok(live.capabilities.some(c => c.agent === 'seo' && c.name === 'mcp:seo/audit' && c.status === 'verified now'));
+  const cached = checkAgent(root);
+  assert.ok(cached.capabilities.some(c => c.agent === 'seo' && c.name === 'mcp:seo/audit' && c.status.startsWith('last seen ')));
+});
+
+test('check-agent --connect verifies a local MCP server without a model call', async t => {
+  const { loadYaml } = await import('../yaml-loader.mjs');
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const root = project(t);
+  const server = fileURLToPath(new URL('./fixtures/mcp/server.mjs', import.meta.url));
+  const forge = fileURLToPath(new URL('../forge.mjs', import.meta.url));
+  const doc = { ...model, agents: [{ name: 'seo', model: 'p/m', tools: ['mcp:seo/audit'] }], skills: [], integrations: { mcp: [{ name: 'seo', config: { command: process.execPath, args: [server], env: { MCP_TOOLS: 'audit' } } }] } };
+  for (const f of generateProject(doc, {}).files) { mkdirSync(dirname(join(root, f.path)), { recursive: true }); writeFileSync(join(root, f.path), f.content); }
+  writeFileSync(join(root, '.pi/system.yaml'), loadYaml().stringify(doc));
+  // Like a project ./run has started: trusted per run, never saved. Pi's shell
+  // commands read only saved trust, so --connect saves it in this project's home.
+  const run = spawnSync(process.execPath, [forge, 'check-agent', root, '--connect'], { encoding: 'utf8', timeout: 30000 });
+  const connected = JSON.parse(run.stdout);
+  assert.ok(connected.capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'verified now'), run.stderr);
+  assert.match(connected.trustSaved, /\.forge\/pi-home\/trust\.json$/);
+  assert.equal(JSON.parse(readFileSync(join(root, '.forge/pi-home/trust.json'), 'utf8'))[realpathSync(root)], true);
+  const mcp = JSON.parse(readFileSync(join(root, '.pi/mcp.json'), 'utf8'));
+  mcp.mcpServers.seo.args = ['-e', "console.error('fixture connection failed'); process.exit(1)"];
+  writeFileSync(join(root, '.pi/mcp.json'), JSON.stringify(mcp));
+  const broken = spawnSync(process.execPath, [forge, 'check-agent', root, '--connect'], { encoding: 'utf8', timeout: 30000 });
+  const report = JSON.parse(broken.stdout);
+  assert.equal(broken.status, 1);
+  assert.ok(report.capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'missing' && c.fix.includes('fixture connection failed')));
+});
+
+test('a session with no registered MCP tools does not claim a live connection', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const { loadYaml } = await import('../yaml-loader.mjs');
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), loadYaml().stringify(model));
+  const report = checkAgent(root, { mcpTools: [] });
+  assert.ok(report.capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'not verifiable'));
+});
+
+test('capability report includes orchestrator skills and their provider', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const { loadYaml } = await import('../yaml-loader.mjs');
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), loadYaml().stringify(model));
+  const report = checkAgent(root);
+  assert.ok(report.capabilities.some(c => c.agent === 'lead' && c.name === 'skill:audit' && c.status === 'missing' && c.provider.includes('.agents/skills/audit')));
 });

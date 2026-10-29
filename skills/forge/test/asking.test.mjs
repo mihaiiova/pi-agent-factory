@@ -58,3 +58,20 @@ test("generated sections route calls that ask to the orchestrator", () => {
   const solo = { ...fixed, agents: [] };
   assert.doesNotMatch(capabilitySection(solo, 'lead'), /Only you can/, 'no specialists, nothing to route');
 });
+
+test('check-agent reports existing background approval problems instead of aborting validation', async t => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const root = mkdtempSync(join(tmpdir(), 'forge-asking-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, '.pi'), { recursive: true });
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(model));
+  writeFileSync(join(root, '.pi/settings.json'), '{}');
+  writeFileSync(join(root, '.pi/mcp.json'), '{}');
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL('../forge.mjs', import.meta.url)), 'check-agent', root], { encoding: 'utf8' });
+  assert.equal(run.status, 1);
+  assert.ok(JSON.parse(run.stdout).checks.launch.some(s => s.includes('background')));
+});

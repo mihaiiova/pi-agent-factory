@@ -14,6 +14,7 @@ import { envStatus, setEnvValue } from './maintenance-env.mjs';
 import { probeClis } from './discover.mjs';
 import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
+import { checkAgent } from './check.mjs';
 import { registerAgent } from './agent-extension.mjs';
 
 export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, updates = {} } = {}) {
@@ -37,8 +38,8 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
   };
   /** What this session registered: tool names, and MCP tools with their exposure (servers that have connected). */
   const loaded = () => {
-    const all = pi.getAllTools?.() ?? [];
-    return { registeredTools: all.map(t => t.name), mcpTools: all.filter(t => t.name.startsWith('mcp__')).map(t => ({ name: t.name, exposure: t.exposure })) };
+    const all = pi.getAllTools?.();
+    return { registeredTools: all?.map(t => t.name), toolProviders: Object.fromEntries((all ?? []).filter(t => t.sourceInfo?.source || t.sourceInfo?.path).map(t => [t.name, t.sourceInfo.source || t.sourceInfo.path])), mcpTools: all?.filter(t => t.name.startsWith('mcp__')).map(t => ({ name: t.name, exposure: t.exposure })) };
   };
   const tell = (ctx, message, level = 'info') => {
     if (ctx.hasUI) ctx.ui.notify(message, level);
@@ -175,14 +176,22 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     await ctx.reload();
   };
   const check = (ctx) => {
-    const result = checkProject(root, loaded());
-    if (result.ok) { tell(ctx, 'All checks passed: system.yaml is valid, the generated files match it, and every agent starts with what it needs.'); return; }
+    const report = checkAgent(root, loaded());
+    const result = report.checks;
+    const evidence = report.capabilities.map(c => `- ${c.agent}: ${c.name} (${c.provider}): ${c.status}; ${c.fix}`).join('\n');
+    const versions = report.versions ? `Build: ${report.versions.build ?? 'unknown'}; tooling: ${report.versions.tooling}.${report.versions.fix ? ` ${report.versions.fix}` : ''}` : '';
+    if (result.ok && report.ok) {
+      const summary = report.capabilities.some(c => c.status === 'not verifiable' || c.status.startsWith('last seen ')) ? 'No missing capabilities found; some are not verified now.' : 'All checks passed: system.yaml is valid and the generated files match it.';
+      tell(ctx, `${summary}\n${versions}\n${evidence}`); return;
+    }
     const section = (name, problems, fix) => problems === null ? `${name}: skipped until system.yaml is valid`
       : problems.length ? `${name}: ${problems.length} problem${problems.length === 1 ? '' : 's'}\n${problems.map(p => `- ${p}`).join('\n')}${fix ? `\n${fix}` : ''}` : `${name}: ok`;
     tell(ctx, [
       section('Validation', result.validation, 'Describe the fix with /forge <request>.'),
       section('Consistency', result.consistency, 'Run /forge sync to rebuild the generated files from system.yaml.'),
       section('Launch check', result.launch),
+      versions,
+      evidence,
     ].join('\n\n'), 'warning');
   };
   const status = async (ctx) => {
@@ -203,6 +212,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
       `MCP servers: ${list(s.mcpServers)}\nCommands: ${list(s.commands)}\nSkills: ${list(s.skills)}`,
       ...(s.env.length ? [`Environment: ${s.env.map(e => `${e.name} (${e.set})`).join(', ')}`] : []),
       `Forge: ${forge}`,
+      (() => { try { const last = readJson(root, '.forge/check.json'); return `Last capability check: ${last.timestamp} (${last.ok ? 'no missing capabilities' : 'problems found'}).`; } catch { return 'Last capability check: not run.'; } })(),
       s.pendingRequests ? `${s.pendingRequests} pending permission request${s.pendingRequests === 1 ? '' : 's'}: /forge permissions review` : 'No pending permission requests.',
     ].join('\n'));
   };
