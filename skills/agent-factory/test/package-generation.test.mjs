@@ -14,7 +14,7 @@ test('CLI generation installs no copied Factory tooling', t => {
   copyFileSync(join(import.meta.dirname, 'fixtures/generate/minimal/.pi/system.yaml'), join(root, '.pi/system.yaml'));
   execFileSync(process.execPath, [join(repo, 'skills/agent-factory/factory.mjs'), 'generate', root]);
   const settings = JSON.parse(readFileSync(join(root, '.pi/settings.json'), 'utf8'));
-  assert.ok(settings.packages.includes('git:github.com/mihaiiova/pi-agent-factory@v0.19.0'));
+  assert.ok(settings.packages.includes('git:github.com/mihaiiova/pi-agent-factory@v0.19.1'));
   assert.deepEqual(readdirSync(join(root, '.factory')).sort(), ['build.json', 'capabilities.json']);
 });
 
@@ -43,7 +43,7 @@ test('rebuild identifies the package version used for generated files', t => {
   copyFileSync(join(import.meta.dirname, 'fixtures/generate/minimal/.pi/system.yaml'), join(root, '.pi/system.yaml'));
   execFileSync(process.execPath, [join(repo, 'skills/agent-factory/factory.mjs'), 'generate', root]);
   const plan = rebuildPlan(root);
-  assert.equal(plan.rebuild.version, '0.19.0');
+  assert.equal(plan.rebuild.version, '0.19.1');
   assert.equal(plan.rebuild.unchanged, true);
 });
 

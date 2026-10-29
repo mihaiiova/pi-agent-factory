@@ -7,7 +7,7 @@ const PI_PACKAGES = ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "np
 test("buildRuntimePlan derives the isolated agent dir, packages, and warnings", () => {
   const plan = buildRuntimePlan({ packages: ["npm:foo@1.0.0"] }, { piPackages: PI_PACKAGES });
   assert.equal(plan.agentDir, ".factory/pi-home");
-  assert.deepEqual(plan.packages, ["git:github.com/mihaiiova/pi-agent-factory@v0.19.0", "npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:foo@1.0.0"]);
+  assert.deepEqual(plan.packages, ["git:github.com/mihaiiova/pi-agent-factory@v0.19.1", "npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:foo@1.0.0"]);
   assert.deepEqual(plan.errors, []);
   assert.ok(plan.warnings.length >= 2, "warns about auth + parent context files");
 });
