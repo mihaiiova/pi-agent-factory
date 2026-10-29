@@ -62,7 +62,7 @@ const PROMPT_FILES = [
   '  if [[ -f "$f" ]]; then prompts+=(--append-system-prompt "$f"); fi',
   "done",
 ];
-const LAUNCH = 'pi --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"';
+const LAUNCH = 'pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"';
 
 /** The launcher as generated before the prompt files were passed explicitly. */
 export function previousLauncher(script) {
