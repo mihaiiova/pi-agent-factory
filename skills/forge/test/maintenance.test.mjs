@@ -527,3 +527,28 @@ test('check-agent loads an explicitly configured extension without a model call'
   const report = JSON.parse(result.stdout);
   assert.ok(report.capabilities.some(c => c.name === 'fixture_tool' && c.status === 'verified now'));
 });
+
+test('check-agent never loads disabled auto-discovered extensions', t => {
+  const root = project(t);
+  mkdirSync(join(root, '.pi/extensions'), { recursive: true });
+  const marker = join(root, 'executed');
+  writeFileSync(join(root, '.pi/extensions/disabled.js'), `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'executed'); export default () => {};`);
+  const settings = readJson(root, '.pi/settings.json');
+  settings.extensions = ['-./extensions/disabled.js'];
+  writeFileSync(join(root, '.pi/settings.json'), JSON.stringify(settings));
+  const result = requireResult(process.execPath, [forge, 'check-agent', root], { encoding: 'utf8' });
+  assert.match(JSON.parse(result.stdout).extensionDiagnostic, /Cannot safely verify/);
+  assert.equal(existsSync(marker), false);
+});
+
+test('check-agent reports missing packages without installing them', t => {
+  const root = project(t);
+  rmSync(join(root, '.forge/pi-home/extensions'), { recursive: true, force: true });
+  const settings = readJson(root, '.pi/settings.json');
+  settings.packages = ['npm:forge-nonexistent-package-for-test@1.0.0'];
+  writeFileSync(join(root, '.pi/settings.json'), JSON.stringify(settings));
+  const result = requireResult(process.execPath, [forge, 'check-agent', root], { encoding: 'utf8' });
+  const report = JSON.parse(result.stdout);
+  assert.deepEqual(report.unresolvedPackages, ['npm:forge-nonexistent-package-for-test@1.0.0']);
+  assert.equal(existsSync(join(root, '.pi/npm')), false);
+});
