@@ -46,3 +46,20 @@ test('rebuild identifies the package version used for generated files', t => {
   assert.equal(plan.rebuild.version, '0.19.0');
   assert.equal(plan.rebuild.unchanged, true);
 });
+
+test('git ignores the packages Pi installs inside the project', t => {
+  const root = mkdtempSync(join(tmpdir(), 'factory-package-ignore-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, '.pi'));
+  copyFileSync(join(import.meta.dirname, 'fixtures/generate/minimal/.pi/system.yaml'), join(root, '.pi/system.yaml'));
+  execFileSync(process.execPath, [join(repo, 'skills/agent-factory/factory.mjs'), 'generate', root]);
+  execFileSync('git', ['init', '--quiet'], { cwd: root });
+  // Pi installs project packages under .pi/git/<host>/<path> and .pi/npm/.
+  for (const path of ['.pi/git/github.com/mihaiiova/pi-agent-factory/package.json', '.pi/npm/node_modules/pi-subagents/package.json']) {
+    mkdirSync(join(root, path, '..'), { recursive: true });
+    writeFileSync(join(root, path), '{}');
+  }
+  const untracked = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' });
+  assert.doesNotMatch(untracked, /\.pi\/(git|npm)\//);
+  assert.match(untracked, /\.pi\/settings\.json/);
+});

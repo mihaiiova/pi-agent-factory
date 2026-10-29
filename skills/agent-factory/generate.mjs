@@ -41,6 +41,9 @@ const GITIGNORE_BODY = [
   ".factory/",
   ".pi/state.json",
   ".pi/sessions/",
+  "# Packages Pi installs for this project (pinned in .pi/settings.json)",
+  ".pi/git/",
+  ".pi/npm/",
   "",
 ].join("\n");
 

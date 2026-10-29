@@ -210,7 +210,8 @@ project's gitignored `.env`.
 A generated project pins one Factory release as a Pi package in its
 `.pi/settings.json`, for example `git:github.com/mihaiiova/pi-agent-factory@v0.19.0`.
 Nothing is copied into the project. On the first `./run`, Pi installs that
-exact tag into the project's own Pi home (`.factory/pi-home`) and loads the
+exact tag under `.pi/git/` in the project (ignored by the generated
+`.gitignore`, like `.pi/npm/`) and loads the
 agent runtime (memory, declared commands, `request_permission`) and
 `/factory-update` from it. The first start therefore needs network access to
 GitHub. Pi never moves a pinned tag by itself.
