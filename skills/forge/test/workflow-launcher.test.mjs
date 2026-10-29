@@ -140,3 +140,89 @@ console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopRea
   assert.match(prompt, /results\//);
   assert.match(prompt, /one=two/);
 });
+
+test('timeout stops only invocation-owned detached subagent runs', async t => {
+  const { root, env } = fixture(t);
+  const { spawn } = await import('node:child_process');
+  const unrelated = spawn('sleep', ['30'], { stdio: 'ignore' });
+  t.after(() => unrelated.kill());
+  const marker = join(root, 'detached-pid');
+  writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+const {spawn}=require('child_process');
+const fs=require('fs'), path=require('path');
+const dir=path.join(process.env.PI_SUBAGENTS_TEMP_ROOT,'async-subagent-runs','own');
+fs.mkdirSync(dir,{recursive:true});
+fs.writeFileSync(path.join(dir,'status.json'),JSON.stringify({runId:'own',state:'running'}));
+const program = ${JSON.stringify(`const fs=require('fs'),path=require('path'); const dir=process.argv[1]; setInterval(()=>{const d=path.join(dir,'control/stop-requests'); if(fs.existsSync(d)&&fs.readdirSync(d).length){fs.writeFileSync(path.join(dir,'status.json'),JSON.stringify({runId:'own',state:'stopped'}));process.exit(0)}},20);`)};
+const child=spawn(process.execPath,['-e',program,dir],{detached:true,stdio:'ignore'}); child.unref();
+fs.writeFileSync(${JSON.stringify(marker)},String(child.pid));
+setTimeout(()=>{},30000);
+`, { mode: 0o755 });
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report', '--timeout', '1s'], { env, encoding: 'utf8', timeout: 10000 });
+  assert.equal(result.status, 4, result.stderr);
+  const pid = Number(readFileSync(marker, 'utf8'));
+  assert.throws(() => process.kill(pid, 0), /ESRCH/);
+  assert.doesNotThrow(() => process.kill(unrelated.pid, 0));
+});
+
+test('timeout stops a real pi-subagents background run', { skip: !process.env.FORGE_SUBAGENTS_PACKAGE, timeout: 30000 }, async t => {
+  const { root } = fixture(t);
+  const { realpathSync } = await import('node:fs');
+  const { dirname } = await import('node:path');
+  const { execFileSync } = await import('node:child_process');
+  const { pathToFileURL } = await import('node:url');
+  const pi = execFileSync('which', ['pi'], { encoding: 'utf8' }).trim();
+  const bin = dirname(realpathSync(pi));
+  const ai = pathToFileURL(resolve(bin, '../../node_modules/@earendil-works/pi-ai/dist/index.js')).href;
+  const repo = resolve(import.meta.dirname, '../../..');
+  const provider = join(root, '.pi/provider.mjs');
+  writeFileSync(provider, `import { createFauxCore, fauxAssistantMessage, fauxToolCall } from ${JSON.stringify(ai)};
+import { writeFileSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+export default pi => {
+ pi.events.on('subagent:async-started', event => { const capture=()=>{ try { const status=JSON.parse(readFileSync(join(event.asyncDir,'status.json'),'utf8')); writeFileSync(${JSON.stringify(join(root, 'actual-subagent.json'))},JSON.stringify({event,status,at:Date.now()})); } catch(e) { writeFileSync(${JSON.stringify(join(root, 'actual-subagent-error'))},String(e)); } }; capture(); setInterval(capture,50).unref(); });
+ const faux=createFauxCore({api:'faux-test',provider:'faux',models:[{id:'faux'}]});
+ faux.setResponses(process.env.PI_SUBAGENT_CHILD === '1'
+  ? [fauxAssistantMessage([fauxToolCall('bash',{command:'sleep 30'})]), fauxAssistantMessage('done')]
+  : [fauxAssistantMessage([fauxToolCall('subagent',{agent:'researcher',task:'Wait',async:true})]), fauxAssistantMessage('done')]);
+ pi.registerProvider('faux',{baseUrl:'http://localhost',apiKey:'test',api:'faux-test',streamSimple:faux.streamSimple,models:[{type:'chat',id:'faux',name:'faux',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:100000,maxTokens:1000}]});
+};`);
+  const settings = JSON.parse(readFileSync(join(root, '.pi/settings.json'), 'utf8'));
+  settings.packages = [repo, process.env.FORGE_SUBAGENTS_PACKAGE];
+  settings.extensions = [provider];
+  settings.defaultProvider = 'faux'; settings.defaultModel = 'faux';
+  writeFileSync(join(root, '.pi/settings.json'), JSON.stringify(settings));
+  // This test delegates a long-running child through the actual pinned extension.
+  const agent = join(root, '.pi/agents/researcher.md');
+  let body = readFileSync(agent, 'utf8').replace('  - read', '  - bash');
+  writeFileSync(agent, body);
+  const env = { ...process.env, PATH: process.env.PATH, PI_OFFLINE: '1' };
+  delete env.PI_SUBAGENT_CHILD;
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'research', '--timeout', '6s'], { env, encoding: 'utf8', timeout: 20000 });
+  assert.equal(result.status, 4, `${result.stderr}\n${result.stdout}`);
+  assert.doesNotMatch(result.stderr, /cleanup incomplete/);
+  assert.ok(existsSync(join(root, 'actual-subagent.json')), existsSync(join(root, 'actual-subagent-error')) ? readFileSync(join(root, 'actual-subagent-error'), 'utf8') : result.stderr);
+  const record = JSON.parse(readFileSync(join(root, 'actual-subagent.json'), 'utf8'));
+  assert.equal(record.status.state, 'running');
+  assert.ok(Date.now() - record.at < 2500, 'background run was active until timeout');
+  assert.ok(record.status.pid);
+  assert.throws(() => process.kill(record.status.pid, 0), /ESRCH/);
+});
+
+test('cleanup reports incomplete when terminal state precedes runner exit', t => {
+  const { root, env } = fixture(t);
+  const pidfile = join(root, 'pid');
+  writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+const fs=require('fs'), path=require('path'), {spawn}=require('child_process');
+const dir=path.join(process.env.PI_SUBAGENTS_TEMP_ROOT,'async-subagent-runs','slow'); fs.mkdirSync(dir,{recursive:true});
+const child=spawn('sleep',['30'],{detached:true,stdio:'ignore'}); child.unref(); fs.writeFileSync(${JSON.stringify(pidfile)},String(child.pid));
+fs.writeFileSync(path.join(dir,'status.json'),JSON.stringify({runId:'slow',state:'stopped',pid:child.pid})); setTimeout(()=>{},30000);
+`, { mode: 0o755 });
+  t.after(() => { try { process.kill(Number(readFileSync(pidfile, 'utf8')), 'SIGKILL'); } catch {} });
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report', '--timeout', '1s'], { env, encoding: 'utf8', timeout: 10000 });
+  assert.equal(result.status, 4, result.stderr);
+  const summary = JSON.parse(result.stdout.trim());
+  assert.equal(summary.cleanup, 'incomplete');
+  assert.ok(existsSync(summary.stateDir));
+  rmSync(summary.stateDir, { recursive: true, force: true });
+});
