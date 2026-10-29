@@ -4,6 +4,9 @@ import { importSystem } from "../import.mjs";
 import { generateProject } from "../generate.mjs";
 import { modifyPlan } from "../modify.mjs";
 import { validateSystem } from "../validate.mjs";
+import { readFileSync } from "node:fs";
+
+const VERSION = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")).version;
 
 const SETTINGS = {
   defaultProvider: "provider-a",
@@ -26,6 +29,7 @@ const DETECTED = {
 };
 
 const PINS = [
+  `git:github.com/mihaiiova/pi-agent-factory@v${VERSION}`,
   "npm:pi-subagents@0.83.1",
   "npm:pi-mcp-adapter@2.32.1",
 ];
@@ -50,7 +54,7 @@ test("round-trip: import → generate preserves each agent's model, skills and M
   assert.match(agents.find((f) => f.path === ".pi/agents/scout.md").content, /^skills:\n  - house-style$/m);
 
   const localSkills = files.filter((f) => f.path.includes("/SKILL.md"));
-  assert.deepEqual(localSkills.map(f => f.path), ['.pi/skills/factory-update/SKILL.md'], "imported skills stay in their own directories");
+  assert.deepEqual(localSkills.map(f => f.path), [], "imported skills stay in their own directories");
 
   assert.ok(files.some((f) => f.path === ".pi/mcp.json" && f.content.includes("cloudflare")), "MCP integration survives");
 });

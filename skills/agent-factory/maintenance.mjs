@@ -11,7 +11,7 @@ import { diffLines } from './diff.mjs';
 import { redacted, redactForModel, assertNoNewSecrets } from './maintenance-secrets.mjs';
 import { vendoredSkills } from './skill-sources.mjs';
 import { registrySkills, installedDir, installRegistrySkill, removeRegistrySkill, previewRegistrySkill, SKILLS_CLI } from './registry-skills.mjs';
-import { readText, readJson, fingerprints, transact, json, digest } from './maintenance-store.mjs';
+import { readText, readJson, fingerprints, applyWrites, json, digest } from './maintenance-store.mjs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -253,7 +253,7 @@ export function applyChange(root, plan, approved = false, { run } = {}) {
       installRegistrySkill(root, skill, { expectedSha256: plan.skillPreviews?.[skill.name]?.skillMdSha256, ...(run ? { run } : {}) });
       installed.push(skill.name);
     }
-    transact(root, plan.writes, plan.expected, approved);
+    applyWrites(root, plan.writes, plan.expected, approved);
   } catch (error) {
     for (const name of installed) removeRegistrySkill(root, name, run ? { run } : {});
     throw error;

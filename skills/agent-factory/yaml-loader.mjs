@@ -8,8 +8,7 @@
  * `~/.pi/agent/settings.json`), with an actionable error when it is absent.
  */
 import { createRequire } from "node:module";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from 'node:url';
+import { resolve } from "node:path";
 import { homedir } from "node:os";
 
 /** Directory where Pi installs its pinned npm packages. */
@@ -22,14 +21,7 @@ export const PI_NPM_DIR = resolve(homedir(), ".pi", "agent", "npm");
  * @throws {Error} with an actionable message when yaml is not installed.
  */
 export function loadYaml() {
-  // Standalone maintenance bundles resolve only their own pinned dependency.
-  // Never fall back to the host's Pi directory from inside a bundle.
   const local = createRequire(import.meta.url);
-  if (import.meta.url.includes('/.factory/runtime/')) {
-    const bundled = resolve(dirname(fileURLToPath(import.meta.url)), '../../node_modules/yaml');
-    try { return local(bundled); }
-    catch { throw new Error('Bundled yaml dependency is missing; restore maintenance installation'); }
-  }
   try { return local("yaml"); } catch { /* main Agent Factory installation */ }
   const require = createRequire(resolve(PI_NPM_DIR, "package.json"));
   try {

@@ -10,22 +10,18 @@ import { generateProject } from '../generate.mjs';
 import { previousLauncher } from '../runtime.mjs';
 import { changeModel } from '../changes.mjs';
 import { planChange, applyChange, inspectProject, rebuildPlan, changesReach } from '../maintenance.mjs';
-import { localBundle, bootstrapPlan, applyBootstrap, buildBundle, validateIdentity, validateManifest, installedYamlDir, verifyBundle } from '../maintenance-bundle.mjs';
-import { checkForUpdates, checkSummary, startupCheck, updateNotice, prepareUpdate, activateUpdate, rollbackPlan, applyRollback, verifiedSource } from '../maintenance-updates.mjs';
-import { readJson, readText, json, recoverTransaction, atomicWrite, transact, fingerprints } from '../maintenance-store.mjs';
+import { readJson, readText, json, atomicWrite, fingerprints } from '../maintenance-store.mjs';
 import { registerMaintenance } from '../maintenance-extension.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../../..');
 const factory = join(repo, 'skills/agent-factory/factory.mjs');
 const yaml = loadYaml();
 const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'));
-const manifest = JSON.parse(readFileSync(join(repo, 'skills/agent-factory/maintenance-manifest.json'), 'utf8'));
-const bundle = localBundle();
 const model = {
   schema: 1, name: 'maintenance-test', description: 'A focused research system',
   orchestrator: { name: 'lead', model: 'fixture/large', tools: ['read'], prompt: 'Coordinate research.\n' },
 };
-function project(t, { legacy = false } = {}) {
+function project(t) {
   const root = mkdtempSync(join(tmpdir(), 'factory-maintenance-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const generated = generateProject(model, {}, { piPackages: pkg.pi.packages });
@@ -37,11 +33,8 @@ function project(t, { legacy = false } = {}) {
   }
   writeFileSync(join(root, '.pi/system.yaml'), '# Preserve this purpose comment\n' + yaml.stringify(model));
   mkdirSync(join(root, '.factory'), { recursive: true });
-  if (legacy) {
-    rmSync(join(root, '.pi/extensions'), { recursive: true });
-    rmSync(join(root, '.pi/skills/factory-update'), { recursive: true });
-    writeFileSync(join(root, 'run'), previousLauncher(readText(root, 'run')).replace('exec pi --no-context-files', 'exec pi'));
-  } else applyBootstrap(root, bootstrapPlan(root, bundle), true);
+  // As factory generate does: record the build and its capabilities.
+  applyChange(root, rebuildPlan(root), true);
   return root;
 }
 function snapshot(root) {
@@ -50,102 +43,19 @@ function snapshot(root) {
     return [p.slice(root.length + 1), readFileSync(p, 'utf8')];
   }));
 }
-function source({ badSmoke = false, infrastructureChanged = false, checkEnvironment = false } = {}) {
-  return p => {
-    if (p === 'package.json') return json({ ...pkg, version: pkg.version + '+fixture' });
-    if (p.endsWith('maintenance-smoke.mjs') && badSmoke) return 'throw new Error("fixture check failure");\n';
-    const text = readFileSync(join(repo, p), 'utf8');
-    if (p.endsWith('maintenance-infra.mjs') && infrastructureChanged) return text.replace('Explicit invocation only.', 'Updated upstream entrypoint copy.');
-    if (p.endsWith('maintenance-smoke.mjs') && checkEnvironment) return "if (process.env.FACTORY_TEST_SECRET || process.env.NODE_OPTIONS || process.env.PI_OFFLINE !== '1') throw new Error('Unsafe smoke environment');\n" + text.slice(text.indexOf('\n') + 1);
-    return text;
+function adapter(initialTools = ['read']) {
+  const events = {}, tools = {}, commands = {}, messages = [], notices = [];
+  let active = [...initialTools];
+  let confirm = false;
+  const pi = {
+    registerTool: t => { tools[t.name] = t; }, registerCommand: (n, c) => { commands[n] = c; },
+    on: (n, cb) => { const prev = events[n]; events[n] = prev ? (...a) => { const r = prev(...a); return cb(...a) ?? r; } : cb; }, getActiveTools: () => [...active], setActiveTools: t => { active = t; },
+    sendUserMessage: m => messages.push(m),
   };
+  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
+  const ctx = { hasUI: true, waitForIdle: async () => {}, ui: { notify: (...v) => notices.push(v), confirm: async () => confirm }, sessionManager: { getBranch: () => [] }, modelRegistry: { getAvailable: () => [] } };
+  return { pi, Type, ctx, events, tools, commands, messages, notices, approve: () => { confirm = true; } };
 }
-const latestSha = bundle.installation.revision === 'a'.repeat(40) ? 'b'.repeat(40) : 'a'.repeat(40);
-function network({ sha = latestSha, broken = false } = {}) {
-  const calls = [];
-  const fetcher = async url => {
-    calls.push(url);
-    if (broken) throw new Error('offline fixture');
-    const value = url.includes('/compare/') ? { status: 'ahead' } : url.includes('/tags?') ? [{ name: 'v9.0.0', commit: { sha } }] : url.endsWith('package.json') ? { ...pkg, version: pkg.version + '+fixture' } : manifest;
-    return { ok: true, status: 200, text: async () => json(value) };
-  };
-  return { calls, fetcher };
-}
-function unpublished() {
-  // GitHub answers, but cannot compare against a commit it has never seen.
-  const base = network();
-  const fetcher = async url => url.includes('/compare/')
-    ? { ok: false, status: 404, text: async () => '{}' }
-    : base.fetcher(url);
-  return { fetcher };
-}
-function updateOptions(extra = {}) { return { fetcher: network().fetcher, sourceReader: async revision => { assert.equal(revision, latestSha); return source(extra); }, yamlDir: installedYamlDir() }; }
-
-test('generation includes standalone maintenance, real revision metadata and only minimal dependencies', t => {
-  const root = project(t);
-  const installation = readJson(root, '.factory/installation.json');
-  assert.equal(installation.source, 'mihaiiova/pi-agent-factory');
-  assert.equal(installation.channel, 'releases');
-  assert.equal(installation.revision, execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
-  assert.equal(installation.version, pkg.version);
-  assert.ok(existsSync(join(root, '.pi/extensions/factory-update/index.ts')));
-  assert.ok(existsSync(join(root, '.pi/skills/factory-update/SKILL.md')));
-  assert.equal(inspectProject(root).consistency.ok, true);
-  assert.deepEqual(readJson(root, '.pi/settings.json').defaultTools, ['read']);
-  const files = snapshot(root);
-  assert.ok(!Object.keys(files).some(p => p.includes('auth.json')));
-  assert.equal(Object.keys(files).filter(p => p.includes('node_modules/') && p.endsWith('/package.json')).length, 1);
-  assert.equal(verifyBundle(root, installation), true);
-  // Launch the bundled checker with an empty HOME/agent dir. Node's import graph
-  // must resolve within the generated system, never globally installed Factory.
-  const home = mkdtempSync(join(tmpdir(), 'factory-empty-home-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
-  execFileSync(process.execPath, [join(root, '.factory', installation.runtime, 'skills/agent-factory/maintenance-smoke.mjs'), root], { cwd: home, env: { ...process.env, HOME: home, PI_CODING_AGENT_DIR: home, NODE_PATH: '' } });
-  rmSync(join(root, '.factory', installation.runtime, 'node_modules/yaml'), { recursive: true });
-  mkdirSync(join(root, 'node_modules'));
-  symlinkSync(installedYamlDir(), join(root, 'node_modules/yaml'));
-  assert.throws(() => execFileSync(process.execPath, [join(root, '.factory', installation.runtime, 'skills/agent-factory/maintenance-smoke.mjs'), root], { stdio: 'pipe' }), /Command failed/);
-});
-
-test('legacy bootstrap is previewable, approval-gated, additive and conflict-safe', t => {
-  const root = project(t, { legacy: true });
-  writeFileSync(join(root, '.pi/APPEND_SYSTEM.md'), 'User instructions, not a scaffold.\n');
-  const before = snapshot(root);
-  const plan = bootstrapPlan(root, bundle);
-  assert.deepEqual(snapshot(root), before);
-  assert.throws(() => applyBootstrap(root, plan), /approval/);
-  assert.deepEqual(snapshot(root), before);
-  applyBootstrap(root, plan, true);
-  for (const p of ['.pi/system.yaml', '.pi/settings.json', '.pi/mcp.json', '.pi/APPEND_SYSTEM.md', 'README.md']) assert.equal(readText(root, p), before[p]);
-  assert.match(readText(root, 'run'), /--no-context-files/);
-  assert.throws(() => bootstrapPlan(root, bundle), /already installed/);
-  const other = project(t, { legacy: true });
-  mkdirSync(join(other, '.pi/extensions/factory-update'), { recursive: true });
-  writeFileSync(join(other, '.pi/extensions/factory-update/index.ts'), 'user extension');
-  assert.throws(() => bootstrapPlan(other, bundle), /conflict/);
-});
-
-test('bootstrap recognizes the historical TUI login-comment launcher without accepting executable edits', t => {
-  const legacy = readFileSync(join(here, 'fixtures/legacy-tui-launcher.sh'), 'utf8');
-  for (const text of [legacy, legacy.replace('exec pi "$@"', 'exec pi --no-context-files "$@"')]) {
-    const root = project(t, { legacy: true });
-    writeFileSync(join(root, 'run'), text);
-    const before = snapshot(root);
-    const plan = bootstrapPlan(root, bundle);
-    assert.deepEqual(snapshot(root), before, 'preview never rewrites the historical launcher');
-    assert.match(plan.writes.run, /exec pi --no-context-files/);
-    applyBootstrap(root, plan, true);
-    assert.equal(readJson(root, '.factory/installation.json').source, 'mihaiiova/pi-agent-factory');
-  }
-  for (const edited of [legacy.replace('exec pi "$@"', 'exec pi --tools bash "$@"'), legacy.replace('exec pi "$@"', 'export PRIVATE_FLAG=custom\nexec pi "$@"')]) {
-    const root = project(t, { legacy: true });
-    writeFileSync(join(root, 'run'), edited);
-    const before = snapshot(root);
-    assert.throws(() => bootstrapPlan(root, bundle), /Authored launcher conflict/);
-    assert.deepEqual(snapshot(root), before, 'custom executable changes remain protected');
-  }
-});
-
 test('structured changes preserve comments, add/update/remove all schema entities and reconcile capabilities', t => {
   const root = project(t);
   const operations = [
@@ -192,7 +102,6 @@ test('structured changes preserve comments, add/update/remove all schema entitie
   ]), true);
   assert.equal(readText(root, '.pi/agents/reviewer.md'), null);
   assert.equal(readText(root, '.pi/skills/keywords/SKILL.md'), null);
-  assert.ok(readText(root, '.pi/skills/factory-update/SKILL.md'));
   assert.deepEqual(readJson(root, '.pi/mcp.json').mcpServers, {});
 });
 
@@ -209,9 +118,13 @@ test('conflicts, stale previews, malformed references and infrastructure names c
   applyChange(root, planChange(root, [{ op: 'replace', model: replacement }]), true);
   writeFileSync(join(root, '.pi/agents/r.md'), 'My authored reviewer\n');
   assert.throws(() => planChange(root, [{ op: 'remove', target: 'agent', name: 'r' }]), /Authored removal conflict/);
-  const symlinkRoot = project(t, { legacy: true });
-  symlinkSync(tmpdir(), join(symlinkRoot, '.factory/runtime'));
-  assert.throws(() => applyBootstrap(symlinkRoot, bootstrapPlan(symlinkRoot, bundle), true), /symlink/);
+  const symlinkRoot = project(t);
+  const outside = mkdtempSync(join(tmpdir(), 'factory-outside-'));
+  t.after(() => rmSync(outside, { recursive: true, force: true }));
+  rmSync(join(symlinkRoot, '.factory'), { recursive: true });
+  symlinkSync(outside, join(symlinkRoot, '.factory'));
+  assert.throws(() => applyChange(symlinkRoot, planChange(symlinkRoot, [{ op: 'assign', name: 'lead', model: 'fixture/small' }]), true), /symlink/);
+  assert.deepEqual(readdirSync(outside), []);
 });
 
 test('an unsupported schema is only replaced by an explicit, drift-protected replacement', t => {
@@ -301,275 +214,6 @@ test('credential redaction protects inspection and model-facing diffs; new liter
   assert.throws(() => changeModel(yaml.stringify(model), [{ op: 'set', target: 'constructor', value: {} }]), /Unknown operation/);
 });
 
-test('startup checks cache successes for 24h, stay silent offline/current and report updates without installing', async t => {
-  const root = project(t);
-  const current = network({ sha: bundle.installation.revision });
-  const before = readText(root, '.factory/installation.json');
-  const messages = [];
-  await startupCheck(root, m => messages.push(m), { fetcher: current.fetcher, now: 100000 });
-  assert.deepEqual(messages, []);
-  assert.equal(current.calls.length, 3);
-  await startupCheck(root, m => messages.push(m), { fetcher: () => { throw new Error('must use cache'); }, now: 100001 });
-  assert.deepEqual(messages, []);
-  const newer = network();
-  await startupCheck(root, m => messages.push(m), { fetcher: newer.fetcher, now: 100000 + 24 * 60 * 60 * 1000 });
-  assert.equal(messages.length, 1);
-  assert.match(messages[0], /Factory update available: .*\nRun \/factory-update update to upgrade\./);
-  assert.equal(readText(root, '.factory/installation.json'), before);
-  const unavailable = await checkForUpdates(root, { force: true, fetcher: network({ broken: true }).fetcher });
-  assert.equal(unavailable.status, 'unavailable');
-  assert.equal(unavailable.updateAvailable, null);
-  assert.equal(updateNotice(unavailable), null);
-  await startupCheck(root, () => assert.fail('offline must be silent'), { force: true, fetcher: network({ broken: true }).fetcher });
-  const result = await checkForUpdates(root, { force: true, fetcher: newer.fetcher });
-  assert.equal(result.compatible, true);
-  assert.equal(result.migrationRequired, false);
-  assert.equal(result.installed.source, 'mihaiiova/pi-agent-factory');
-});
-
-test('a persistent check failure is recorded, announced at most daily and cleared by success; offline stays silent', async t => {
-  const root = project(t);
-  const day = 24 * 60 * 60 * 1000;
-  const messages = [];
-  await startupCheck(root, m => messages.push(m), { force: true, fetcher: network({ broken: true }).fetcher, now: 1000 });
-  assert.deepEqual(messages, [], 'network failures are silent');
-  assert.equal(readText(root, '.factory/update-failure.json'), null, 'network failures are not recorded');
-  const limited = async () => ({ ok: false, status: 429, text: async () => '{}' });
-  await startupCheck(root, m => messages.push(m), { force: true, fetcher: limited, now: 1000 });
-  assert.deepEqual(messages, [], 'rate limits are transient');
-
-  await startupCheck(root, m => messages.push(m), { force: true, fetcher: unpublished().fetcher, now: 2000 });
-  assert.equal(messages.length, 1);
-  assert.match(messages[0], /^Factory update check is failing: Update source unavailable \(HTTP 404\)\nRun \/factory-update check for details\.$/);
-  await startupCheck(root, m => messages.push(m), { force: true, fetcher: unpublished().fetcher, now: 2000 + day - 1 });
-  assert.equal(messages.length, 1, 'not repeated within a day');
-  const failing = await checkForUpdates(root, { force: true, fetcher: unpublished().fetcher, now: 3000 });
-  assert.equal(failing.failure.firstFailedAt, 2000);
-  const summary = checkSummary(failing);
-  assert.match(summary, /Failing since: 1970-01-01T00:00:02\.000Z/);
-  assert.match(summary, /generated from an unpushed Factory commit/);
-  await startupCheck(root, m => messages.push(m), { force: true, fetcher: unpublished().fetcher, now: 2000 + day });
-  assert.equal(messages.length, 2, 'repeated after a day');
-
-  await checkForUpdates(root, { force: true, fetcher: network().fetcher, now: 4000 });
-  assert.equal(readText(root, '.factory/update-failure.json'), null, 'a successful check clears the failure');
-});
-
-test('startup event does not await network and model notifications are never sent', async t => {
-  const root = project(t);
-  const mock = adapter();
-  registerMaintenance(mock.pi, mock.Type, root);
-  const original = globalThis.fetch;
-  let release;
-  globalThis.fetch = () => new Promise(resolve => { release = resolve; });
-  t.after(() => { globalThis.fetch = original; });
-  assert.equal(mock.events.session_start({}, mock.ctx), undefined);
-  assert.equal(mock.messages.length, 0);
-  assert.ok(release, 'network request began independently');
-  mock.events.session_shutdown();
-  release({ ok: false, status: 503 });
-  await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal(mock.messages.length, 0);
-});
-
-test('trusted source/revision/schema validation fails closed before activation', async t => {
-  const root = project(t);
-  assert.throws(() => validateIdentity({ ...bundle.installation, source: 'attacker/repo' }), /Untrusted/);
-  assert.throws(() => validateIdentity({ ...bundle.installation, channel: 'https://evil.invalid' }), /Untrusted/);
-  assert.throws(() => validateIdentity({ ...bundle.installation, revision: 'development' }), /revision/);
-  assert.throws(() => validateManifest({ ...manifest, files: ['../../evil.mjs'] }), /Unsafe/);
-  // Revisions published before per-agent models still list the tier generator.
-  assert.doesNotThrow(() => validateManifest({ ...manifest, files: ['extensions/pi-config/generate-settings.mjs', ...manifest.files] }));
-  assert.throws(() => validateManifest({ ...manifest, files: ['extensions/pi-config/index.ts', ...manifest.files] }), /Unsafe/);
-  const invalid = await checkForUpdates(root, { force: true, fetcher: network({ sha: 'not-a-sha' }).fetcher });
-  assert.equal(invalid.status, 'unavailable');
-  const before = readText(root, '.factory/installation.json');
-  await assert.rejects(prepareUpdate(root, { ...updateOptions(), sourceReader: async () => p => p === 'package.json' ? json({ ...pkg, version: 'different' }) : source()(p) }), /version does not match/);
-  assert.equal(readText(root, '.factory/installation.json'), before);
-  await assert.rejects(prepareUpdate(root, { ...updateOptions(), sourceReader: async () => p => p === 'package.json' ? json({ ...pkg, version: pkg.version + '+fixture', pi: { ...pkg.pi, packages: pkg.pi.packages.map(spec => spec.startsWith('npm:yaml@') ? 'npm:yaml@999.0.0' : spec) } }) : source()(p) }), /dependency graph\/version/);
-  assert.equal(readText(root, '.factory/installation.json'), before);
-  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, schema: 0 }));
-  const migration = await checkForUpdates(root, { force: true, fetcher: network().fetcher });
-  assert.equal(migration.migrationRequired, true);
-  assert.equal(migration.compatible, false);
-  await assert.rejects(prepareUpdate(root, updateOptions()), /migration separately/);
-  assert.equal(readText(root, '.factory/installation.json'), before);
-});
-
-test('older or diverged channel heads never masquerade as an available upgrade', async t => {
-  const root = project(t);
-  for (const ordering of ['behind', 'diverged']) {
-    const base = network();
-    const fetcher = async (url, options) => url.includes('/compare/') ? { ok: true, text: async () => json({ status: ordering }) } : base.fetcher(url, options);
-    const result = await checkForUpdates(root, { force: true, fetcher });
-    assert.equal(result.ordering, ordering);
-    assert.equal(result.updateAvailable, ordering === 'behind' ? false : null);
-    assert.equal(updateNotice(result), null);
-    if (ordering === 'diverged') await assert.rejects(prepareUpdate(root, { ...updateOptions(), fetcher }), /ordering is unknown or diverged/);
-    else assert.equal((await prepareUpdate(root, { ...updateOptions(), fetcher })).kind, 'current');
-  }
-});
-
-test('git source staging pins the fixed repository and exact SHA, never hooks/checkouts or credential environments', async () => {
-  const calls = [];
-  const runner = async (command, args, options) => {
-    calls.push(args);
-    assert.equal(command, 'git');
-    assert.equal(options.env.GIT_CONFIG_GLOBAL, '/dev/null');
-    assert.equal(options.env.GIT_CONFIG_NOSYSTEM, '1');
-    assert.equal(options.env.NODE_OPTIONS, undefined);
-    assert.equal(options.env.GITHUB_TOKEN, undefined);
-    if (args.includes('fetch')) {
-      assert.ok(args.includes('https://github.com/mihaiiova/pi-agent-factory.git'));
-      assert.equal(args.at(-1), latestSha);
-    }
-    if (args.includes('rev-parse')) return { stdout: latestSha + '\n' };
-    if (args.includes('show')) return { stdout: source()(args.at(-1).slice(latestSha.length + 1)) };
-    return { stdout: '' };
-  };
-  const reader = await verifiedSource(latestSha, runner);
-  assert.equal(JSON.parse(reader('package.json')).version, pkg.version + '+fixture');
-  assert.ok(!calls.some(args => args.includes('checkout')));
-  await assert.rejects(verifiedSource(latestSha, async (command, args, opts) => args.includes('rev-parse') ? { stdout: 'c'.repeat(40) } : runner(command, args, opts)), /revision mismatch/);
-  await assert.rejects(verifiedSource('development', runner), /Invalid update revision/);
-});
-
-test('the releases channel follows the highest version tag, not tag list order', async t => {
-  const root = project(t);
-  const fetcher = async url => {
-    const value = url.includes('/compare/') ? { status: 'ahead' }
-      : url.includes('/tags?') ? [{ name: 'v9.0.9', commit: { sha: 'c'.repeat(40) } }, { name: 'v9.10.0', commit: { sha: latestSha } }, { name: 'nightly', commit: { sha: 'd'.repeat(40) } }, { name: 'v10.0.0-rc.1', commit: { sha: 'e'.repeat(40) } }]
-      : url.endsWith('package.json') ? { ...pkg, version: pkg.version + '+fixture' } : manifest;
-    return { ok: true, status: 200, text: async () => json(value) };
-  };
-  const result = await checkForUpdates(root, { force: true, fetcher });
-  assert.equal(result.latest.revision, latestSha);
-  assert.equal(result.updateAvailable, true);
-  const none = await checkForUpdates(root, { force: true, fetcher: async () => ({ ok: true, status: 200, text: async () => '[]' }) });
-  assert.equal(none.status, 'unavailable');
-  assert.match(none.error, /No release tags/);
-  assert.equal(none.transient, false);
-});
-
-test('explicit checks select the newest compatible release behind an incompatible latest release', async t => {
-  const root = project(t);
-  const head = 'b'.repeat(40);
-  const fetcher = async url => {
-    const value = url.includes('/compare/') ? { status: 'ahead' }
-      : url.includes('/tags?') ? [{ name: 'v9.1.0', commit: { sha: head } }, { name: 'v9.0.0', commit: { sha: latestSha } }]
-      : url.endsWith('package.json') ? { ...pkg, version: pkg.version + '+fixture' }
-      : url.includes(head) ? { ...manifest, protocol: 2, schemas: [2] } : manifest;
-    return { ok: true, status: 200, text: async () => json(value) };
-  };
-  const result = await checkForUpdates(root, { force: true, fetcher });
-  assert.equal(result.status, 'checked');
-  assert.equal(result.latest.revision, head);
-  assert.equal(result.target.revision, latestSha);
-  assert.equal(result.compatible, true);
-  const plan = await prepareUpdate(root, { ...updateOptions(), fetcher });
-  assert.equal(plan.bundle.installation.revision, latestSha);
-  assert.equal(plan.preview.channelHead.revision, head);
-});
-
-test('development-channel installations still search development history', async t => {
-  const root = project(t);
-  const installation = { ...readJson(root, '.factory/installation.json'), channel: 'development' };
-  writeFileSync(join(root, '.factory/installation.json'), json(installation));
-  const head = 'b'.repeat(40);
-  const fetcher = async url => {
-    const value = url.includes('/compare/') ? { status: 'ahead' } : url.includes('/commits?') ? [{ sha: head }, { sha: latestSha }]
-      : url.includes('/commits/') ? { sha: head }
-      : url.endsWith('package.json') ? { ...pkg, version: pkg.version + '+fixture' }
-      : url.includes(head) ? { ...manifest, protocol: 2, schemas: [2] } : manifest;
-    return { ok: true, status: 200, text: async () => json(value) };
-  };
-  const result = await checkForUpdates(root, { force: true, fetcher });
-  assert.equal(result.installed.channel, 'development');
-  assert.equal(result.target.revision, latestSha);
-});
-
-test('staging and failed checks preserve working installation; approved upgrades retain offline rollback', async t => {
-  const root = project(t);
-  writeFileSync(join(root, '.env'), 'DO_NOT_COPY=secret\n');
-  writeFileSync(join(root, '.pi/APPEND_SYSTEM.md'), 'User-owned orchestrator instructions\n');
-  const operational = Object.fromEntries(Object.entries(snapshot(root)).filter(([p]) => !p.startsWith('.factory/')));
-  const original = readJson(root, '.factory/installation.json');
-  const failed = await prepareUpdate(root, updateOptions({ badSmoke: true }));
-  await assert.rejects(activateUpdate(root, failed), /approval/);
-  await assert.rejects(activateUpdate(root, failed, true), /fixture check failure/);
-  assert.deepEqual(readJson(root, '.factory/installation.json'), original);
-  assert.equal(readText(root, '.factory/previous-installation.json'), null);
-  const plan = await prepareUpdate(root, updateOptions());
-  await activateUpdate(root, plan, true);
-  assert.equal(readJson(root, '.factory/installation.json').revision, latestSha);
-  assert.deepEqual(readJson(root, '.factory/previous-installation.json'), original);
-  assert.deepEqual(Object.fromEntries(Object.entries(snapshot(root)).filter(([p]) => !p.startsWith('.factory/'))), operational);
-  const rollback = rollbackPlan(root);
-  assert.throws(() => applyRollback(root, rollback), /approval/);
-  applyRollback(root, rollback, true);
-  assert.deepEqual(readJson(root, '.factory/installation.json'), original);
-  verifyBundle(root, original);
-  assert.deepEqual(Object.fromEntries(Object.entries(snapshot(root)).filter(([p]) => !p.startsWith('.factory/'))), operational);
-});
-
-test('upgrade checks strip credentials and stable front doors do not deadlock on upstream scaffold changes', async t => {
-  const root = project(t);
-  const originalSecret = process.env.FACTORY_TEST_SECRET;
-  process.env.FACTORY_TEST_SECRET = 'must-not-reach-check-process';
-  t.after(() => { if (originalSecret === undefined) delete process.env.FACTORY_TEST_SECRET; else process.env.FACTORY_TEST_SECRET = originalSecret; });
-  const skill = readText(root, '.pi/skills/factory-update/SKILL.md');
-  const plan = await prepareUpdate(root, updateOptions({ infrastructureChanged: true, checkEnvironment: true }));
-  await activateUpdate(root, plan, true);
-  assert.equal(readText(root, '.pi/skills/factory-update/SKILL.md'), skill);
-  const updated = await import(pathToFileURL(join(root, '.factory', plan.bundle.installation.runtime, 'skills/agent-factory/maintenance.mjs')).href);
-  const proposal = updated.planChange(root, [{ op: 'assign', name: 'lead', model: 'fixture/small' }]);
-  updated.applyChange(root, proposal, true);
-  assert.equal(yaml.parse(readText(root, '.pi/system.yaml')).orchestrator.model, 'fixture/small');
-});
-
-test('model edits after staging or before rollback are never overwritten/reversed', async t => {
-  const root = project(t);
-  const plan = await prepareUpdate(root, updateOptions());
-  const changed = readText(root, '.pi/system.yaml') + '# authored after preview\n';
-  writeFileSync(join(root, '.pi/system.yaml'), changed);
-  await assert.rejects(activateUpdate(root, plan, true), /changed since preview/);
-  assert.equal(readText(root, '.pi/system.yaml'), changed);
-  const again = await prepareUpdate(root, updateOptions());
-  await activateUpdate(root, again, true);
-  applyRollback(root, rollbackPlan(root), true);
-  assert.equal(readText(root, '.pi/system.yaml'), changed);
-  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, schema: 2 }));
-  assert.throws(() => rollbackPlan(root), /Do not reverse later user edits/);
-});
-
-test('recoverable transaction refuses to destroy subsequent authored changes', t => {
-  const root = project(t);
-  const before = readText(root, '.pi/system.yaml');
-  atomicWrite(root, '.factory/transaction.json', json({ before: { '.pi/system.yaml': before }, after: { '.pi/system.yaml': before + '# applied\n' } }));
-  writeFileSync(join(root, '.pi/system.yaml'), before + '# applied\n');
-  assert.equal(recoverTransaction(root), true);
-  assert.equal(readText(root, '.pi/system.yaml'), before);
-  assert.throws(() => transact(root, { '.pi/system.yaml': before + '# partial\n', '.factory/capabilities.json': {} }, fingerprints(root, ['.pi/system.yaml']), true));
-  assert.equal(readText(root, '.pi/system.yaml'), before);
-  assert.equal(readText(root, '.factory/transaction.json'), null);
-  atomicWrite(root, '.factory/transaction.json', json({ before: { '.pi/system.yaml': before }, after: { '.pi/system.yaml': before + '# applied\n' } }));
-  writeFileSync(join(root, '.pi/system.yaml'), before + '# user after crash\n');
-  assert.throws(() => recoverTransaction(root), /Recovery conflict/);
-});
-
-function adapter(initialTools = ['read']) {
-  const events = {}, tools = {}, commands = {}, messages = [], notices = [];
-  let active = [...initialTools];
-  let confirm = false;
-  const pi = {
-    registerTool: t => { tools[t.name] = t; }, registerCommand: (n, c) => { commands[n] = c; },
-    on: (n, cb) => { const prev = events[n]; events[n] = prev ? (...a) => { const r = prev(...a); return cb(...a) ?? r; } : cb; }, getActiveTools: () => [...active], setActiveTools: t => { active = t; },
-    sendUserMessage: m => messages.push(m),
-  };
-  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
-  const ctx = { hasUI: true, waitForIdle: async () => {}, ui: { notify: (...v) => notices.push(v), confirm: async () => confirm }, sessionManager: { getBranch: () => [] }, modelRegistry: { getAvailable: () => [] } };
-  return { pi, Type, ctx, events, tools, commands, messages, notices, approve: () => { confirm = true; } };
-}
 test('slash adapter preserves operational allowlist, read-only review and independent approval', async t => {
   const root = project(t);
   const mock = adapter();
@@ -613,80 +257,8 @@ test('a rejected oversized proposal cannot leave an undisplayed pending apply', 
   assert.ok(mock.notices.some(([message]) => message.includes('No pending proposal')));
 });
 
-test('review removes mutating tools and recovery is reachable from the user command and bundled CLI', async t => {
+test('CLI generate/change dry runs and noninteractive unapproved calls write nothing', t => {
   const root = project(t);
-  const mock = adapter(['read', 'bash', 'write', 'edit', 'subagent', 'mcp']);
-  registerMaintenance(mock.pi, mock.Type, root);
-  await mock.commands['factory-update'].handler('review', mock.ctx);
-  assert.deepEqual(mock.pi.getActiveTools(), ['factory_plan']);
-  mock.events.agent_end();
-  assert.ok(mock.pi.getActiveTools().includes('bash'));
-  const before = readText(root, '.pi/system.yaml');
-  atomicWrite(root, '.factory/transaction.json', json({ before: { '.pi/system.yaml': before }, after: { '.pi/system.yaml': before + '# partial\n' } }));
-  writeFileSync(join(root, '.pi/system.yaml'), before + '# partial\n');
-  // A dead PID lock simulates SIGKILL after the journal was persisted.
-  atomicWrite(root, '.factory/lock', '2147483647');
-  await mock.commands['factory-update'].handler('recover', mock.ctx);
-  assert.ok(readText(root, '.factory/transaction.json'), 'declining preserves recovery evidence');
-  mock.approve();
-  await mock.commands['factory-update'].handler('recover', mock.ctx);
-  assert.equal(readText(root, '.pi/system.yaml'), before);
-  assert.equal(readText(root, '.factory/lock'), null);
-  assert.equal(readText(root, '.factory/transaction.json'), null);
-  const installed = readJson(root, '.factory/installation.json');
-  const cli = join(root, '.factory', installed.runtime, 'skills/agent-factory/maintenance-cli.mjs');
-  execFileSync(process.execPath, [cli, 'recover', root, '--dry-run'], { env: { PATH: process.env.PATH, HOME: tmpdir(), PI_OFFLINE: '1' } });
-});
-
-test('real Pi SDK loads the standalone extension and dispatches commands without model inference', async t => {
-  let sdkPath;
-  try {
-    const binary = execFileSync('which', ['pi'], { encoding: 'utf8' }).trim();
-    sdkPath = resolve(dirname(realpathSync(binary)), '../index.js');
-    if (!existsSync(sdkPath)) { t.skip('Pi SDK is not available alongside the CLI'); return; }
-  } catch { t.skip('Pi CLI/SDK not installed'); return; }
-  const root = project(t);
-  const { DefaultResourceLoader, SettingsManager, SessionManager, createAgentSession } = await import(pathToFileURL(sdkPath).href);
-  const oldOffline = process.env.PI_OFFLINE;
-  process.env.PI_OFFLINE = '1';
-  t.after(() => { if (oldOffline === undefined) delete process.env.PI_OFFLINE; else process.env.PI_OFFLINE = oldOffline; });
-  const agentDir = join(root, '.factory/pi-home');
-  const settingsManager = SettingsManager.inMemory({ packages: [], defaultTools: ['read'] });
-  const loader = new DefaultResourceLoader({ cwd: root, agentDir, settingsManager, noExtensions: true, noSkills: true, noContextFiles: true, additionalExtensionPaths: [join(root, '.pi/extensions/factory-update/index.ts')], additionalSkillPaths: [join(root, '.pi/skills/factory-update')] });
-  await loader.reload();
-  assert.deepEqual(loader.getExtensions().errors, []);
-  assert.equal(loader.getExtensions().extensions.length, 1);
-  assert.equal(loader.getSkills().skills[0].name, 'factory-update');
-  const { session } = await createAgentSession({ cwd: root, agentDir, resourceLoader: loader, settingsManager, sessionManager: SessionManager.inMemory(root), tools: ['read'] });
-  try {
-    await session.bindExtensions({});
-    assert.ok(session.extensionRunner.getRegisteredCommands().some(c => c.name === 'factory-update'));
-    assert.deepEqual(session.getActiveToolNames(), ['read']);
-    const before = readText(root, '.pi/system.yaml');
-    await session.prompt('/factory-update apply'); // No UI => denied, no model call.
-    await session.prompt('/factory-update done');
-    assert.equal(readText(root, '.pi/system.yaml'), before);
-    assert.equal(session.messages.length, 0);
-  } finally { session.dispose(); }
-  const installed = readJson(root, '.factory/installation.json');
-  writeFileSync(join(root, '.factory', installed.runtime, 'skills/agent-factory/maintenance-extension.mjs'), 'globalThis.__factoryUnverifiedExecuted = true;\n');
-  await loader.reload();
-  assert.ok(loader.getExtensions().errors.some(e => /integrity mismatch/.test(e.error)));
-  assert.equal(globalThis.__factoryUnverifiedExecuted, undefined, 'tampered code was rejected before import');
-  const globalLoader = new DefaultResourceLoader({ cwd: root, agentDir, settingsManager, noExtensions: true, noSkills: true, noContextFiles: true, additionalExtensionPaths: [join(repo, 'extensions/agent-factory/index.ts')] });
-  await globalLoader.reload();
-  assert.deepEqual(globalLoader.getExtensions().errors, []);
-  assert.ok(globalLoader.getExtensions().extensions[0].commands.has('agent-factory'));
-});
-
-test('CLI generate/bootstrap/change dry runs and noninteractive unapproved calls write nothing', t => {
-  const root = project(t, { legacy: true });
-  const before = snapshot(root);
-  execFileSync(process.execPath, [factory, 'bootstrap-update', root, '--dry-run']);
-  assert.deepEqual(snapshot(root), before);
-  execFileSync(process.execPath, [factory, 'bootstrap-update', root], { input: '' });
-  assert.deepEqual(snapshot(root), before);
-  execFileSync(process.execPath, [factory, 'bootstrap-update', root, '--yes']);
   const ops = join(root, 'operations.json');
   writeFileSync(ops, json([{ op: 'assign', name: 'lead', model: 'fixture/small' }]));
   const installed = snapshot(root);
@@ -704,8 +276,9 @@ test('CLI generate/bootstrap/change dry runs and noninteractive unapproved calls
   execFileSync(process.execPath, [factory, 'generate', fresh, '--dry-run']);
   assert.deepEqual(snapshot(fresh), initial);
   execFileSync(process.execPath, [factory, 'generate', fresh]);
-  assert.ok(readText(fresh, '.factory/installation.json'));
-  assert.ok(readText(fresh, '.pi/extensions/factory-update/index.ts'));
+  assert.equal(readJson(fresh, '.factory/build.json').version, pkg.version);
+  assert.equal(readText(fresh, '.factory/installation.json'), null);
+  assert.ok(readJson(fresh, '.pi/settings.json').packages.includes(`git:github.com/mihaiiova/pi-agent-factory@v${pkg.version}`));
 });
 
 test('fetch is maintenance-only, approved per host, and never creates an applicable proposal', async t => {
@@ -813,75 +386,14 @@ test('inspect summarizes subagent launches and the latest failure diagnostic onl
   assert.doesNotMatch(JSON.stringify(runs), /secret task text/);
 });
 
-test('the upgrade check reports configuration to reconcile and existing issues instead of blocking', t => {
-  const root = project(t);
-  const smoke = () => execFileSync(process.execPath, [join(repo, 'skills/agent-factory/maintenance-smoke.mjs'), root], { encoding: 'utf8' });
-  assert.doesNotMatch(smoke(), /After restarting/);
-  // What an older version generated: the new generator derives settings differently.
-  const settings = JSON.parse(readText(root, '.pi/settings.json'));
-  delete settings.extensions;
-  writeFileSync(join(root, '.pi/settings.json'), json(settings));
-  const asking = { ...model, agents: [{ name: 'filer', model: 'fixture/small', tools: ['cli:file-issue'] }], integrations: { cli: [{ name: 'file-issue', description: 'File', command: 'gh', args: ['issue', 'create'] }] } };
-  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(asking));
-  const out = smoke();
-  assert.match(out, /checks passed/);
-  assert.match(out, /run \/factory-update rebuild: agents keep the previous build until then \(this version changes [^)]*\.pi\/settings\.json/);
-  assert.match(out, /fix the subagents that can reach calls that ask the user \(filer\)/);
-  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...asking, agents: [{ name: 'filer', tools: ['read'] }] }));
-  assert.throws(smoke, /Command failed/, 'invalid models still block');
-});
-
-test('a build pins the agent runtime; the tooling loads the pinned one and falls back when it fails verification', async t => {
-  const root = project(t);
-  const { loadPinnedAgent, pinWrites, verifyRuntime } = await import('../maintenance-bundle.mjs');
-  const runtime = bundle.installation.runtime;
-  const pin = readJson(root, '.factory/build.json');
-  assert.deepEqual(pin, { runtime, integrity: bundle.installation.integrity, version: pkg.version }, 'bootstrap pins its bundle');
-  assert.deepEqual(pinWrites(root), {}, 'a Factory checkout builds without pinning');
-  // The installed tooling pins itself when it builds.
-  const installed = await import(pathToFileURL(join(root, '.factory', runtime, 'skills/agent-factory/maintenance-bundle.mjs')).href);
-  assert.deepEqual(JSON.parse(installed.pinWrites(root)['.factory/build.json']), pin);
-  const own = () => {};
-  assert.equal((await loadPinnedAgent(root, runtime, own)).registerAgent, own, 'pinned to the running bundle: its own code');
-  // Pinned to another bundle: that bundle's registerAgent, after verification.
-  const other = 'runtime/0000000000000000000000000000000000000000-0000000000000000';
-  cpSync(join(root, '.factory', runtime), join(root, '.factory', other), { recursive: true });
-  writeFileSync(join(root, '.factory/build.json'), json({ ...pin, runtime: other }));
-  const real = await loadPinnedAgent(root, runtime, own);
-  assert.equal(real.problem, null);
-  assert.ok(typeof real.registerAgent === 'function' && real.registerAgent !== own, 'the copy is imported from its own directory');
-  const imported = [];
-  const fromPin = () => {};
-  const pinned = await loadPinnedAgent(root, runtime, own, href => { imported.push(href); return { registerAgent: fromPin }; });
-  assert.equal(pinned.problem, null);
-  assert.equal(pinned.registerAgent, fromPin);
-  assert.match(imported[0], /runtime\/0{40}-0{16}\/skills\/agent-factory\/agent-extension\.mjs$/);
-  writeFileSync(join(root, '.factory', other, 'skills/agent-factory/memory.mjs'), 'export {};\n');
-  assert.throws(() => verifyRuntime(root, { runtime: other, integrity: pin.integrity }), /integrity mismatch: skills\/agent-factory\/memory\.mjs/);
-  const tampered = await loadPinnedAgent(root, runtime, own, () => assert.fail('a tampered bundle is never imported'));
-  assert.equal(tampered.registerAgent, own);
-  assert.match(tampered.problem, /could not be loaded .*integrity mismatch/);
-});
-
-test('installed tooling registers the agent runtime from the pin', async t => {
-  const root = project(t);
-  const runtime = bundle.installation.runtime;
-  const engine = await import(pathToFileURL(join(root, '.factory', runtime, 'skills/agent-factory/maintenance-extension.mjs')).href);
-  const tools = {}, events = {};
-  const pi = { registerTool: tool => { tools[tool.name] = tool; }, registerCommand: () => {}, on: (n, cb) => { (events[n] ??= []).push(cb); }, getActiveTools: () => [], setActiveTools: () => {}, getAllTools: () => [], sendUserMessage: () => {} };
-  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
-  engine.registerMaintenance(pi, Type, root);
-  assert.ok(tools.memory && tools.factory_plan && tools.request_permission);
-});
-
 test('/factory-update rebuild applies text-only rebuilds directly and confirms reach changes', async t => {
   const root = project(t);
   const mock = adapter();
   registerMaintenance(mock.pi, mock.Type, root);
   const run = async (request, ctx = mock.ctx) => { mock.notices.length = 0; await mock.commands['factory-update'].handler(request, ctx); return mock.notices.map(n => n[0]).join('\n'); };
-  assert.match(await run('rebuild'), /Already built with this Factory version; nothing to rebuild\./);
+  assert.match(await run('rebuild'), new RegExp(`Already built with Factory ${pkg.version}; nothing to rebuild`));
   writeFileSync(join(root, '.pi/CAPABILITIES.md'), 'Older wording.\n');
-  assert.match(await run('rebuild'), /Rebuilt with this Factory version: \.pi\/CAPABILITIES\.md\./, 'no confirmation for text');
+  assert.match(await run('rebuild'), new RegExp(`Rebuilt with Factory ${pkg.version}: \\.pi/CAPABILITIES\\.md\\.`), 'no confirmation for text');
   assert.notEqual(readText(root, '.pi/CAPABILITIES.md'), 'Older wording.\n');
   writeFileSync(join(root, 'run'), readText(root, 'run') + '# custom launcher\n');
   const write = process.stderr.write;
@@ -892,57 +404,7 @@ test('/factory-update rebuild applies text-only rebuilds directly and confirms r
   assert.match(await run('reconcile'), /Cancelled; nothing rebuilt\./, 'reconcile is the same command; declined');
   assert.match(readText(root, 'run'), /custom launcher/);
   mock.approve();
-  assert.match(await run('rebuild'), /Rebuilt with this Factory version: run\./);
-  assert.doesNotMatch(readText(root, 'run'), /custom launcher/);
-});
-
-test('session start says when the build is older than the installed tooling', t => {
-  const root = project(t);
-  const start = () => {
-    const mock = adapter();
-    registerMaintenance(mock.pi, mock.Type, root);
-    mock.events.session_start({}, { ...mock.ctx, hasUI: true });
-    return mock.notices.map(n => n[0]).join('\n');
-  };
-  assert.doesNotMatch(start(), /built with/);
-  writeFileSync(join(root, '.factory/build.json'), json({ runtime: 'runtime/0000000000000000000000000000000000000000-0000000000000000', integrity: 'x', version: '0.1.0' }));
-  assert.match(start(), new RegExp(`built with Factory 0\\.1\\.0; /factory-update is ${pkg.version.replace(/\./g, '\\.')}\\. Run /factory-update rebuild`));
-  rmSync(join(root, '.factory/build.json'));
-  assert.match(start(), /built with an earlier Factory version/);
-});
-
-test('an approved update rebuilds with the new version: text directly, reach changes after a second confirmation', async t => {
-  const { finishUpdate } = await import('../maintenance-updates.mjs');
-  const root = project(t);
-  const asked = [];
-  const confirm = answer => async (title, body) => { asked.push([title, JSON.parse(body)]); return answer; };
-  // Built by the old version: only text differs, so nothing is asked.
-  writeFileSync(join(root, '.pi/CAPABILITIES.md'), 'Older wording.\n');
-  let plan = await prepareUpdate(root, updateOptions());
-  assert.match(plan.preview.then, /second confirmation/);
-  let result = await finishUpdate(root, plan, await activateUpdate(root, plan, true), { confirm: confirm(true) });
-  assert.deepEqual(asked, []);
-  assert.equal(result.restart, false);
-  assert.match(result.text, /^Updated to Factory .*\. Rebuilt: \.pi\/CAPABILITIES\.md\.$/);
-  assert.equal(readJson(root, '.factory/build.json').runtime, plan.bundle.installation.runtime, 'agents move to the new runtime');
-  // A launcher change asks; declining keeps the previous build.
-  applyRollback(root, rollbackPlan(root), true);
-  writeFileSync(join(root, 'run'), readText(root, 'run') + '# custom launcher\n');
-  const pinned = readText(root, '.factory/build.json');
-  plan = await prepareUpdate(root, updateOptions());
-  result = await finishUpdate(root, plan, await activateUpdate(root, plan, true), { confirm: confirm(false) });
-  assert.equal(asked.length, 1);
-  assert.match(asked[0][0], /^Rebuild with Factory /);
-  assert.deepEqual(asked[0][1].rebuild.changesReach, ['run']);
-  assert.match(result.text, /Agents keep the previous build; run \/factory-update rebuild when ready\./);
-  assert.equal(readText(root, '.factory/build.json'), pinned);
-  assert.match(readText(root, 'run'), /custom launcher/);
-  // Approving applies it, and a new launcher needs a restart.
-  applyRollback(root, rollbackPlan(root), true);
-  plan = await prepareUpdate(root, updateOptions());
-  result = await finishUpdate(root, plan, await activateUpdate(root, plan, true), { confirm: confirm(true) });
-  assert.equal(result.restart, true);
-  assert.match(result.text, /Rebuilt: run\./);
+  assert.match(await run('rebuild'), new RegExp(`Rebuilt with Factory ${pkg.version}: run\\.`));
   assert.doesNotMatch(readText(root, 'run'), /custom launcher/);
 });
 
@@ -960,5 +422,5 @@ test('applied changes and rebuilds reload Pi unless the launcher or packages cha
   writeFileSync(join(root, '.pi/CAPABILITIES.md'), 'Older wording.\n');
   await mock.commands['factory-update'].handler('rebuild', mock.ctx);
   assert.deepEqual(reloads, ['reload']);
-  assert.match(mock.notices.at(-1)[0], /^Rebuilt with this Factory version: \.pi\/CAPABILITIES\.md\. Reloading\.$/);
+  assert.match(mock.notices.at(-1)[0], new RegExp(`^Rebuilt with Factory ${pkg.version}: \\.pi/CAPABILITIES\\.md\\. Reloading\\.$`));
 });

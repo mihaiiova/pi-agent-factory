@@ -70,12 +70,13 @@ cp -r "$fixtures/coding-agent/.pi" "$gen/.pi"
 node "$factory" generate "$gen" >/dev/null
 node -e '
 const s = require(process.argv[1]);
-const expect = ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"];
+const version = require(process.argv[2]).version;
+const expect = [`git:github.com/mihaiiova/pi-agent-factory@v${version}`, "npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1"];
 if (JSON.stringify(s.packages) !== JSON.stringify(expect)) {
   console.error("packages = " + JSON.stringify(s.packages));
   process.exit(1);
 }
-' "$gen/.pi/settings.json" || fail "generated settings.json missing minimal runtime packages"
+' "$gen/.pi/settings.json" "$root/package.json" || fail "generated settings.json missing minimal runtime packages"
 rm -rf "$gen"
 pass "clean-env: generated settings.json declares only the runtime primitives"
 

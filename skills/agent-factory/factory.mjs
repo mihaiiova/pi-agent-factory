@@ -518,9 +518,7 @@ function runImport(dir) {
   const existing = readExisting(target, system);
   const { files } = generateProject(system, existing, { piPackages: readPiPackages() });
   for (const f of files) {
-    // Import is intentionally conservative. Do not leave a discoverable loader
-    // without its installation: generate/bootstrap is a separate previewed step.
-    if (f.action !== "create" || f.path.includes('factory-update/')) continue;
+    if (f.action !== "create") continue;
     writeGenerated(join(target, f.path), f);
     console.log(`scaffolded ${f.path}`);
   }
