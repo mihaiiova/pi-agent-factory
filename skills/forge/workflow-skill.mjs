@@ -45,8 +45,8 @@ export function workflowSkill(workflow) {
       : "manual";
   const trigger =
     triggerKind === "headless"
-      ? "Headless trigger (`trigger: { kind: headless }`): run with `pi -p \"<prompt>\"`."
-      : "Manual trigger (`trigger: { kind: manual }`): run interactively with `pi`, or headless with `pi -p \"<prompt>\"`.";
+      ? `Headless trigger (\`trigger: { kind: headless }\`): run with \`./run --workflow ${name}\`.`
+      : `Manual trigger (\`trigger: { kind: manual }\`): run interactively, or unattended with \`./run --workflow ${name}\`.`;
 
   const body = [
     `# ${name}`,

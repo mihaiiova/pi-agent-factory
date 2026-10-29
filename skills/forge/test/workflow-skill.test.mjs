@@ -40,7 +40,7 @@ test("workflowSkill body instructs subagent orchestration, not a step graph", ()
   assert.ok(body.includes("subagent"), "references the subagent tool");
   assert.ok(body.includes("workflowScript"), "mentions direct or workflowScript orchestration");
   assert.ok(body.includes("trigger: { kind: manual }"), "declares the manual trigger");
-  assert.ok(body.includes("pi -p"), "declares the headless trigger surface");
+  assert.ok(body.includes("./run --workflow analyze-and-draft"), "declares the headless trigger surface");
   // No numbered list: a rigid step graph would enumerate fixed steps.
   assert.ok(!/\n[ \t]*\d+[.)][ \t]/.test(body), "body must not enumerate a fixed step sequence");
 });
@@ -63,4 +63,8 @@ test("workflowSkill renders the declared trigger kind", () => {
 
   const manual = workflowSkill(workflow).body;
   assert.ok(manual.includes("trigger: { kind: manual }"), "manual trigger rendered");
+});
+
+test('generated workflow instructions show the named unattended command', () => {
+  assert.match(workflowSkill(workflow).body, /\.\/run --workflow analyze-and-draft/);
 });
