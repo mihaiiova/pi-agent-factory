@@ -10,6 +10,7 @@ function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'forge-workflow-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, '.pi')); mkdirSync(join(root, 'bin'));
+  writeFileSync(join(root, 'bin/systemd-run'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   writeFileSync(join(root, '.pi/system.yaml'), `schema: 1
 name: workflow-test
 orchestrator:
@@ -201,7 +202,10 @@ export default pi => {
   const agent = join(root, '.pi/agents/researcher.md');
   let body = readFileSync(agent, 'utf8').replace('  - read', '  - bash');
   writeFileSync(agent, body);
-  const env = { ...process.env, PATH: process.env.PATH, PI_OFFLINE: '1' };
+  const noScope = join(root, 'no-scope');
+  mkdirSync(noScope);
+  writeFileSync(join(noScope, 'systemd-run'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const env = { ...process.env, PATH: `${noScope}:${process.env.PATH}`, PI_OFFLINE: '1' };
   delete env.PI_SUBAGENT_CHILD;
   const result = spawnSync(join(root, 'run'), ['--workflow', 'research', '--timeout', '6s'], { env, encoding: 'utf8', timeout: 20000 });
   assert.equal(result.status, 4, `${result.stderr}\n${result.stdout}`);
@@ -244,6 +248,7 @@ test('a supported systemd user scope terminates independently detached descendan
   const probe = spawnSync('systemd-run', ['--user', '--scope', '--quiet', '--', 'true'], { encoding: 'utf8', timeout: 3000 });
   if (probe.status !== 0) return t.skip('systemd user scopes are unavailable');
   const { root, env } = fixture(t);
+  rmSync(join(root, 'bin/systemd-run'));
   const marker = join(root, 'detached');
   writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
 const fs=require('fs'), {spawn}=require('child_process');
