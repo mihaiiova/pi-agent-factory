@@ -43,7 +43,7 @@ import { vendoredSkills } from "./skill-sources.mjs";
 import { registrySkills, installedDir, installRegistrySkill, searchSkills, previewRegistrySkill, resolveRegistrySkill } from "./registry-skills.mjs";
 import { localBundle, bootstrapPlan, applyBootstrap } from './maintenance-bundle.mjs';
 import { planChange, applyChange, withSkillPreviews } from './maintenance.mjs';
-import { recoveryPlan, applyRecovery } from './maintenance-store.mjs';
+import { recoveryPlan, applyRecovery, fingerprints } from './maintenance-store.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -437,14 +437,11 @@ function runGenerate(dir, dryRun) {
   warnUnavailableModels(normalized);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
   const conflicts = files.filter((f) => f.action === "conflict");
-  const bundle = existsSync(join(resolve(dir), '.factory/installation.json')) ? null : localBundle();
-  if (bundle && conflicts.some(f => f.path.includes('factory-update/'))) { fail('Maintenance infrastructure conflict; nothing written'); return; }
 
   if (dryRun) {
     printPlan(systemPath, dir, files, existing, "Planned changes (dry run — nothing written)");
     printVendorPlan(vendor.copies);
     printRegistryPlan(registryPlan(dir, normalized));
-    if (bundle) console.log(`  bundle standalone Factory maintenance (${bundle.installation.version}, ${bundle.installation.revision})`);
     process.exitCode = 0;
     return;
   }
@@ -470,7 +467,9 @@ function runGenerate(dir, dryRun) {
   const check = checkCapabilities(normalized, { settings: settingsJson, mcpJson }, { piPackages: readPiPackages() });
   for (const e of check.errors) console.error(`warning - ${e}`);
 
-  if (bundle) applyBootstrap(resolve(dir), bootstrapPlan(resolve(dir), bundle), true);
+  const version = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version;
+  const fileFingerprints = fingerprints(resolve(dir), managedPaths(normalized));
+  writeFileSync(join(resolve(dir), '.factory', 'build.json'), `${JSON.stringify({ version, fingerprints: fileFingerprints }, null, 2)}\n`);
   for (const c of conflicts) {
     console.error(`conflict - ${c.path}: user edit vs model change; not applied. Proposed:\n${c.desired}`);
   }

@@ -21,7 +21,6 @@ import { workflowSkill } from "./workflow-skill.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
-import { infrastructureFiles } from "./maintenance-infra.mjs";
 import { cliRef, cliToolName } from "./cli-tools.mjs";
 import { capabilitySection } from "./agent-context.mjs";
 import { documentInstructions } from "./documents.mjs";
@@ -76,7 +75,6 @@ export const GENERATED_PATHS = [
   ".env.example",
   "data/knowledge/.gitkeep",
   "run",
-  ...Object.keys(infrastructureFiles()),
 ];
 
 function isPlainObject(value) {
@@ -483,12 +481,6 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),
     sentinelFile("data/knowledge/.gitkeep", existing["data/knowledge/.gitkeep"]),
     { ...derivedFile("run", plan.launcherScript, existing["run"]), executable: true },
-    // Infrastructure is deliberately outside model.skills and its removal logic.
-    ...Object.entries(infrastructureFiles()).map(([path, content]) => {
-      const current = existing[path];
-      if (current !== undefined && current !== content) return { path, content: current, desired: content, action: 'conflict' };
-      return derivedFile(path, content, current);
-    }),
     ...subagentConfig,
     ...agentFiles(model, existing),
     ...skillFiles(model, existing),
