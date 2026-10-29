@@ -597,3 +597,14 @@ test('/forge check names the live extension provider', async t => {
   const report = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8'));
   assert.equal(report.capabilities.find(c => c.name === 'web_search').provider, 'npm:web-package@1.0.0');
 });
+
+test('/forge check reports a missing orchestrator extension from the live registry', async t => {
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'missing_tool'] } }));
+  const a = adapter();
+  a.pi.getAllTools = () => [{ name: 'read' }];
+  await registerMaintenance(a.pi, a.Type, root)('check', a.ctx);
+  const report = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8'));
+  assert.equal(report.ok, false);
+  assert.ok(report.capabilities.some(c => c.agent === 'lead' && c.name === 'missing_tool' && c.status === 'missing'));
+});
