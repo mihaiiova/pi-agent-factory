@@ -33,7 +33,7 @@ you ──▶ /agent-factory (builder, conversational)
    <project>/.pi/system.yaml   compact desired state (schema 1)
    <project>/.pi/…             native Pi files: settings, agents, skills, mcp.json, prompts
    <project>/run               isolated launcher (own Pi home and credentials)
-   <project>/.factory/         build record, pinned agent runtime, Forge tooling bundle
+   <project>/.factory/         build record, capability manifest, isolated Pi home
           │
           ▼
    ./run, ./run -p "…"   Pi runs the agent; /factory-update revises it in place
@@ -194,13 +194,6 @@ without a shell, with your own CLI logins. In a running system:
 
 ### Running and maintaining a generated system
 
-**Upgrading a project generated before v0.11:** older generators wrote agent
-`tools`/`skills` lists as `[a, b]`, which pi-subagents reads as the names `[a`
-and `b]`, so specialists started without those tools or skills. Agents without
-a `description` were skipped entirely. Run `/factory-update update` (from a
-version before 0.18, restart and then run `/factory-update rebuild`); the startup check
-lists every affected agent until then.
-
 A generated project starts with `./run`, which isolates it from your global Pi
 configuration (own config dir, own credentials: `/login` once per project).
 Inside it, `/factory-update <request>` previews declarative changes —
@@ -215,26 +208,40 @@ secret and state paths to an existing `.gitignore` without rewriting your rules.
 Ignoring files does not remove credentials already committed to git: rotate any
 credentials that were committed, including those in `.env` or `.factory/`.
 
-On every start, `./run` checks in the background whether a newer Factory
-release exists, by comparing the git commit the project was generated from
-with the newest `vX.Y.Z` release tag on GitHub. A notice appears only when an update
-is available, or — at most once a day — when the check keeps failing for a
-reason other than being offline (for example, the project was generated from a
-commit that was never pushed). Updates install only via `/factory-update update`.
+#### The Factory package: pin, update, roll back
 
-Generate real systems from a pushed commit (ideally a release checkout); a
-project stamped with an unpushed commit cannot be compared. A project generated
-from a commit newer than the latest release reports up to date until a release
-that contains it is tagged. Bootstrap older
-generated systems without recreating them:
+A generated project pins one Factory release as a Pi package in its
+`.pi/settings.json`, for example `git:github.com/mihaiiova/pi-agent-factory@v0.19.0`.
+Nothing is copied into the project. On the first `./run`, Pi installs that
+exact tag under `.pi/git/` in the project (ignored by the generated
+`.gitignore`, like `.pi/npm/`) and loads the
+agent runtime (memory, declared commands, `request_permission`) and
+`/factory-update` from it. The first start therefore needs network access to
+GitHub. Pi never moves a pinned tag by itself.
 
-```sh
-node skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --dry-run
-node skills/agent-factory/factory.mjs bootstrap-update /path/to/agent --yes
-```
+`/factory-update check` lists the release tags on GitHub and says whether a
+newer one exists. It downloads and runs nothing. Startup does not check.
 
-See [Factory maintenance](docs/factory-update.md) for update checks, security
-boundaries, installation metadata, recovery and rollback.
+`/factory-update update` asks twice:
+
+1. **Run the new release to preview it?** The dialog names the tag, the commit
+   it points to and a link to the changes. Only after you agree does Factory
+   fetch exactly that commit and run its generator on the project to compute
+   the preview. Nothing is written yet.
+2. **Apply it?** The preview shows the pin change and every file the new
+   release generates differently. Approving writes them, runs
+   `pi update --extensions` to install the new pin, and asks you to restart
+   `./run`.
+
+Declining either step leaves the project unchanged. A headless session can
+grant neither, so `update` stops there before contacting GitHub.
+
+To roll back, use git: restore the previous `.pi/settings.json` and generated
+files (for example `git checkout <commit> -- .pi run README.md`), then restart
+`./run`. Pi installs the older pin again.
+
+Projects generated before v0.19.0 carried a copied maintenance bundle. They
+are not migrated: regenerate them from their `.pi/system.yaml`.
 
 ### Tests
 

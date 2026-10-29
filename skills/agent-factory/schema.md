@@ -261,12 +261,11 @@ path/key and the expected value. Rejected conditions:
 - duplicate `name` within `agents[]`, `skills[]`, `integrations.mcp[]`, `documents[]`, or
   `workflows[]`.
 
-The skill name `factory-update` is reserved for bundled maintenance infrastructure
-and cannot be declared in `skills[]`. Operational model edits use the structured
-operations in [Factory maintenance](../../docs/factory-update.md); that layer
-reuses this validator and rejects dangling references. Maintenance installation
-identity, versions and update sources belong in `.factory/installation.json`,
-never in this operational model. An explicit empty orchestrator `tools: []`
+The skill name `factory-update` is reserved and cannot be declared in
+`skills[]`. Operational model edits use the structured operations of
+`/factory-update`, which reuse this validator and reject dangling references.
+The Factory version is the pinned package in `.pi/settings.json` (recorded in
+`.factory/build.json`), never part of this operational model. An explicit empty orchestrator `tools: []`
 remains an empty allowlist; omitted tools use Pi defaults.
 
 ## 3. Schema versions
@@ -314,11 +313,8 @@ Full text of `docs/agent-factory.md` §C.6:
 6. **Idempotence:** `generate`/`modify` are pure functions of (model, disk) —
    same inputs produce the same result and never duplicate content.
 
-Maintenance front doors (`.pi/extensions/factory-update/index.ts` and
-`.pi/skills/factory-update/SKILL.md`) are reserved infrastructure outside authored
-operational skill ownership. Versioned engines and exact YAML dependency pins are
-bundled beneath `.factory/runtime/`; they do not import the global Agent Factory install. Upgrades
-switch installation metadata, not operational declarations/content. Maintenance
+The Factory package itself is the first entry of the derived `packages`
+list, pinned to the release that generated the project. Maintenance
 change proposals delete removed agent/skill scaffolds only when intact, reject
 authored conflicts, and require separately confirmed drift reconciliation.
 

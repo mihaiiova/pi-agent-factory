@@ -4,9 +4,8 @@
  * /factory-permission, and the lead's capability section for projects built
  * before it was build output.
  *
- * The installed Factory tooling loads this from the bundle recorded in
- * .factory/build.json (the one that last built the project), so updating the
- * tooling changes none of it until the project is rebuilt. Stable interface:
+ * It comes from the Factory package pinned in the project's .pi/settings.json,
+ * so it changes only when an approved update moves that pin. Stable interface:
  * registerAgent(pi, Type, root, { maintaining }), where maintaining() is true
  * during a /factory-update turn.
  */

@@ -10,11 +10,11 @@
 
 > Status: **implemented**. The `factory` CLI (`validate | generate | discover |
 > modify | import`), the `agent-factory` builder skill, and the hermetic
-> `./run` launcher ship under `skills/agent-factory/`. Generated systems now also
-> bundle `/factory-update` for declarative changes, reviews and maintenance-only
-> upgrades/rollback; see [the maintenance architecture](factory-update.md), which
-> supersedes this MVP plan's exclusions concerning maintenance extension code and
-> external-Factory dependence. The launcher now disables ancestor context-file
+> `./run` launcher ship under `skills/agent-factory/`. Generated systems now pin
+> the Factory as a Pi package, which provides `/factory-update` for declarative
+> changes, reviews and updates (see the README), superseding this MVP plan's
+> exclusions concerning maintenance extension code and external-Factory
+> dependence. The launcher now disables ancestor context-file
 > discovery with `--no-context-files`. Model tiers (`models.tiers`, §A.5) and
 > the built-in skill recommendations are superseded: every agent now names its
 > own `provider/id` model and skills come only from the user — see

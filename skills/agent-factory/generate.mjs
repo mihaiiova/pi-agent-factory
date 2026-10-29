@@ -22,7 +22,6 @@ import { workflowSkill } from "./workflow-skill.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
-import { infrastructureFiles } from "./maintenance-infra.mjs";
 import { cliRef, cliToolName } from "./cli-tools.mjs";
 import { capabilitySection } from "./agent-context.mjs";
 import { documentInstructions } from "./documents.mjs";
@@ -34,7 +33,8 @@ const MARKER_HTML_RE = /^<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -
 const MARKER_PLAIN_RE = /^# agent-factory:generated v1 sha256=([0-9a-f]{64})$/;
 const MARKER_HTML_TRAILING_RE = /\n<!-- agent-factory:generated v1 sha256=([0-9a-f]{64}) -->[ \t]*\n?$/;
 
-const REQUIRED_IGNORES = [".env", ".factory/", ".pi/state.json", ".pi/sessions/"];
+// .pi/git/ and .pi/npm/ hold the packages Pi installs for the project.
+const REQUIRED_IGNORES = [".env", ".factory/", ".pi/state.json", ".pi/sessions/", ".pi/git/", ".pi/npm/"];
 const GITIGNORE_BODY = [
   "data/*",
   "!data/knowledge/",
@@ -75,7 +75,6 @@ export const GENERATED_PATHS = [
   ".env.example",
   "data/knowledge/.gitkeep",
   "run",
-  ...Object.keys(infrastructureFiles()),
 ];
 
 function isPlainObject(value) {
@@ -342,10 +341,11 @@ function readmeBody(model) {
     '',
     'Use `/factory-update <request>` to propose a declarative change, then',
     '`/factory-update apply` to preview and approve it. `/factory-update review`',
-    'is read-only. Tooling lifecycle: `/factory-update check`, `update`, `rollback`.',
+    'is read-only. `/factory-update check` reports a newer Factory release;',
+    '`update` moves the pin after two confirmations. Roll back with git.',
     '`/factory-permission` lists the commands agents may run and adds, removes or',
     'reviews them; agents ask for a command they need with `request_permission`.',
-    'Startup checks never install updates. Restart `./run` after applying changes.',
+    'Restart `./run` when the launcher or packages change.',
     '',
     policySection(model),
   ].join("\n");
@@ -491,12 +491,6 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),
     sentinelFile("data/knowledge/.gitkeep", existing["data/knowledge/.gitkeep"]),
     { ...derivedFile("run", plan.launcherScript, existing["run"]), executable: true },
-    // Infrastructure is deliberately outside model.skills and its removal logic.
-    ...Object.entries(infrastructureFiles()).map(([path, content]) => {
-      const current = existing[path];
-      if (current !== undefined && current !== content) return { path, content: current, desired: content, action: 'conflict' };
-      return derivedFile(path, content, current);
-    }),
     ...subagentConfig,
     ...agentFiles(model, existing),
     ...skillFiles(model, existing),

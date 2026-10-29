@@ -8,12 +8,10 @@ import { managedPaths, generateProject } from './generate.mjs';
 import { modifyPlan } from './modify.mjs';
 import { effectiveCapabilities, checkCapabilities } from './capabilities.mjs';
 import { diffLines } from './diff.mjs';
-import { infrastructureFiles } from './maintenance-infra.mjs';
-import { pinWrites } from './maintenance-bundle.mjs';
 import { redacted, redactForModel, assertNoNewSecrets } from './maintenance-secrets.mjs';
 import { vendoredSkills } from './skill-sources.mjs';
 import { registrySkills, installedDir, installRegistrySkill, removeRegistrySkill, previewRegistrySkill, SKILLS_CLI } from './registry-skills.mjs';
-import { readText, readJson, fingerprints, transact, json } from './maintenance-store.mjs';
+import { readText, readJson, fingerprints, applyWrites, json, digest } from './maintenance-store.mjs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -97,21 +95,11 @@ export function planChange(root, operations) {
   const opts = { piPackages: pinsAt(root) };
   const paths = [...new Set([...managedPaths(oldModel), ...managedPaths(model)])];
   const existing = Object.fromEntries(paths.map(p => [p, readText(root, p)]).filter(([,v]) => v !== null));
-  const infrastructure = Object.keys(infrastructureFiles());
-  const installed = readText(root, '.factory/installation.json') ? readJson(root, '.factory/installation.json') : {};
-  for (const [path, hash] of Object.entries(installed.entrypoints ?? {})) {
-    if (fingerprints(root, [path])[path] !== hash) throw new Error(`Maintenance infrastructure conflict: ${path}`);
-  }
   const baseline = generateProject(oldModel, existing, opts);
   const drift = baseline.files.filter(f => ['run', '.pi/settings.json', '.pi/mcp.json'].includes(f.path) && f.action !== 'none').map(f => f.path);
   // Configuration this version generates differently (a newer Factory, or a
   // hand edit) is rebuilt with the change and shown in its preview.
   const plan = modifyPlan(model, existing, opts);
-  // Protocol-1 front doors are stable. Their versioned workflow/engine updates
-  // behind the installation pointer; future scaffold copy changes are not
-  // treated as operational conflicts or silently written over the old loader.
-  plan.files = plan.files.filter(f => !infrastructure.includes(f.path));
-  plan.conflicts = plan.conflicts.filter(f => !infrastructure.includes(f.path));
   if (plan.errors.length) throw new Error(plan.errors.join('\n'));
   if (plan.conflicts.length) throw new Error(`Authored file conflicts (nothing applied): ${plan.conflicts.map(f => f.path).join(', ')}`);
   const oldScaffolds = generateProject(oldModel, {}, opts).files;
@@ -151,8 +139,12 @@ export function planChange(root, operations) {
   const beforeCapabilities = effectiveCapabilities(oldModel, opts);
   const afterCapabilities = effectiveCapabilities(model, opts);
   writes['.factory/capabilities.json'] = json(afterCapabilities);
-  // Agents keep using the runtime of the bundle that built these files.
-  Object.assign(writes, pinWrites(root));
+  const version = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+  const fileFingerprints = fingerprints(root, managedPaths(model));
+  for (const path of Object.keys(fileFingerprints)) {
+    if (Object.hasOwn(writes, path)) fileFingerprints[path] = writes[path] === null ? null : digest(writes[path]);
+  }
+  writes['.factory/build.json'] = json({ version, fingerprints: fileFingerprints });
   // Prompts describe roles; a removed capability they still mention keeps
   // steering agents toward something they no longer have.
   const stale = staleMentions(oldModel, model);
@@ -161,7 +153,7 @@ export function planChange(root, operations) {
   const restart = restartNeeded(root, writes);
   return {
     kind: 'configuration', writes, skills, restart,
-    expected: fingerprints(root, [...paths, ...Object.keys(writes), '.factory/installation.json']),
+    expected: fingerprints(root, [...paths, ...Object.keys(writes)]),
     preview: {
       reconciliation: drift,
       ...(drift.length ? { rebuilt: `This Factory version generates ${drift.join(', ')} differently from the files on disk (a newer version, or a hand edit, which would be lost). Applying also rebuilds them.` } : {}),
@@ -222,7 +214,7 @@ export function rebuildPlan(root) {
   plan.preview.rebuild = {
     ...(version ? { version } : {}),
     files: changed,
-    ...(repinned ? { agentRuntime: `Agents switch to the runtime of Factory ${version} (memory, command tools, request_permission).` } : {}),
+    ...(repinned ? { agentRuntime: `Generated files were built with Factory ${version}.` } : {}),
     ...(reach.length ? { changesReach: reach, note: 'These change what agents can run or reach, so the rebuild asks first.' } : {}),
   };
   return plan;
@@ -261,7 +253,7 @@ export function applyChange(root, plan, approved = false, { run } = {}) {
       installRegistrySkill(root, skill, { expectedSha256: plan.skillPreviews?.[skill.name]?.skillMdSha256, ...(run ? { run } : {}) });
       installed.push(skill.name);
     }
-    transact(root, plan.writes, plan.expected, approved);
+    applyWrites(root, plan.writes, plan.expected, approved);
   } catch (error) {
     for (const name of installed) removeRegistrySkill(root, name, run ? { run } : {});
     throw error;

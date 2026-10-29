@@ -16,8 +16,6 @@ const EXPECTED_PATHS = [
   ".gitignore",
   ".pi/APPEND_SYSTEM.md",
   ".pi/CAPABILITIES.md",
-  ".pi/extensions/factory-update/index.ts",
-  ".pi/skills/factory-update/SKILL.md",
   ".pi/mcp.json",
   ".pi/settings.json",
   "README.md",
@@ -51,6 +49,12 @@ test("fresh generate creates the full single-agent tree", () => {
 
   const mcp = JSON.parse(byPath(files, ".pi/mcp.json").content);
   assert.deepEqual(mcp, { mcpServers: {} });
+});
+
+test("generated project pins the Factory package to its release", () => {
+  const { files } = generateProject(model, {});
+  const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
+  assert.ok(settings.packages.includes("git:github.com/mihaiiova/pi-agent-factory@v0.19.0"));
 });
 
 test("re-running generate is a no-op (idempotent)", () => {
@@ -123,7 +127,7 @@ test("sourced skills generate no SKILL.md and packaged sources join runtime pack
   });
   assert.ok(!files.some((f) => f.path.startsWith(".pi/skills/packaged") || f.path.startsWith(".pi/skills/local")));
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.deepEqual(settings.packages, ["npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:@acme/skills@1.0.0"]);
+  assert.deepEqual(settings.packages, ["git:github.com/mihaiiova/pi-agent-factory@v0.19.0", "npm:pi-subagents@0.83.1", "npm:pi-mcp-adapter@2.32.1", "npm:@acme/skills@1.0.0"]);
 });
 
 test("unrelated keys in .pi/mcp.json survive regeneration", () => {
@@ -239,22 +243,23 @@ test("runtime packages are computed from piPackages + declared model packages", 
   );
   const settings = JSON.parse(byPath(withDeclared.files, ".pi/settings.json").content);
   assert.deepEqual(settings.packages, [
+    "git:github.com/mihaiiova/pi-agent-factory@v0.19.0",
     "npm:pi-subagents@0.83.1",
     "npm:pi-mcp-adapter@2.32.1",
     "npm:foo@1.0.0",
   ]);
 
-  // Without piPackages, only declared packages are emitted (no primitives).
+  // Without piPackages, the Factory pin is still present (but primitives are missing).
   const plain = generateProject(model, {});
   const plainSettings = JSON.parse(byPath(plain.files, ".pi/settings.json").content);
-  assert.equal(plainSettings.packages, undefined);
+  assert.deepEqual(plainSettings.packages, ["git:github.com/mihaiiova/pi-agent-factory@v0.19.0"]);
 });
 
 test("generateProject reports missing runtime primitives as errors", () => {
   const { files, errors } = generateProject(model, {}, { piPackages: [] });
   assert.ok(errors.length >= 2, "both required primitives are reported missing");
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.equal(settings.packages, undefined, "no incomplete packages list is emitted");
+  assert.deepEqual(settings.packages, ["git:github.com/mihaiiova/pi-agent-factory@v0.19.0"]);
 });
 
 test("generateProject emits the executable run launcher", () => {
@@ -322,14 +327,14 @@ test("existing gitignore gets only missing safety entries without changing user 
   const original = "# user rules\nnode_modules\n.env/\n.pi/sessions";
   const file = byPath(generateProject(model, { ".gitignore": original }).files, ".gitignore");
   assert.equal(file.action, "write");
-  assert.equal(file.content, original + "\n# agent-factory: required ignores\n.factory/\n.pi/state.json\n");
+  assert.equal(file.content, original + "\n# agent-factory: required ignores\n.factory/\n.pi/state.json\n.pi/git/\n.pi/npm/\n");
   const again = byPath(generateProject(model, { ".gitignore": file.content }).files, ".gitignore");
   assert.equal(again.action, "none");
   assert.equal(again.content, file.content);
 });
 
 test("complete user gitignore stays byte-for-byte unchanged", () => {
-  const original = "# hand-written\r\n.env/\r\n.factory\r\n.pi/state.json/\r\n.pi/sessions\r\n";
+  const original = "# hand-written\r\n.env/\r\n.factory\r\n.pi/state.json/\r\n.pi/sessions\r\n.pi/git\r\n.pi/npm/\r\n";
   const file = byPath(generateProject(model, { ".gitignore": original }).files, ".gitignore");
   assert.equal(file.action, "none");
   assert.equal(file.content, original);

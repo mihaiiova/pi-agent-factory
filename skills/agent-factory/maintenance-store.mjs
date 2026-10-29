@@ -1,4 +1,4 @@
-/** Local maintenance IO: safe relative paths, fingerprints, recoverable writes. */
+/** Local maintenance IO: safe relative paths, fingerprints, checked writes. */
 import { existsSync, lstatSync, readFileSync, mkdirSync, writeFileSync, renameSync, unlinkSync, rmSync, chmodSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -40,68 +40,14 @@ export function fingerprints(root, paths) {
 export function assertUnchanged(root, expected) {
   for (const [p, hash] of Object.entries(expected)) if (fingerprints(root, [p])[p] !== hash) throw new Error(`Project changed since preview: ${p}; preview again`);
 }
-/** Journal persists before the first write; partial application rolls back.
- * No author data is discarded: crash recovery refuses externally changed files. */
-export function recoverTransaction(root) {
-  const journal = readText(root, '.factory/transaction.json');
-  if (!journal) return false;
-  const { before, after } = JSON.parse(journal);
-  for (const p of Object.keys(before)) {
-    if (!(p.startsWith('.pi/') || ['run', 'README.md', '.gitignore', '.env.example', 'data/knowledge/.gitkeep', '.factory/installation.json', '.factory/previous-installation.json', '.factory/capabilities.json'].includes(p))) throw new Error(`Unexpected recovery path: ${p}`);
-    if (before[p] !== null && typeof before[p] !== 'string') throw new Error(`Invalid recovery content: ${p}`);
-    const current = readText(root, p);
-    if (current !== before[p] && current !== after[p]) throw new Error(`Recovery conflict: ${p}; retain .factory/transaction.json and resolve manually`);
-  }
-  for (const [p, content] of Object.entries(before)) {
+/** Write a previewed change if the project still matches the preview.
+ * Git is the history: there is no journal, rollback or recovery here. */
+export function applyWrites(root, writes, expected, approved = false) {
+  if (approved !== true) throw new Error('Explicit user approval required');
+  assertUnchanged(root, expected);
+  for (const p of Object.keys(writes)) safePath(root, p);
+  for (const [p, content] of Object.entries(writes)) {
     if (content === null) rmSync(safePath(root, p), { force: true });
     else atomicWrite(root, p, content);
   }
-  rmSync(safePath(root, '.factory/transaction.json'));
-  return true;
-}
-function assertStaleLock(root) {
-  const lock = readText(root, '.factory/lock');
-  if (lock === null) return;
-  const pid = Number(lock);
-  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('Unknown maintenance lock owner; inspect .factory/lock manually');
-  try { process.kill(pid, 0); } catch (e) { if (e.code === 'ESRCH') return; throw e; }
-  throw new Error(`Maintenance process ${pid} is still running; do not recover an active transaction`);
-}
-export function recoveryPlan(root) {
-  assertStaleLock(root);
-  const journal = readText(root, '.factory/transaction.json');
-  const paths = journal ? Object.keys(JSON.parse(journal).before) : [];
-  return { kind: 'recovery', expected: fingerprints(root, ['.factory/lock', '.factory/transaction.json']), preview: { paths, staleLock: readText(root, '.factory/lock') !== null, warning: 'Restore pre-transaction contents only if current files still match the journal before/after states. Later user edits cause a conflict, never data loss.' } };
-}
-export function applyRecovery(root, plan, approved = false) {
-  if (approved !== true) throw new Error('Explicit user approval required');
-  if (plan?.kind !== 'recovery') throw new Error('No recovery proposal');
-  assertUnchanged(root, plan.expected);
-  assertStaleLock(root);
-  const lock = safePath(root, '.factory/lock');
-  rmSync(lock, { force: true });
-  mkdirSync(dirname(lock), { recursive: true });
-  writeFileSync(lock, String(process.pid), { flag: 'wx' });
-  try { recoverTransaction(root); } finally { rmSync(lock, { force: true }); }
-  return 'Maintenance transaction recovered. Restart ./run and preview your change again.';
-}
-export function transact(root, writes, expected, approved = false) {
-  if (approved !== true) throw new Error('Explicit user approval required');
-  safePath(root, '.factory/lock');
-  mkdirSync(join(root, '.factory'), { recursive: true });
-  const lock = join(root, '.factory/lock');
-  writeFileSync(lock, String(process.pid), { flag: 'wx' });
-  try {
-    if (readText(root, '.factory/transaction.json')) throw new Error('Interrupted maintenance transaction; recover it before applying');
-    assertUnchanged(root, expected);
-    const before = Object.fromEntries(Object.keys(writes).map(p => [p, readText(root, p)]));
-    atomicWrite(root, '.factory/transaction.json', json({ before, after: writes }));
-    try {
-      for (const [p, content] of Object.entries(writes)) {
-        if (content === null) rmSync(safePath(root, p), { force: true });
-        else atomicWrite(root, p, content);
-      }
-      rmSync(safePath(root, '.factory/transaction.json'));
-    } catch (e) { recoverTransaction(root); throw e; }
-  } finally { rmSync(lock, { force: true }); }
 }

@@ -13,15 +13,13 @@
  *   preview-skill <spec>       pin owner/repo@name, or show a skills: source
  *   import <dir>               reconstruct system.yaml from an existing project
  *   change <dir> --operations <file> [--dry-run] [--yes] declarative change batch
- *   bootstrap-update <dir> [--dry-run] [--yes] add standalone maintenance
- *   recover <dir> [--dry-run] [--yes] repair an interrupted transaction
  *
  * Exit codes:
  *   0  valid / generated / discovered / modified / imported (reported conflicts do not fail)
  *   1  invalid, missing, or unparseable system.yaml; or an unknown command
  *
- * Generated sessions use the narrow bundled maintenance adapter, not this
- * development CLI or the user's globally installed Agent Factory.
+ * Generated sessions use /factory-update from the pinned Factory package, not
+ * this development CLI or the user's globally installed Agent Factory.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, chmodSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -41,9 +39,8 @@ import { importSystem } from "./import.mjs";
 import { parseModelList, unavailableModelWarnings } from "./models.mjs";
 import { vendoredSkills } from "./skill-sources.mjs";
 import { registrySkills, installedDir, installRegistrySkill, searchSkills, previewRegistrySkill, resolveRegistrySkill } from "./registry-skills.mjs";
-import { localBundle, bootstrapPlan, applyBootstrap } from './maintenance-bundle.mjs';
 import { planChange, applyChange, withSkillPreviews } from './maintenance.mjs';
-import { recoveryPlan, applyRecovery } from './maintenance-store.mjs';
+import { fingerprints } from './maintenance-store.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -57,10 +54,6 @@ Commands:
                              probes only the CLIs named with --cli
   modify <dir> [--dry-run] [--yes]
                              diff project vs model and apply confirmed changes
-  recover <dir> [--dry-run] [--yes]
-                             recover an interrupted maintenance transaction
-  bootstrap-update <dir> [--dry-run] [--yes]
-                             install standalone maintenance in an older project
   change <dir> --operations <json-file> [--dry-run] [--yes]
                              validate/preview a structured system.yaml change
   search-skills <query...>   search the open skills registry (skills.sh) as JSON
@@ -437,14 +430,11 @@ function runGenerate(dir, dryRun) {
   warnUnavailableModels(normalized);
   const changes = files.filter((f) => f.action === "create" || f.action === "write");
   const conflicts = files.filter((f) => f.action === "conflict");
-  const bundle = existsSync(join(resolve(dir), '.factory/installation.json')) ? null : localBundle();
-  if (bundle && conflicts.some(f => f.path.includes('factory-update/'))) { fail('Maintenance infrastructure conflict; nothing written'); return; }
 
   if (dryRun) {
     printPlan(systemPath, dir, files, existing, "Planned changes (dry run — nothing written)");
     printVendorPlan(vendor.copies);
     printRegistryPlan(registryPlan(dir, normalized));
-    if (bundle) console.log(`  bundle standalone Factory maintenance (${bundle.installation.version}, ${bundle.installation.revision})`);
     process.exitCode = 0;
     return;
   }
@@ -470,7 +460,9 @@ function runGenerate(dir, dryRun) {
   const check = checkCapabilities(normalized, { settings: settingsJson, mcpJson }, { piPackages: readPiPackages() });
   for (const e of check.errors) console.error(`warning - ${e}`);
 
-  if (bundle) applyBootstrap(resolve(dir), bootstrapPlan(resolve(dir), bundle), true);
+  const version = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version;
+  const fileFingerprints = fingerprints(resolve(dir), managedPaths(normalized));
+  writeFileSync(join(resolve(dir), '.factory', 'build.json'), `${JSON.stringify({ version, fingerprints: fileFingerprints }, null, 2)}\n`);
   for (const c of conflicts) {
     console.error(`conflict - ${c.path}: user edit vs model change; not applied. Proposed:\n${c.desired}`);
   }
@@ -526,15 +518,13 @@ function runImport(dir) {
   const existing = readExisting(target, system);
   const { files } = generateProject(system, existing, { piPackages: readPiPackages() });
   for (const f of files) {
-    // Import is intentionally conservative. Do not leave a discoverable loader
-    // without its installation: generate/bootstrap is a separate previewed step.
-    if (f.action !== "create" || f.path.includes('factory-update/')) continue;
+    if (f.action !== "create") continue;
     writeGenerated(join(target, f.path), f);
     console.log(`scaffolded ${f.path}`);
   }
   mkdirSync(join(target, ".pi", "agents"), { recursive: true });
 
-  console.log('Import preserved existing configuration. Preview factory generate, then apply it to include standalone maintenance (or use bootstrap-update after reconciling conflicts).');
+  console.log('Import preserved existing configuration. Preview factory generate, then apply it to include package-based maintenance.');
   for (const flag of report.flagged) {
     console.error(`flagged - ${flag.key}: ${flag.reason}`);
   }
@@ -677,12 +667,12 @@ async function main(argv) {
     return;
   }
 
-  if (command === 'bootstrap-update' || command === 'change' || command === 'recover') {
+  if (command === 'change') {
     if (!dir) { fail('missing <dir> argument'); return; }
     const root = resolve(dir);
     const index = rest.indexOf('--operations');
-    if (command === 'change' && (index < 0 || !rest[index + 1])) { fail('change requires --operations <json-file>'); return; }
-    const plan = command === 'bootstrap-update' ? bootstrapPlan(root) : command === 'recover' ? recoveryPlan(root) : await withSkillPreviews(planChange(root, JSON.parse(readFileSync(rest[index + 1], 'utf8'))));
+    if (index < 0 || !rest[index + 1]) { fail('change requires --operations <json-file>'); return; }
+    const plan = await withSkillPreviews(planChange(root, JSON.parse(readFileSync(rest[index + 1], 'utf8'))));
     console.log(JSON.stringify(plan.preview, null, 2));
     if (dryRun) { console.log('Dry run — nothing written.'); return; }
     let approved = rest.includes('--yes');
@@ -692,9 +682,7 @@ async function main(argv) {
       rl.close();
     }
     if (!approved) { console.log('Not approved — nothing written.'); return; }
-    if (command === 'bootstrap-update') applyBootstrap(root, plan, true);
-    else if (command === 'recover') applyRecovery(root, plan, true);
-    else applyChange(root, plan, true);
+    applyChange(root, plan, true);
     console.log('Applied. Restart ./run.');
     return;
   }

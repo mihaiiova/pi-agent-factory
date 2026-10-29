@@ -3,49 +3,20 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { inspectProject, planChange, applyChange, publicChangePreview, withSkillPreviews, rebuildPlan } from './maintenance.mjs';
 import { searchSkills, resolveRegistrySkill } from './registry-skills.mjs';
-import { checkForUpdates, checkSummary, startupCheck, prepareUpdate, activateUpdate, finishUpdate, rollbackPlan, applyRollback, fetchJson } from './maintenance-updates.mjs';
-import { json, recoveryPlan, applyRecovery, readText, readJson } from './maintenance-store.mjs';
-import { fetchDocument, documentSlice, checkUrl } from './maintenance-fetch.mjs';
+import { checkRelease, proposeUpdate, previewUpdate, applyUpdate, discardUpdate } from './package-update.mjs';
+import { json, readText, readJson } from './maintenance-store.mjs';
+import { fetchDocument, documentSlice, checkUrl, fetchJson } from './maintenance-fetch.mjs';
 import { envStatus, setEnvValue } from './maintenance-env.mjs';
 import { probeClis } from './discover.mjs';
 import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
 import { registerAgent } from './agent-extension.mjs';
-import { selfRuntime, loadPinnedAgent, BUILD_PIN } from './maintenance-bundle.mjs';
 
-// Installed tooling runs from .factory/runtime/<id>/; the agent runtime it
-// loads is pinned in .factory/build.json and is imported here, at module load,
-// because Pi registers an extension's tools synchronously.
-const SELF = selfRuntime();
-const PINNED = SELF ? await loadPinnedAgent(SELF.root, SELF.runtime, registerAgent) : null;
-
-/** The agent runtime for root: the pinned one, or this bundle's own. */
-function pinnedAgent(root) {
-  const own = { registerAgent, pin: null, problem: null };
-  if (!SELF || resolve(SELF.root) !== resolve(root)) return own;
-  let pin = null;
-  try { pin = readText(root, BUILD_PIN) === null ? null : readJson(root, BUILD_PIN); } catch { /* reported by loadPinnedAgent */ }
-  if (!pin || pin.runtime === SELF.runtime) return { ...own, problem: PINNED?.problem && !pin ? PINNED.problem : null };
-  // A rebuild during this process pinned a bundle not loaded at startup.
-  if (PINNED?.pin?.runtime !== pin.runtime) return { ...own, problem: `agents switch to the runtime of Factory ${pin.version ?? pin.runtime} at the next start` };
-  return PINNED;
-}
-
-/** A notice when the build is older than the installed tooling. */
-function buildNotice(root) {
-  let installation, pin;
-  try { installation = readJson(root, '.factory/installation.json'); } catch { return null; }
-  try { pin = readText(root, BUILD_PIN) === null ? null : readJson(root, BUILD_PIN); } catch { pin = null; }
-  if (pin?.runtime === installation.runtime) return null;
-  return `This project was built with ${pin?.version ? `Factory ${pin.version}` : 'an earlier Factory version'}; /factory-update is ${installation.version}. Run /factory-update rebuild to bring agents up to date.`;
-}
-
-export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } = {}) {
+export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, updates = {} } = {}) {
   let armed = false;
   let review = false;
   let pending = null;
   let savedTools = null;
-  let controller = null;
   let planning = false;
   // Per maintenance request: hosts the user approved and documents fetched.
   let approvedHosts = new Set();
@@ -154,18 +125,10 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
       const check = launchCheck(root, parsedModel(readText(root, '.pi/system.yaml')), { registeredTools: pi.getAllTools?.().map(t => t.name) });
       if (!check.ok) tell(ctx, `Some agents would start without what they need:\n${check.problems.map(p => `- ${p.agent}: ${p.problem}`).join('\n')}`, 'warning');
     } catch { /* an invalid model is reported by the commands that use it */ }
-    const behind = buildNotice(root);
-    if (behind) tell(ctx, behind, 'info');
-    controller?.abort();
-    controller = new AbortController();
-    void startupCheck(root, message => { if (ctx.hasUI) ctx.ui.notify(message, 'info'); }, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4000)]) });
   });
-  pi.on('session_shutdown', () => { controller?.abort(); armed = false; pending = null; });
-  // What agents use while working comes from the bundle that built this
-  // project, so updating the tooling leaves it unchanged until a rebuild.
-  const agent = pinnedAgent(root);
-  agent.registerAgent(pi, Type, root, { maintaining: () => armed });
-  if (agent.problem) pi.on('session_start', (_event, ctx) => tell(ctx, `Factory: ${agent.problem}.`, 'warning'));
+  pi.on('session_shutdown', () => { armed = false; pending = null; });
+  // What agents use while working comes from the pinned Factory package.
+  registerAgent(pi, Type, root, { maintaining: () => armed });
   /**
    * Regenerate from system.yaml with this version. Text agents read is
    * rewritten without asking; anything that changes what they can run or
@@ -190,11 +153,12 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
     await ctx.reload();
   };
   pi.registerCommand('factory-update', {
-    description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rebuild | rollback | recover | done',
+    description: 'Maintain this system: <request> | review | apply | env [set NAME] | check | update | rebuild | done',
     handler: async (args, ctx) => {
       try {
         const request = args.trim();
         if (request === 'done') { pending = null; hide(); tell(ctx, 'Factory maintenance closed.'); return; }
+        if (request === 'rollback' || request === 'recover') { tell(ctx, 'These commands were removed. Restore the desired settings and generated files with git, then reload.'); return; }
         const env = request.match(/^env(?:\s+set\s+(\S+))?$/);
         if (env) {
           // Values are typed by the human here and written straight to .env;
@@ -214,8 +178,28 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           return;
         }
         if (request === 'check') {
-          const result = await checkForUpdates(root, { force: true });
-          tell(ctx, checkSummary(result), result.status === 'checked' ? 'info' : 'warning');
+          const release = await checkRelease(root, updates);
+          tell(ctx, `Installed Factory: ${release.installed}\nLatest release: ${release.latest}\n${release.newer ? 'Update available: /factory-update update' : 'No newer release available.'}`);
+          return;
+        }
+        if (request === 'update') {
+          // Both approvals come from the human's dialog; a headless session
+          // can grant neither, so it stops before contacting the remote.
+          if (!ctx.hasUI) throw new Error('Updating needs interactive confirmation; nothing was fetched or run');
+          await ctx.waitForIdle();
+          hide();
+          pending = null;
+          const proposal = await proposeUpdate(root, updates);
+          if (proposal.kind === 'current') { tell(ctx, `Factory ${proposal.installed} is up to date.`); return; }
+          const run = await ctx.ui.confirm(`Run Factory ${proposal.tag} to preview the update?`, json({
+            pin: { from: proposal.from, to: proposal.to }, commit: proposal.commit, changes: proposal.changes,
+            note: `Approving downloads ${proposal.tag} at this commit and runs its generator on this project to compute the preview. Nothing is written; applying asks separately.`,
+          }));
+          if (!run) { tell(ctx, 'Cancelled; the new release was not downloaded or run.'); return; }
+          const plan = await previewUpdate(root, proposal, true);
+          if (!await ctx.ui.confirm(`Apply Factory ${proposal.tag}?`, json(plan.preview))) { discardUpdate(plan); tell(ctx, 'Cancelled; nothing applied.'); return; }
+          const applied = await applyUpdate(root, plan, true, updates.install ? { install: updates.install } : {});
+          tell(ctx, `Updated to Factory ${proposal.tag}${applied.changed?.length ? `; rebuilt ${applied.changed.join(', ')}` : ''}. Restart ./run to load it.`);
           return;
         }
         if (request === 'rebuild' || request === 'reconcile') {
@@ -227,28 +211,17 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
           tell(ctx, message);
           return;
         }
-        if (['update', 'rollback', 'apply', 'recover'].includes(request)) {
+        if (request === 'apply') {
           // No model tool can reach this branch or manufacture a confirmation.
           if (!ctx.hasUI) throw new Error('Interactive user confirmation is required; nothing applied');
           await ctx.waitForIdle();
-          const plan = request === 'update' ? await prepareUpdate(root) : request === 'rollback' ? rollbackPlan(root) : request === 'recover' ? recoveryPlan(root) : pending;
+          const plan = pending;
           if (!plan) throw new Error('No pending proposal; request a change first');
-          if (plan.kind === 'current') { tell(ctx, plan.preview.latest.revision === plan.preview.installed.revision ? 'Factory is up to date.' : 'No newer compatible Factory revision found in the bounded channel search; use check for details.'); return; }
-          if (!await ctx.ui.confirm('Approve Factory maintenance?', json(plan.preview))) { tell(ctx, 'Cancelled; nothing activated or applied.'); return; }
-          if (plan.kind === 'upgrade') {
-            const activated = await activateUpdate(root, plan, true);
-            pending = null;
-            hide();
-            const { text, restart } = await finishUpdate(root, plan, activated, { confirm: (title, body) => ctx.ui.confirm(title, body) });
-            if (restart || typeof ctx.reload !== 'function') { tell(ctx, `${text} Restart ./run to load ${restart ? 'the new launcher and packages' : 'the new version'}.`); return; }
-            // Loads the new tooling and the rebuilt project; nothing runs here afterwards.
-            await reload(ctx, text);
-            return;
-          }
-          const message = plan.kind === 'configuration' ? applyChange(root, plan, true) : plan.kind === 'recovery' ? applyRecovery(root, plan, true) : applyRollback(root, plan, true);
+          if (!await ctx.ui.confirm('Approve Factory maintenance?', json(plan.preview))) { tell(ctx, 'Cancelled; nothing applied.'); return; }
+          const message = applyChange(root, plan, true);
           pending = null;
           hide();
-          if (plan.kind === 'configuration' && !plan.restart) { await reload(ctx, message); return; }
+          if (!plan.restart) { await reload(ctx, message); return; }
           tell(ctx, message);
           return;
         }
@@ -262,7 +235,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument } 
         // Maintenance is a separate loadout, not an expansion of operational
         // authority. Review cannot reach Bash/write/edit, MCP or subagents.
         pi.setActiveTools(['factory_plan']);
-        const workflow = readFileSync(new URL('./maintenance-workflow.md', import.meta.url), 'utf8');
+        const workflow = readFileSync(new URL('./SKILL.md', import.meta.url), 'utf8').split('## Project maintenance workflow\n')[1];
         pi.sendUserMessage(`${workflow}\n\nMode: ${review ? 'READ-ONLY REVIEW' : 'CHANGE PROPOSAL'}.\nUser request: ${request || 'review'}\n\nUse factory_plan inspect first. The command grants no Bash/write privileges. Follow-up maintenance turns must also start with /factory-update.`);
       } catch (error) { hide(); tell(ctx, error.message, 'error'); }
     },
