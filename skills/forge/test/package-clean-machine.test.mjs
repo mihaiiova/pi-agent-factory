@@ -33,7 +33,8 @@ test('clean launcher installs the pinned package and registers its commands', {
       await Promise.race([exited, new Promise(done => setTimeout(done, 10000))]);
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     }
-    rmSync(root, { recursive: true, force: true });
+    // npm, which Pi ran to install the packages, may still be writing its log.
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
   let stderr = '';
   child.stderr.setEncoding('utf8');
