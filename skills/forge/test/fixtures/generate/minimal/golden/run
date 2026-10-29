@@ -30,4 +30,7 @@ prompts=()
 for f in .pi/APPEND_SYSTEM.md .pi/CAPABILITIES.md; do
   if [[ -f "$f" ]]; then prompts+=(--append-system-prompt "$f"); fi
 done
+if [[ "${1:-}" == "--workflow" ]]; then
+  exec node "$ROOT/.pi/forge-workflow.mjs" 'W10=' "${prompts[@]}" -- "$@"
+fi
 exec pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"
