@@ -209,8 +209,8 @@ first; the user decides.
   shared Agent Skills folder `~/.agents/skills/` (and `.agents/skills/` in the
   project and its parents) do load for the orchestrator, by design;
   subagents get only the skills listed for them.
-- **Maintain** — every generated system bundles `/factory-update`, its thin
-  skill/command and minimal standalone deterministic engine. Within `./run`, use
+- **Maintain** — every generated system pins the Factory package, which
+  provides `/factory-update` and the agent runtime. Within `./run`, use
   `/factory-update <request>` to inspect/discover/preview a structured model
   change, `/factory-update apply` to confirm it, or `/factory-update review` for
   read-only recommendations. Switch any agent's model with an `assign`
@@ -219,13 +219,11 @@ first; the user decides.
   go through `system.yaml`, never direct settings/MCP edits. CLI equivalents:
   `factory change <dir> --operations <json-file> --dry-run`, then `--yes` after
   approval. Existing `factory modify <dir> --dry-run` reconciliation is preserved.
-- **Upgrade tooling** — `/factory-update check|update|rollback` use pinned trusted
-  Factory metadata, cached nonblocking startup discovery, staged exact revisions,
-  explicit confirmation and retained offline rollback. No automatic activation,
-  functional model change or dependency on the global Agent Factory install. Restart after applying.
-  Bootstrap older projects with `factory bootstrap-update <dir> --dry-run`, then
-  `--yes`; conflicts/migrations must be resolved explicitly. See
-  `../../docs/factory-update.md` for architecture, recovery and limitations.
+- **Upgrade tooling** — `/factory-update check` reports whether a newer
+  release tag exists; `/factory-update update` first asks to run that release
+  to compute a preview, then separately asks to apply the pin and file changes.
+  Headless sessions can do neither. Rollback is git. Projects generated before
+  v0.19.0 are regenerated, not migrated.
 
 Acceptance scenarios for this conversational behavior:
 `../../docs/agent-factory-conversation.md`.
@@ -247,9 +245,7 @@ Acceptance scenarios for this conversational behavior:
 ## Out of scope
 
 Recreating existing projects, scheduled triggers, and arbitrary generated
-extension code. The small bundled maintenance loader is infrastructure, not an
-operational extension-generation framework. `factory import` is preserved for
-non-Factory projects; existing Factory projects use `bootstrap-update`.
+extension code. `factory import` is preserved for non-Factory projects.
 
 ## Project maintenance workflow
 
@@ -418,20 +414,16 @@ user wants to pursue through a new /factory-update request.
 
 ## Factory tooling lifecycle
 
-/factory-update check reports installed/source/channel/latest, unavailable versus
-up-to-date, schema migration needs and compatibility uncertainty. /factory-update
-update stages trusted exact-revision maintenance code, shows changes and asks for
-confirmation. It never changes the operational model or secrets. Agents keep the
-build (generated files and agent runtime, pinned in .factory/build.json) until
-/factory-update rebuild regenerates it with the installed version: text agents
-read is rewritten directly; changes to what they can run or reach are shown and
-confirmed. A proposed change also rebuilds whatever this version generates
-differently, and its preview lists those files under reconciliation.
-/factory-update recover previews and safely repairs interrupted transactions.
-rollback restores the previous local maintenance bundle and dependency pins
-without GitHub. An update rebuilds the project with the new version right
-after activation (a second confirmation only when what agents can run or reach
-changes). Pi reloads after an apply, rebuild or update; a restart of ./run is
-needed only when the launcher or packages change, and after a rollback. Updates needing
-a new schema require a separate previewed model migration; never silently reverse
-later user edits. /factory-update done discards proposals and exits maintenance.
+/factory-update check reports the pinned release and the newest release tag;
+it downloads and runs nothing. /factory-update update proposes the newest tag,
+asks the human before fetching and running that release, previews the pin
+change and the files it generates, and applies only after a second approval.
+Pi installs the new pin; the human restarts ./run. /factory-update rebuild
+regenerates the project with the pinned version: text agents read is rewritten
+directly; changes to what they can run or reach are shown and confirmed. A
+proposed change also rebuilds whatever this version generates differently, and
+its preview lists those files under reconciliation. Pi reloads after an apply
+or rebuild; a restart of ./run is needed only when the launcher or packages
+change. Rollback is git: restore the previous files and restart. Updates
+needing a new schema require a separate previewed model migration; never
+silently reverse later user edits. /factory-update done discards proposals and exits maintenance.

@@ -144,6 +144,24 @@ test('an approved update moves the pin, rebuilds with the new release and instal
   assert.match(mock.notices.map(([m]) => m).join('\n'), /restart/i);
 });
 
+test('restoring the previous files with git rolls the pin back', async t => {
+  const { remote } = releases(t);
+  const root = project(t);
+  git(root, 'init', '--quiet');
+  git(root, 'add', '-A');
+  git(root, 'commit', '--quiet', '-m', 'generated');
+  const mock = adapter([true, true]);
+  registerMaintenance(mock.pi, mock.Type, root, { updates: { remote, install: async () => {} } });
+  await mock.run('update');
+  assert.equal(pin(root), `git:github.com/mihaiiova/pi-agent-factory@v${next}`);
+  git(root, 'checkout', 'HEAD', '--', '.pi', 'run', 'README.md');
+  assert.equal(pin(root), `git:github.com/mihaiiova/pi-agent-factory@v${version}`);
+  const check = adapter();
+  registerMaintenance(check.pi, check.Type, root, { updates: { remote } });
+  await check.run('check');
+  assert.match(check.notices.map(([m]) => m).join('\n'), new RegExp(`Installed Factory: v${version}`));
+});
+
 test('a project already on the newest release is up to date without dialogs', async t => {
   const { remote, work } = releases(t);
   git(work, 'push', '--quiet', remote.slice('file://'.length), `:refs/tags/v${next}`);

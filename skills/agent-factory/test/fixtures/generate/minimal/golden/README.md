@@ -1,4 +1,4 @@
-<!-- agent-factory:generated v1 sha256=c63aea4d2ff2b1255453ab2ebf32c17912807ed236ea53c101ef7f2cd0adba3a -->
+<!-- agent-factory:generated v1 sha256=8683d7e90510b0aac8cb6a82268c2cf16eccb8443138ca8757d74e737c06c507 -->
 # seo-agent-system
 
 SEO analysis + article drafting
@@ -23,10 +23,11 @@ capabilities are enforced vs advisory.
 
 Use `/factory-update <request>` to propose a declarative change, then
 `/factory-update apply` to preview and approve it. `/factory-update review`
-is read-only. Tooling lifecycle: `/factory-update check`, `update`, `rollback`.
+is read-only. `/factory-update check` reports a newer Factory release;
+`update` moves the pin after two confirmations. Roll back with git.
 `/factory-permission` lists the commands agents may run and adds, removes or
 reviews them; agents ask for a command they need with `request_permission`.
-Startup checks never install updates. Restart `./run` after applying changes.
+Restart `./run` when the launcher or packages change.
 
 ## Policy
 
