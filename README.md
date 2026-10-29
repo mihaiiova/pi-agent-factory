@@ -18,7 +18,7 @@ own. A generated agent runs with Pi alone and does not need Forge running.
 - [Roadmap](docs/roadmap.md): the current audit, gaps, milestones and issues.
 
 > **Naming.** The rename is planned but not done yet. This repository, the
-> package (`pi-agent-factory`) and the commands (`/agent-factory`,
+> package (`pi-forge`) and the commands (`/agent-factory`,
 > `/factory-update`, `/factory-permission`) still use the old names. They will
 > become `mihaiiova/pi-forge`, `pi-forge` and a single `/forge` command. There
 > is no migration: projects built with the old names are regenerated. See
@@ -28,12 +28,12 @@ own. A generated agent runs with Pi alone and does not need Forge running.
 
 ```text
 you ──▶ /agent-factory (builder, conversational)
-          │  factory CLI: discover · validate · generate --dry-run · generate
+          │  forge CLI: discover · validate · generate --dry-run · generate
           ▼
    <project>/.pi/system.yaml   compact desired state (schema 1)
    <project>/.pi/…             native Pi files: settings, agents, skills, mcp.json, prompts
    <project>/run               isolated launcher (own Pi home and credentials)
-   <project>/.factory/         build record, capability manifest, isolated Pi home
+   <project>/.forge/         build record, capability manifest, isolated Pi home
           │
           ▼
    ./run, ./run -p "…"   Pi runs the agent; /factory-update revises it in place
@@ -43,8 +43,8 @@ you ──▶ /agent-factory (builder, conversational)
   `system.yaml`, previews the generated files and writes them only after you
   confirm. Generation is deterministic and idempotent, and never silently
   overwrites your edits.
-- **Check:** `factory validate`, a capability manifest
-  (`.factory/capabilities.json`) and a launch check on every start that each
+- **Check:** `forge validate`, a capability manifest
+  (`.forge/capabilities.json`) and a launch check on every start that each
   agent will get its declared tools, MCP tools and skills. Checking actual
   behavior is on the [roadmap](docs/roadmap.md).
 - **Revise:** inside a project, `/factory-update <request>` proposes a small
@@ -58,30 +58,30 @@ extensions) now lives in the private
 ## Using Forge today
 
 Start it from any Pi session with `/agent-factory <outcome>` (or
-`/skill:agent-factory`). The builder works as a design conversation, not an
+`/skill:forge`). The builder works as a design conversation, not an
 interview: it uses what you've already said, recommends the simplest system
 that fits, and asks only questions that change the design. When you say
-"build it", it runs `factory discover`, writes a `.pi/system.yaml`, previews
+"build it", it runs `forge discover`, writes a `.pi/system.yaml`, previews
 the generated files and applies them only after you confirm. See the
-[conversational acceptance scenarios](docs/agent-factory-conversation.md). The deterministic CLI behind it:
+[conversational acceptance scenarios](docs/forge-conversation.md). The deterministic CLI behind it:
 
 ```sh
-node skills/agent-factory/factory.mjs discover [dir]          # models, your skills, MCP, CLIs
-node skills/agent-factory/factory.mjs validate <dir>
-node skills/agent-factory/factory.mjs generate <dir> --dry-run  # then without --dry-run
-node skills/agent-factory/factory.mjs modify <dir> --dry-run
+node skills/forge/forge.mjs discover [dir]          # models, your skills, MCP, CLIs
+node skills/forge/forge.mjs validate <dir>
+node skills/forge/forge.mjs generate <dir> --dry-run  # then without --dry-run
+node skills/forge/forge.mjs modify <dir> --dry-run
 ```
 
 ### Models: chosen per agent
 
 Nothing is hardcoded. Every agent — the orchestrator and each subagent — names
 its own model from the machine's Pi line-up (`pi --list-models`, also reported by
-`factory discover`), with an optional thinking level. Agents may share a model or
+`forge discover`), with an optional thinking level. Agents may share a model or
 each use a different one, and any model can be changed later.
 
 ### Skills: chosen per agent, suggested from skills.sh
 
-The factory ships no skills of its own. When you set up a system, or add or
+The forge ships no skills of its own. When you set up a system, or add or
 change an agent, it searches the open skills registry ([skills.sh](https://skills.sh))
 for that agent's role and suggests a few candidates, with source, install count
 and page. It shows each skill's actual `SKILL.md` and files before you decide.
@@ -90,8 +90,8 @@ the project's own `.agents/skills/` (never globally), recorded in
 `skills-lock.json`:
 
 ```sh
-node skills/agent-factory/factory.mjs search-skills seo audit
-node skills/agent-factory/factory.mjs preview-skill coreyhaines31/marketingskills@seo-audit
+node skills/forge/forge.mjs search-skills seo audit
+node skills/forge/forge.mjs preview-skill coreyhaines31/marketingskills@seo-audit
 ```
 
 A skill can also be authored inline, come from a pinned package, or be vendored
@@ -126,7 +126,7 @@ orchestrator; subagents get only the skills listed for them.
 ### Documents: formats you agree on
 
 For each document an agent writes (or a report a subagent returns), the
-factory proposes a structure — purpose, sections in order, a word limit and a
+forge proposes a structure — purpose, sections in order, a word limit and a
 few rules — and you add, remove or change sections before it is recorded in
 `documents[]`. The agreed format goes into that agent's instructions, so each
 run produces the same shape. Any agent can have any number of documents, and a
@@ -135,11 +135,11 @@ Slack — with `deliver: [{ mcp, tool, with }]`. Change formats later with
 `/factory-update`.
 
 Subagents that use MCP or extension tools (web search, for example) always
-run in the background, where those tools load; the factory sets this up. On
+run in the background, where those tools load; the forge sets this up. On
 every start, `./run` checks that each agent will get the tools, MCP tools and
 skills it is declared to have, and names any that are missing.
 
-See [`schema.md`](skills/agent-factory/schema.md) for every field, validation
+See [`schema.md`](skills/forge/schema.md) for every field, validation
 rule and the file-ownership contract, and [docs/agent-factory.md](docs/agent-factory.md)
 for the architecture.
 
@@ -162,9 +162,9 @@ is generated from `system.yaml` into a "What you can use" section, so removing
 an integration also removes it from what agents are told. The section is part of
 the generated project (each agent file, and `.pi/CAPABILITIES.md` for the
 orchestrator), so it changes when the system is regenerated, never because the
-Factory tooling was updated. The same holds for the runtime agents use (memory,
-command tools, `request_permission`): it comes from the Factory version that
-last built the project, recorded in `.factory/build.json`. A change that removes
+Forge tooling was updated. The same holds for the runtime agents use (memory,
+command tools, `request_permission`): it comes from the Forge version that
+last built the project, recorded in `.forge/build.json`. A change that removes
 a capability lists any prompt, workflow or policy that still mentions it, and
 `/factory-update review` flags prompts that describe specific tools.
 
@@ -206,12 +206,12 @@ their values with `/factory-update env set NAME`; `./run` loads them from the
 project's gitignored `.env`. Generation and change previews also add missing
 secret and state paths to an existing `.gitignore` without rewriting your rules.
 Ignoring files does not remove credentials already committed to git: rotate any
-credentials that were committed, including those in `.env` or `.factory/`.
+credentials that were committed, including those in `.env` or `.forge/`.
 
-#### The Factory package: pin, update, roll back
+#### The Forge package: pin, update, roll back
 
-A generated project pins one Factory release as a Pi package in its
-`.pi/settings.json`, for example `git:github.com/mihaiiova/pi-agent-factory@v0.19.0`.
+A generated project pins one Forge release as a Pi package in its
+`.pi/settings.json`, for example `git:github.com/mihaiiova/pi-forge@v0.19.0`.
 Nothing is copied into the project. On the first `./run`, Pi installs that
 exact tag under `.pi/git/` in the project (ignored by the generated
 `.gitignore`, like `.pi/npm/`) and loads the
@@ -225,7 +225,7 @@ newer one exists. It downloads and runs nothing. Startup does not check.
 `/factory-update update` asks twice:
 
 1. **Run the new release to preview it?** The dialog names the tag, the commit
-   it points to and a link to the changes. Only after you agree does Factory
+   it points to and a link to the changes. Only after you agree does Forge
    fetch exactly that commit and run its generator on the project to compute
    the preview. Nothing is written yet.
 2. **Apply it?** The preview shows the pin change and every file the new
@@ -246,7 +246,7 @@ are not migrated: regenerate them from their `.pi/system.yaml`.
 ### Tests
 
 ```sh
-bash skills/agent-factory/test/test.sh
+bash skills/forge/test/test.sh
 ```
 
 ### Releasing
@@ -258,11 +258,11 @@ commit `vX.Y.Z` and push the tag.
 ## Install
 
 ```sh
-git clone https://github.com/mihaiiova/pi-agent-factory.git /path/to/pi-agent-factory
-pi install /path/to/pi-agent-factory
+git clone https://github.com/mihaiiova/pi-forge.git /path/to/pi-forge
+pi install /path/to/pi-forge
 ```
 
-`/agent-factory` is then available in any Pi session. The factory pins only what
+`/agent-factory` is then available in any Pi session. The forge pins only what
 generated systems need (`pi-subagents`, `pi-mcp-adapter`, and `yaml` for its own
 parser) in `package.json` under `pi.packages`.
 
@@ -272,7 +272,7 @@ The spec lifecycle, domain skills and the `explore`, `pi-config`, `pi-sync`,
 `project-state`, `save-md`, `skills-select` and `startup-check` extensions moved,
 with their history, to [`mihaiiova/pi-personal`](https://github.com/mihaiiova/pi-personal).
 It is the reference for a new development-workflow integration that will be
-built from scratch with the Agent Factory.
+built from scratch with Pi Forge.
 
 To move a machine over, install it next to this repository, then pull this one:
 
@@ -280,7 +280,7 @@ To move a machine over, install it next to this repository, then pull this one:
 git clone https://github.com/mihaiiova/pi-personal.git /path/to/pi-personal
 pi install /path/to/pi-personal
 ln -sfn /path/to/pi-personal/AGENTS.md ~/.pi/agent/AGENTS.md   # global instructions moved too
-cd /path/to/pi-agent-factory && git remote set-url origin https://github.com/mihaiiova/pi-agent-factory.git && git pull
+cd /path/to/pi-forge && git remote set-url origin https://github.com/mihaiiova/pi-forge.git && git pull
 ```
 
 Then `/reload`. `/pi-sync` now syncs `pi-personal`; update this repository with
