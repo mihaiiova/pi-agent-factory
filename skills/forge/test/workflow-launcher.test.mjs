@@ -146,6 +146,10 @@ test('timeout stops only invocation-owned detached subagent runs', async t => {
   const { spawn } = await import('node:child_process');
   const unrelated = spawn('sleep', ['30'], { stdio: 'ignore' });
   t.after(() => unrelated.kill());
+  const unrelatedDir = join(root, 'unrelated', 'async-subagent-runs', 'other');
+  mkdirSync(unrelatedDir, { recursive: true });
+  writeFileSync(join(unrelatedDir, 'status.json'), JSON.stringify({ runId: 'other', state: 'running', pid: unrelated.pid }));
+  env.PI_SUBAGENTS_TEMP_ROOT = join(root, 'unrelated');
   const marker = join(root, 'detached-pid');
   writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
 const {spawn}=require('child_process');
@@ -163,6 +167,7 @@ setTimeout(()=>{},30000);
   const pid = Number(readFileSync(marker, 'utf8'));
   assert.throws(() => process.kill(pid, 0), /ESRCH/);
   assert.doesNotThrow(() => process.kill(unrelated.pid, 0));
+  assert.equal(existsSync(join(unrelatedDir, 'control', 'stop-requests')), false);
 });
 
 test('timeout stops a real pi-subagents background run', { skip: !process.env.FORGE_SUBAGENTS_PACKAGE, timeout: 30000 }, async t => {
