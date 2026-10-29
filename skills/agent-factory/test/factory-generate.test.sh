@@ -257,5 +257,24 @@ grep -q 'writer uses model' <<<"$out" || fail "validate does not warn about unav
 rm -rf "$vd"
 pass "factory generate/validate warn about models missing from the Pi line-up"
 
+
+# Existing repositories preview and apply the security-only gitignore append.
+existing="$work/existing-repo"
+mkdir -p "$existing/.pi"
+cp "$fixtures/generate/minimal/.pi/system.yaml" "$existing/.pi/system.yaml"
+git -C "$existing" init -q
+printf 'node_modules\n.env\n' > "$existing/.gitignore"
+node "$factory" generate "$existing" --dry-run > "$work/ignore-preview"
+grep -q '+ # agent-factory: required ignores' "$work/ignore-preview" || fail 'missing gitignore block in dry-run'
+grep -q '+ .factory/' "$work/ignore-preview" || fail 'missing .factory/ in dry-run'
+[[ "$(cat "$existing/.gitignore")" == $'node_modules\n.env' ]] || fail 'dry-run changed gitignore'
+node "$factory" generate "$existing" >/dev/null
+git -C "$existing" check-ignore -q .env || fail '.env not ignored'
+git -C "$existing" check-ignore -q .factory/pi-home/auth.json || fail 'credentials not ignored'
+cp "$existing/.gitignore" "$work/ignore-after"
+node "$factory" generate "$existing" >/dev/null
+cmp -s "$work/ignore-after" "$existing/.gitignore" || fail 'gitignore append not idempotent'
+pass 'generation previews and protects existing repository secrets'
+
 echo
 echo "All factory-generate tests passed."

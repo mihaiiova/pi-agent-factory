@@ -12,7 +12,8 @@
  *     regenerate every run, merge-preserving unknown keys.
  *   - Authored files (`.pi/APPEND_SYSTEM.md`, `README.md`, `.gitignore`,
  *     `.env.example`) scaffold once and are fingerprint-protected with a
- *     header marker; a user edit is never silently overwritten.
+ *     header marker; a user edit is never silently overwritten. The only
+ *     exception is appending missing safety entries to an existing .gitignore.
  */
 import { createHash } from "node:crypto";
 import { splitModelRef } from "./models.mjs";

@@ -64,3 +64,18 @@ test('launch check warns about unignored secrets in a git work tree', t => {
   writeFileSync(join(root, '.gitignore'), '.env\n.factory/\n');
   assert.ok(!problems(root, {}).some(p => p.includes('not ignored')));
 });
+
+test('launch check respects git negation and skips unavailable git', t => {
+  const root = project(t);
+  execFileSync('git', ['init', '-q', root]);
+  writeFileSync(join(root, '.gitignore'), '.env\n.factory/\n!.env\n!.factory/\n');
+  assert.equal(problems(root, {}).filter(p => p.includes('not ignored')).length, 2);
+  const oldPath = process.env.PATH;
+  try {
+    process.env.PATH = '';
+    assert.ok(!problems(root, {}).some(p => p.includes('not ignored')));
+  } finally {
+    if (oldPath === undefined) delete process.env.PATH;
+    else process.env.PATH = oldPath;
+  }
+});

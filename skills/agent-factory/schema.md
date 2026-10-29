@@ -295,6 +295,11 @@ Full text of `docs/agent-factory.md` §C.6:
    surfacing it for the user to resolve; it never silently overwrites (and, in
    this MVP, never auto-applies a conflict — the user resolves it by editing the
    file or re-running after a deliberate edit).
+   **Exception for `.gitignore`:** generation and change/rebuild plans append a
+   marked block containing any missing `.env`, `.factory/`, `.pi/state.json`
+   and `.pi/sessions/` entries. Existing lines are never rewritten or reordered;
+   an exact entry with or without a trailing slash counts as present. The append
+   is shown in dry runs and change previews, and repeating it is a no-op.
    **Vendored skill directories** (`skills[].source` paths) are user-owned
    copies: created once from the source, never overwritten or deleted by the
    factory. Delete a copy explicitly to refresh it from its source.

@@ -962,3 +962,19 @@ test('applied changes and rebuilds reload Pi unless the launcher or packages cha
   assert.deepEqual(reloads, ['reload']);
   assert.match(mock.notices.at(-1)[0], /^Rebuilt with this Factory version: \.pi\/CAPABILITIES\.md\. Reloading\.$/);
 });
+
+test('change and rebuild preview missing gitignore safety entries', t => {
+  const root = project(t);
+  const original = 'node_modules\n.env\n';
+  writeFileSync(join(root, '.gitignore'), original);
+  for (const plan of [planChange(root, [{ op: 'reconcile' }]), rebuildPlan(root)]) {
+    const file = plan.preview.files.find(f => f.path === '.gitignore');
+    assert.equal(file.action, 'write');
+    assert.match(file.diff, /\+ # agent-factory: required ignores/);
+    assert.match(file.diff, /\+ \.factory\//);
+    assert.match(file.diff, /\+ \.pi\/state\.json/);
+    assert.match(file.diff, /\+ \.pi\/sessions\//);
+    assert.equal(plan.writes['.gitignore'], original + '# agent-factory: required ignores\n.factory/\n.pi/state.json\n.pi/sessions/\n');
+    assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), original);
+  }
+});

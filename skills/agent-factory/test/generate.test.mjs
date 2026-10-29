@@ -327,3 +327,18 @@ test("existing gitignore gets only missing safety entries without changing user 
   assert.equal(again.action, "none");
   assert.equal(again.content, file.content);
 });
+
+test("complete user gitignore stays byte-for-byte unchanged", () => {
+  const original = "# hand-written\r\n.env/\r\n.factory\r\n.pi/state.json/\r\n.pi/sessions\r\n";
+  const file = byPath(generateProject(model, { ".gitignore": original }).files, ".gitignore");
+  assert.equal(file.action, "none");
+  assert.equal(file.content, original);
+});
+
+test("edited scaffold gets safety entries appended without replacing edits", () => {
+  const scaffold = byPath(generateProject(model, {}).files, ".gitignore").content;
+  const edited = scaffold.replace('.factory/\n', '') + '# custom\n';
+  const file = byPath(generateProject(model, { ".gitignore": edited }).files, ".gitignore");
+  assert.equal(file.action, 'write');
+  assert.equal(file.content, edited + '# agent-factory: required ignores\n.factory/\n');
+});
