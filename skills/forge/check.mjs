@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { parsedModel } from './changes.mjs';
 import { checkProject } from './maintenance.mjs';
 import { atomicWrite, json } from './maintenance-store.mjs';
@@ -61,7 +61,7 @@ export function checkAgent(root, options = {}) {
         capabilities.push({ agent: agent.name, name, provider: `MCP ${server}`, status, fix: present ? 'None.' : `Check ${server} with /mcp or rerun check-agent --connect.${state?.error ? ` ${state.error}` : ''}` });
       } else if (name.startsWith('cli:')) {
         const command = commands.get(name.slice(4))?.command;
-        const present = command && (command.includes('/') ? existsSync(join(root, command)) : probeClis([command])[command]);
+        const present = command && (command.includes('/') ? existsSync(resolve(root, command)) : probeClis([command])[command]);
         capabilities.push({ agent: agent.name, name, provider: `CLI ${command ?? name.slice(4)}`, status: present ? 'verified now' : 'missing', fix: `${present ? 'Presence only' : 'Install the command or add it to PATH'}; authentication is not checked.` });
       } else if (BUILTIN.has(name)) capabilities.push({ agent: agent.name, name, provider: 'built-in', status: 'verified now', fix: 'None.' });
       else if (!name.startsWith('mcp:') && !name.startsWith('cli:') && name !== 'mcp') {
@@ -80,7 +80,7 @@ export function checkAgent(root, options = {}) {
   }
   for (const { name, command } of commands.values()) {
     if (capabilities.some(c => c.name === `cli:${name}`)) continue;
-    const present = command.includes('/') ? existsSync(join(root, command)) : probeClis([command])[command];
+    const present = command.includes('/') ? existsSync(resolve(root, command)) : probeClis([command])[command];
     capabilities.push({ agent: 'project', name: `cli:${name}`, provider: `CLI ${command}`, status: present ? 'verified now' : 'missing', fix: `${present ? 'Presence only' : 'Install the command or add it to PATH'}; authentication is not checked.` });
   }
   for (const { name } of declaredServers) {
