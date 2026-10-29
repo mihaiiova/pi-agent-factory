@@ -83,3 +83,9 @@ test('launch check respects git negation and skips unavailable git', t => {
     else process.env.PATH = oldPath;
   }
 });
+
+test('launch check reports missing orchestrator extension tools', t => {
+  const root = project(t);
+  const configured = { ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'missing_extension'] }, agents: [] };
+  assert.ok(launchCheck(root, configured, { registeredTools: ['read'] }).problems.some(p => p.agent === 'lead' && p.problem.includes('missing_extension')));
+});

@@ -63,7 +63,15 @@ export function launchCheck(root, model, { registeredTools, mcpTools, probe } = 
       if (entry && !installed(entry.command)) problems.push({ agent: agentName, problem: `cli:${name}: "${entry.command}" is not installed or not on PATH` });
     }
   };
-  if (model?.orchestrator) checkCommands(model.orchestrator.name, Array.isArray(model.orchestrator.tools) ? model.orchestrator.tools : cliEntries(model).map((c) => `cli:${c.name}`));
+  if (model?.orchestrator) {
+    const tools = Array.isArray(model.orchestrator.tools) ? model.orchestrator.tools : cliEntries(model).map((c) => `cli:${c.name}`);
+    checkCommands(model.orchestrator.name, tools);
+    for (const tool of tools) {
+      if (!BUILTIN.has(tool) && !cliRef(tool) && tool !== 'mcp' && !tool.startsWith('mcp:') && registered && !registered.has(tool)) {
+        problems.push({ agent: model.orchestrator.name, problem: `${tool}: no loaded extension registers this tool` });
+      }
+    }
+  }
   for (const agent of Array.isArray(model?.agents) ? model.agents : []) {
     const report = (problem) => problems.push({ agent: agent.name, problem });
     const tools = enforcedAgentTools(agent.name, model.policies, agent.tools);
