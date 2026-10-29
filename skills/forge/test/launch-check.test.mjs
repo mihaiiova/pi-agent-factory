@@ -133,3 +133,12 @@ test('a session with no registered MCP tools does not claim a live connection', 
   const report = checkAgent(root, { mcpTools: [] });
   assert.ok(report.capabilities.some(c => c.name === 'mcp:seo/audit' && c.status === 'not verifiable'));
 });
+
+test('capability report includes orchestrator skills and their provider', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const { loadYaml } = await import('../yaml-loader.mjs');
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), loadYaml().stringify(model));
+  const report = checkAgent(root);
+  assert.ok(report.capabilities.some(c => c.agent === 'lead' && c.name === 'skill:audit' && c.status === 'missing' && c.provider.includes('.agents/skills/audit')));
+});

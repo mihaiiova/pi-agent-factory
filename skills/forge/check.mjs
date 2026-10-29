@@ -71,7 +71,7 @@ export function checkAgent(root, options = {}) {
         capabilities.push({ agent: agent.name, name, provider: provider || 'extension', status: present ? 'verified now' : known ? 'missing' : 'not verifiable', fix: present ? 'None.' : 'Install or enable the providing extension; use /forge check to verify the live session.' });
       }
     }
-    for (const name of agent.skills ?? []) {
+    for (const name of agent === model.orchestrator ? [...skills.keys()] : (agent.skills ?? [])) {
       const kind = skillSourceKind(skills.get(name)?.source);
       const dir = kind === 'registry' ? `.agents/skills/${name}` : kind === 'package' ? null : `.pi/skills/${name}`;
       const present = dir && existsSync(join(root, dir, 'SKILL.md'));
