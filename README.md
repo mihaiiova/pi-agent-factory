@@ -227,7 +227,7 @@ Inside it, `/forge` is the one command:
 
 | Command | What it does |
 |---|---|
-| `/forge [request]` | Revise the agent, for example `/forge add a research specialist` or `/forge use a cheaper model for the writer`. When the turn ends with a proposal, Forge shows the preview; approving applies it, declining discards it. Without a request, or with `review`, it is a read-only review. |
+| `/forge [request]` | Revise the agent, for example `/forge add a research specialist` or `/forge use a cheaper model for the writer`. When the turn ends with a proposal, Forge prompts you to **discuss** (the default), **apply** or **discard** it. Plain replies continue the conversation until you apply or discard, or leave with `/forge exit`. Without a request, or with `review`, the first answer is a read-only review. |
 | `/forge check` | Validate `system.yaml`, compare the generated files with it, and run the launch check. |
 | `/forge status` | Agents and models, capabilities, the pinned Forge release and whether a newer one exists, and pending permission requests. |
 | `/forge sync` | Move to the newest Forge release after two confirmations (below), or rebuild with the current one. |

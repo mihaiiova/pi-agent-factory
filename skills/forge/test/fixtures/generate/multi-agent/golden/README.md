@@ -1,4 +1,4 @@
-<!-- forge:generated v1 sha256=a0ee3e68872aba501c3f243bb8c79b515865329f5aa85aa27fc596a79ecda278 -->
+<!-- forge:generated v1 sha256=fbef20c32078af08a3ff75159e84457dd3c04086bcc8f1700914faa1ab3de594 -->
 # seo-agent-system
 
 SEO analysis + article drafting with specialist subagents
@@ -40,8 +40,9 @@ capabilities are enforced vs advisory.
 
 ## Maintain
 
-`/forge <request>` proposes a change; when the turn ends, Forge shows the
-preview for you to approve or decline. `/forge review` is read-only.
+`/forge <request>` proposes a change; when the turn ends, Forge asks you
+to discuss, apply or discard it. Replies continue the conversation until
+then; `/forge exit` leaves. `/forge review` is read-only.
 `/forge check` verifies the agent, `/forge status` summarizes it, and
 `/forge sync` moves to the newest Forge release after two confirmations.
 Roll back with git. `/forge permissions` lists the commands agents may run

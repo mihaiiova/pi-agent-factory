@@ -21,6 +21,10 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
   let armed = false;
   let review = false;
   let pending = null;
+  // Set when a proposal was made in the current turn, so only that turn prompts.
+  let proposedThisTurn = false;
+  // Where the "in /forge" status line is shown, to clear it when leaving.
+  let statusUi = null;
   let savedTools = null;
   let planning = false;
   // Per maintenance request: documents fetched.
@@ -98,7 +102,8 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
           const ops = JSON.parse(params.operations ?? 'null');
           if (ops?.some(o => o.op === 'reconcile')) throw new Error('Use /forge sync to regenerate the project');
           pending = await withSkillPreviews(planChange(root, ops), { fetcher: href => publicFetch(href) });
-          value = { ...publicChangePreview(root, pending), next: 'Nothing applied. When this turn ends, Forge shows the human this preview to approve or decline; you cannot apply it.' };
+          proposedThisTurn = true;
+          value = { ...publicChangePreview(root, pending), next: 'When this turn ends, Forge asks the person to apply, discuss or discard this proposal; you cannot apply it. Present the change; do not say whether it is applied or waiting.' };
         }
         const text = json(value);
         if (text.length > 160000) throw new Error('Inspection/proposal too large; split the requested change into smaller batches');
@@ -109,28 +114,66 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
   };
   const hide = () => {
     armed = false;
+    pending = null;
+    proposedThisTurn = false;
+    statusUi?.setStatus?.('forge', undefined);
+    statusUi = null;
     documents = new Map();
     pi.registerTool({ ...tool, exposure: 'hidden' });
     if (savedTools) pi.setActiveTools(savedTools);
     savedTools = null;
   };
   pi.registerTool({ ...tool, exposure: 'hidden' });
-  // A revision turn ends with its proposal in front of the human, so nobody
-  // types "apply". Only a direct /forge request arms the planner, the dialog
-  // is the approval, and a session without a UI never applies.
+  /** Stay in /forge: the person's next plain message continues the conversation. */
+  const stay = (ctx) => {
+    // A review is read-only for its first answer; replies may ask for changes.
+    review = false;
+    statusUi = ctx.ui;
+    ctx.ui.setStatus?.('forge', 'In /forge: reply to continue · /forge exit to leave');
+  };
+  /** What the prompt shows: the files a proposal writes and what it takes to load it. */
+  const promptFor = (plan) => {
+    const files = [...new Set(['.pi/system.yaml', ...(plan.preview?.files ?? []).map(f => f.path)])];
+    const surface = plan.preview?.executionSurface ?? {};
+    const reach = [
+      ...(surface.addedPackages?.length ? [`adds packages: ${surface.addedPackages.join(', ')}`] : []),
+      ...(surface.changedMcp?.length ? [`changes MCP servers: ${surface.changedMcp.join(', ')}`] : []),
+      ...(surface.toolsAndPoliciesChanged ? ['changes what agents can run or reach'] : []),
+    ];
+    return [
+      'Apply this change?', '',
+      `Files: ${files.join(', ')}`,
+      ...reach.map(r => `Also ${r}.`),
+      plan.restart ? 'Takes effect after restarting ./run.' : 'Takes effect after /reload.',
+    ].join('\n');
+  };
+  // A revision turn that proposes a change ends with a prompt: discuss (the
+  // default, so a stray Enter changes nothing), apply or discard. Only a
+  // direct /forge request arms the planner, the prompt is the approval, and a
+  // session without a UI never applies.
   pi.on('agent_end', async (_event, ctx) => {
-    const plan = armed && !review ? pending : null;
-    pending = null;
-    hide();
-    if (!plan) return;
-    try {
-      if (!ctx.hasUI) throw new Error('The proposal was not applied: approving it needs an interactive session');
-      if (!await ctx.ui.confirm('Apply this change?', json(plan.preview))) { tell(ctx, 'Declined; nothing applied.'); return; }
-      tell(ctx, applyChange(root, plan, true));
-    } catch (error) { tell(ctx, error.message, 'error'); }
+    if (!armed) return;
+    const plan = proposedThisTurn && !review ? pending : null;
+    proposedThisTurn = false;
+    if (!ctx.hasUI) {
+      hide();
+      if (plan) tell(ctx, 'The proposal was not applied: approving it needs an interactive session', 'error');
+      return;
+    }
+    if (!plan) { stay(ctx); return; }
+    const choice = await ctx.ui.select(promptFor(plan), ["Let's discuss", 'Apply', 'Discard']);
+    if (choice === 'Apply') {
+      const files = promptFor(plan).split('\n').find(l => l.startsWith('Files: ')).slice('Files: '.length);
+      hide();
+      try { tell(ctx, `Applied: ${files}. ${applyChange(root, plan, true)}`); } catch (error) { tell(ctx, error.message, 'error'); }
+      return;
+    }
+    if (choice === 'Discard') { hide(); tell(ctx, 'Discarded; nothing applied.'); return; }
+    stay(ctx);
+    tell(ctx, 'Nothing applied. Reply to discuss or change the proposal; /forge exit leaves without changes.');
   });
   pi.on('tool_call', event => {
-    if (armed && event.toolName !== 'forge_plan') return { block: true, reason: 'Maintenance uses only forge_plan; operational tools are suspended for this turn' };
+    if (armed && event.toolName !== 'forge_plan') return { block: true, reason: 'Maintenance uses only forge_plan; operational tools are suspended while in /forge' };
   });
   pi.on('session_start', (_event, ctx) => {
     // Report specialists that would start without their tools or skills.
@@ -259,12 +302,20 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     // Maintenance is a separate loadout, not an expansion of operational
     // authority. Review cannot reach Bash/write/edit, MCP or subagents.
     pi.setActiveTools(['forge_plan']);
+    statusUi = ctx.ui;
+    ctx.ui?.setStatus?.('forge', 'In /forge: reply to continue · /forge exit to leave');
     const workflow = readFileSync(new URL('./SKILL.md', import.meta.url), 'utf8').split('## Project maintenance workflow\n')[1];
-    pi.sendUserMessage(`${workflow}\n\nMode: ${review ? 'READ-ONLY REVIEW' : 'CHANGE PROPOSAL'}.\nUser request: ${request || 'review'}\n\nUse forge_plan inspect first. The command grants no Bash/write privileges. Follow-up maintenance turns must also start with /forge.`);
+    pi.sendUserMessage(`${workflow}\n\nMode: ${review ? 'READ-ONLY REVIEW' : 'CHANGE PROPOSAL'}.\nUser request: ${request || 'review'}\n\nUse forge_plan inspect first. The command grants no Bash/write privileges. The person's replies continue this conversation until they apply or discard a proposal, or leave with /forge exit.`);
   };
   return async (args, ctx) => {
     try {
       const request = (args ?? '').trim();
+      if (request === 'exit') {
+        if (!armed) { tell(ctx, 'Not in /forge.'); return; }
+        hide();
+        tell(ctx, 'Left /forge; nothing applied.');
+        return;
+      }
       if (request === 'check') return check(ctx);
       if (request === 'status') return await status(ctx);
       if (request === 'sync') return await sync(ctx);
