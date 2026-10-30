@@ -359,7 +359,7 @@ export function validateSystem(doc, { tolerate = [] } = {}) {
               checkStringArray(cli.args, `${path}.args`, errors);
               if (Array.isArray(cli.args)) cli.args.forEach((arg, j) => {
                 if (typeof arg === "string" && isMisplacedPlaceholder(arg)) {
-                  errors.push(`${path}.args[${j}] looks like a placeholder but isn't one: a placeholder is a whole argument, "{name}" or "{name:file}" in lowercase`);
+                  errors.push(`${path}.args[${j}] looks like a placeholder but isn't one: a placeholder is a whole argument in lowercase: "{name}" is a value you supply; "{name:file}" writes your text to a temporary file and passes its path`);
                 }
               });
             }

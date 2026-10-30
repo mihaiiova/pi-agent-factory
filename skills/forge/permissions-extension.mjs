@@ -18,7 +18,7 @@ import { readText } from './maintenance-store.mjs';
 import { planChange, applyChange } from './maintenance.mjs';
 import {
   cliEntries, cliToolName, cliAgents, placeholders, describeCall, checkShape, buildArgv,
-  formatCommand, runCommand, splitCommandLine, grantOps, revokeOps, readRequests, writeRequests,
+  formatCommand, runCommand, splitCommandLine, grantOps, revokeOps, readRequests, writeRequests, commandShape, readerFileWarning,
 } from './cli-tools.mjs';
 import { enforcedAgentTools } from './policy.mjs';
 
@@ -80,13 +80,13 @@ export function registerPermissions(pi, Type, root) {
   pi.registerTool({
     name: 'request_permission',
     label: 'Request permission',
-    description: 'Ask the user to let you run a command you have no tool for. Propose a reusable shape: fixed words in args, and "{name}" (or "{name:file}" for long text, passed as a temporary file path) for the parts that change, with their values for this call. The user can allow it once, save it as a permanent command tool, or deny it. Runs without a shell.',
+    description: 'Ask the user to let you run a command you have no tool for. Propose a reusable shape: fixed words in args, and "{name}" for a value you supply (including an existing path), or "{name:file}" to write your text to a temporary file and pass its path for the parts that change, with their values for this call. The user can allow it once, save it as a permanent command tool, or deny it. Runs without a shell.',
     promptSnippet: 'Ask the user to allow a command you have no tool for',
     promptGuidelines: ['When you are blocked because you have no tool for a command-line task, use request_permission with the narrowest command shape that does the job, and say why. Never work around a missing permission another way.'],
     parameters: Type.Object({
       name: Type.String({ description: 'kebab-case name for the command if saved, e.g. create-issue' }),
       command: Type.String({ description: 'the program, e.g. gh' }),
-      args: Type.Array(Type.String(), { description: 'arguments; "{name}" or "{name:file}" for the parts that change' }),
+      args: Type.Array(Type.String(), { description: 'arguments; "{name}" is a value you supply (e.g. an existing path); "{name:file}" writes your supplied text to a temporary file and passes that path' }),
       values: Type.Optional(Type.Record(Type.String(), Type.String(), { description: 'values for the placeholders in this call' })),
       reason: Type.String({ description: 'why you need it, in one sentence' }),
     }),
@@ -95,19 +95,25 @@ export function registerPermissions(pi, Type, root) {
       try { checkShape(entry); } catch (error) { return text(error.message, true); }
       const current = loadModel(root);
       if (!current) return text('.pi/system.yaml is invalid; nothing ran.', true);
-      const declared = cliEntries(current).find((c) => c.command === entry.command && JSON.stringify(c.args ?? []) === JSON.stringify(entry.args));
-      if (declared) return text(`This command is already declared as ${cliToolName(declared.name)}${cliAgents(current, declared.name).includes(current.orchestrator?.name) ? '; call that tool' : ', but not for you; run /reload if it was just added'}.`, true);
-      try { checkValues(entry.args, params.values); } catch (error) { return text(error.message, true); }
+      const equivalents = cliEntries(current).filter((c) => commandShape(c) === commandShape(entry));
+      const declared = equivalents.find(c => cliAgents(current, c.name).includes(current.orchestrator?.name) && model && cliEntries(model).some(m => m.name === c.name && commandShape(m) === commandShape(c)) && cliAgents(model, c.name).includes(model.orchestrator?.name)) ?? equivalents.find(c => cliAgents(current, c.name).includes(current.orchestrator?.name)) ?? equivalents[0];
+      if (declared) {
+        const permitted = cliAgents(current, declared.name).includes(current.orchestrator?.name);
+        const loaded = model && cliEntries(model).some(c => c.name === declared.name && commandShape(c) === commandShape(declared)) && cliAgents(model, declared.name).includes(model.orchestrator?.name);
+        return text(`This command is already declared as ${cliToolName(declared.name)}${!permitted ? ', but not for you; ask the user to grant access with /forge permissions' : loaded ? '; call that tool' : '; it will be available after /reload'}.`, true);
+      }
+      const warning = readerFileWarning(entry);
+      try { checkValues(entry.args, params.values); } catch (error) { return text(`${error.message}${warning ? `\n${warning}` : ''}`, true); }
       if (!ctx?.hasUI) {
         if (blockWorkflowApproval(`request_permission ${entry.name}: ${describeCall(entry, params.values ?? {})}`)) {
           return text(`${entry.name} needs approval; nothing ran.`, true);
         }
         const requests = readRequests(root).filter((r) => !(r.command === entry.command && JSON.stringify(r.args) === JSON.stringify(entry.args)));
         writeRequests(root, [...requests, { name: entry.name, command: entry.command, args: entry.args, reason: params.reason, requestedAt: new Date().toISOString() }]);
-        return text('Saved as a pending request; nothing ran. Tell the user what is blocked. They can approve it with /forge permissions review.', true);
+        return text(`Saved as a pending request; nothing ran. Tell the user what is blocked. They can approve it with /forge permissions review.${warning ? `\n${warning}` : ''}`, true);
       }
-      const choice = await ctx.ui.select(`The agent asks to run a command:\n\n${describeCall(entry, params.values)}\n\nWhy: ${params.reason}\nAs a saved command: ${shape(entry)}`, ['Allow once', `Always allow (save "${entry.name}" to system.yaml)`, 'Deny']);
-      if (!choice || choice === 'Deny') return text('The user denied this command. Do not try to run it another way.', true);
+      const choice = await ctx.ui.select(`${warning ? `${warning}\n\n` : ''}The agent asks to run a command:\n\n${describeCall(entry, params.values)}\n\nWhy: ${params.reason}\nAs a saved command: ${shape(entry)}`, ['Allow once', `Always allow (save "${entry.name}" to system.yaml)`, 'Deny']);
+      if (!choice || choice === 'Deny') return text(`The user denied this command. Do not try to run it another way.${warning ? `\n${warning}` : ''}`, true);
       let saved = '';
       if (choice !== 'Allow once') {
         try {
@@ -116,7 +122,7 @@ export function registerPermissions(pi, Type, root) {
         } catch (error) { saved = `\nNot saved: ${error.message}. It ran once.`; }
       }
       const result = await runCommand(root, entry, params.values ?? {}, { signal });
-      return text(result.text + saved, !result.ok);
+      return text(result.text + saved + (warning ? `\n${warning}` : ''), !result.ok);
     },
   });
 
@@ -161,6 +167,10 @@ export function registerPermissions(pi, Type, root) {
         }
         const entry = { name, command, args: cmdArgs, approve };
         checkShape(entry);
+        const duplicate = cliEntries(current).find(c => commandShape(c) === commandShape(entry));
+        if (duplicate) throw new Error(`Equivalent command already declared as ${duplicate.name}; use it or grant access instead`);
+        const warning = readerFileWarning(entry);
+        if (warning) tell(warning, 'warning');
         const applied = await confirmChange(root, ctx, `Add the command "${name}"?`, grantOps(current, entry, agents));
         return tell(applied === null ? 'Cancelled; nothing changed.' : applied);
       }

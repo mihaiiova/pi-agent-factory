@@ -43,6 +43,25 @@ export function placeholders(args) {
   return [...seen.values()];
 }
 
+/** Canonical shape preserves repeated placeholder identity and file semantics. */
+export function commandShape(entry) {
+  const names = new Map();
+  return JSON.stringify([entry.command, ...(entry.args ?? []).map(arg => {
+    const m = typeof arg === 'string' && arg.match(PLACEHOLDER_RE);
+    if (!m) return ['literal', arg];
+    if (!names.has(m[1])) names.set(m[1], names.size);
+    return ['placeholder', names.get(m[1]), Boolean(m[2])];
+  })]);
+}
+
+export function readerFileWarning(entry) {
+  const program = String(entry.command ?? '').split('/').pop();
+  const params = placeholders(entry.args);
+  if (['cat', 'head', 'less', 'sed', 'awk'].includes(program) && params.length === 1 && params[0].file)
+    return `Warning: {${params[0].name}:file} is your text written to a temporary file, not a path to an existing file. Use {${params[0].name}} to supply a path.`;
+  return '';
+}
+
 /** Agents that may run a declared command: names whose tools list `cli:<name>`. */
 export function cliAgents(model, name, enforcedTools) {
   const out = [];
@@ -106,7 +125,7 @@ export function checkShape({ name, command, args }) {
   if (typeof command !== 'string' || !command.trim() || /[\s\0]/.test(command)) throw new Error('command must be one program name or path, without spaces (put arguments in args)');
   if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) throw new Error('args must be an array of strings');
   const bad = args.find(isMisplacedPlaceholder);
-  if (bad !== undefined) throw new Error(`"${bad}": a placeholder must be a whole argument ("{name}" or "{name:file}", lowercase)`);
+  if (bad !== undefined) throw new Error(`"${bad}": a placeholder must be a whole argument, lowercase: "{name}" is a value you supply; "{name:file}" writes your text to a temporary file and passes its path`);
 }
 
 /**

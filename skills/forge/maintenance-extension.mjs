@@ -215,7 +215,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     const versions = report.versions ? `Build: ${report.versions.build ?? 'unknown'}; tooling: ${report.versions.tooling}.${report.versions.fix ? ` ${report.versions.fix}` : ''}` : '';
     if (result.ok && report.ok) {
       const summary = report.capabilities.some(c => c.status === 'not verifiable' || c.status.startsWith('last seen ')) ? 'No missing capabilities found; some are not verified now.' : 'All checks passed: system.yaml is valid and the generated files match it.';
-      tell(ctx, `${summary}\n${versions}\n${evidence}`); return;
+      tell(ctx, `${summary}\n${versions}\n${evidence}${result.advisories?.length ? `\n\nAdvisories (non-blocking):\n${result.advisories.map(p => `- ${p}`).join('\n')}` : ''}`); return;
     }
     const section = (name, problems, fix) => problems === null ? `${name}: skipped until system.yaml is valid`
       : problems.length ? `${name}: ${problems.length} problem${problems.length === 1 ? '' : 's'}\n${problems.map(p => `- ${p}`).join('\n')}${fix ? `\n${fix}` : ''}` : `${name}: ok`;
@@ -223,6 +223,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
       section('Validation', result.validation, 'Describe the fix with /forge <request>.'),
       section('Consistency', result.consistency, 'Run /forge sync to rebuild the generated files from system.yaml.'),
       section('Launch check', result.launch),
+      ...(result.advisories?.length ? [section('Advisories (non-blocking)', result.advisories)] : []),
       versions,
       evidence,
     ].join('\n\n'), 'warning');
@@ -295,7 +296,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     await ctx.waitForIdle();
     hide();
     pending = null;
-    review = !request || /^review(?:\s|$)/i.test(request) || /how (?:can|could) we improve/i.test(request);
+    review = !request || (!/\b(?:apply|implement|make|change|update|add|remove|fix|create)\b/i.test(request) && (/\b(?:review|list|suggest|suggestions|recommendations)\b/i.test(request) || /how (?:can|could) we improve/i.test(request))) || /\b(?:review[- ]only|read[- ]only|do not (?:make|apply|implement)|don't (?:make|apply|implement))\b/i.test(request);
     armed = true;
     savedTools = pi.getActiveTools().filter(n => n !== 'forge_plan');
     pi.registerTool({ ...tool, exposure: 'model-only' });
