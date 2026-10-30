@@ -22,7 +22,9 @@ test('clean launcher installs the pinned package and registers its commands', {
 
   // The launcher supplies PI_CODING_AGENT_DIR itself. Do not inherit the
   // caller's Pi home, credentials, npm cache or Git configuration.
-  const env = { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), XDG_CACHE_HOME: join(home, '.cache') };
+  // npm, which Pi runs to install packages, otherwise writes a debug log and
+  // an update check from detached processes after Pi exits, racing the cleanup.
+  const env = { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), XDG_CACHE_HOME: join(home, '.cache'), npm_config_logs_max: '0', npm_config_update_notifier: 'false' };
   const child = spawn(join(project, 'run'), ['--mode', 'rpc', '--no-session'], { cwd: project, env, stdio: ['pipe', 'pipe', 'pipe'] });
   // Stop Pi and wait for it before removing the files it may still write.
   t.after(async () => {
@@ -33,8 +35,11 @@ test('clean launcher installs the pinned package and registers its commands', {
       await Promise.race([exited, new Promise(done => setTimeout(done, 10000))]);
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     }
-    // npm, which Pi ran to install the packages, may still be writing its log.
-    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    // npm processes Pi started can still write into the home for a few seconds.
+    for (let tries = 0; ; tries++) {
+      try { rmSync(root, { recursive: true, force: true }); break; }
+      catch (error) { if (error.code !== 'ENOTEMPTY' || tries >= 30) throw error; await new Promise(done => setTimeout(done, 500)); }
+    }
   });
   let stderr = '';
   child.stderr.setEncoding('utf8');

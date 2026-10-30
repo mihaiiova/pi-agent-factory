@@ -13,10 +13,23 @@ at the end. Each one is scoped for a single implementation session.
   The repository is `mihaiiova/pi-forge`.
 - **Versioning:** Forge stays below 1.0 for now; #27 planned 1.0.0, and that was
   deferred. Pre-1.0 releases may break projects, which are regenerated.
-- **Next:** build the first MVP agent with Forge and expose it to other agents
-  as an MCP server (outside Forge) through `./run --workflow`. Then, as that
-  agent needs them: #35 (run index), #33 (a coding agent's `AGENTS.md`), #29
-  and #30 (packages).
+- **First agent:** Revisor, a web and CLI testing bot exposed to other agents
+  over MCP, built with v0.21.0. Building it produced #42 and specs #43–#53,
+  all general to any Forge agent, and extended #35 and #40.
+- **Next, in order:**
+  1. #43, #44 and #35: structured results, a folder per run, and the run
+     index linking sessions, specialist transcripts, files and cost.
+  2. #53 (a separate model for `/forge`), #45 (keep specialists in their
+     project) and #50 (first-run guidance).
+  3. #49 (setup steps).
+  4. #47 (recorded commands), then #48 (a Gondolin sandbox, Pi-native,
+     installed at setup).
+  5. #46 (workflows over MCP).
+  6. #40 (run evidence in revisions).
+  7. #51 (`/forge` changing project code, design first).
+  8. #52 (skill suggestions for unattended agents).
+
+  Evals are deferred. #33, #29 and #30 come when an agent needs them.
 - **Known limitations:**
   - A personal Forge install from a local checkout loads next to a project's
     pin, so commands appear twice inside generated projects (install from the
@@ -242,7 +255,18 @@ workflow-invocation ─▶ run-index ─▶ acceptance-scenarios ─▶ scenario
 | [#38](https://github.com/mihaiiova/pi-forge/issues/38) | M3 | Declare acceptance scenarios and evaluate a run against them |
 | [#39](https://github.com/mihaiiova/pi-forge/issues/39) | M3 | Run acceptance scenarios safely and report diagnostics |
 | [#40](https://github.com/mihaiiova/pi-forge/issues/40) | M4 | Use run evidence in /forge status and in revisions |
+| [#43](https://github.com/mihaiiova/pi-forge/issues/43) | First run (#42) | Declare a structured result for workflows |
+| [#44](https://github.com/mihaiiova/pi-forge/issues/44) | First run (#42) | Give each workflow run its own folder |
+| [#45](https://github.com/mihaiiova/pi-forge/issues/45) | First run (#42) | Keep specialists in their project when the lead launches them |
+| [#46](https://github.com/mihaiiova/pi-forge/issues/46) | First run (#42) | Expose declared workflows as MCP tools |
+| [#47](https://github.com/mihaiiova/pi-forge/issues/47) | First run (#42) | Recorded commands: run shell commands with a timeout, secrets by name and a receipt |
+| [#48](https://github.com/mihaiiova/pi-forge/issues/48) | First run (#42) | Run recorded commands in a Gondolin sandbox |
+| [#49](https://github.com/mihaiiova/pi-forge/issues/49) | First run (#42) | Declare and run setup steps for integrations |
+| [#50](https://github.com/mihaiiova/pi-forge/issues/50) | First run (#42) | Guide the first run of a generated project |
+| [#51](https://github.com/mihaiiova/pi-forge/issues/51) | First run (#42) | Let /forge change a project's own code |
+| [#52](https://github.com/mihaiiova/pi-forge/issues/52) | First run (#42) | Flag skills that can't work in unattended workflows |
+| [#53](https://github.com/mihaiiova/pi-forge/issues/53) | First run (#42) | Choose a separate model for /forge |
 
 Done: [#25](https://github.com/mihaiiova/pi-forge/issues/25) and [#41](https://github.com/mihaiiova/pi-forge/issues/41) (v0.19.0), [#27](https://github.com/mihaiiova/pi-forge/issues/27) and [#28](https://github.com/mihaiiova/pi-forge/issues/28) (v0.20.0), [#32](https://github.com/mihaiiova/pi-forge/issues/32) and [#34](https://github.com/mihaiiova/pi-forge/issues/34) (v0.21.0). Closed without implementation: [#26](https://github.com/mihaiiova/pi-forge/issues/26) (migration bridge, not needed) and [#36](https://github.com/mihaiiova/pi-forge/issues/36) (scheduler, decided).
 
-**Next:** build the first MVP agent with Forge (see Status), then [#35](https://github.com/mihaiiova/pi-forge/issues/35), [#33](https://github.com/mihaiiova/pi-forge/issues/33), [#29](https://github.com/mihaiiova/pi-forge/issues/29) and [#30](https://github.com/mihaiiova/pi-forge/issues/30) as the agent needs them.
+**Next:** [#43](https://github.com/mihaiiova/pi-forge/issues/43), [#44](https://github.com/mihaiiova/pi-forge/issues/44) and [#35](https://github.com/mihaiiova/pi-forge/issues/35); the full order is in Status.
