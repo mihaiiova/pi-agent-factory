@@ -145,3 +145,11 @@ test('capability report includes orchestrator skills and their provider', async 
   const report = checkAgent(root);
   assert.ok(report.capabilities.some(c => c.agent === 'lead' && c.name === 'skill:audit' && c.status === 'missing' && c.provider.includes('.agents/skills/audit')));
 });
+
+test('live launch check does not assume a missing extension is an uninstalled package', t => {
+  const root = project(t);
+  const declared = { ...model, orchestrator: { ...model.orchestrator, tools: ['subagent'] } };
+  const result = launchCheck(root, declared, { registeredTools: [] });
+  assert.ok(result.problems.some(p => p.problem.includes('subagent: no loaded extension')));
+  assert.ok(result.problems.every(p => !p.problem.includes("run ./run once")));
+});

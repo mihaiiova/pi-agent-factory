@@ -22,6 +22,7 @@ Top-level keys (all others rejected):
 | `workflows` | no | array | declared workflow boundaries (metadata only) |
 | `documents` | no | array | agreed formats for documents agents write or return |
 | `policies` | no | object | enforced + advisory policy |
+| `setup` | no | array | project setup checks and installs (see Setup checks) |
 | `packages` | no | array of `npm:`/`git:` specs | additional runtime extension packages (`pi-subagents` is always included; `pi-mcp-adapter` is rejected because it would replace Pi's built-in MCP; packaged skill sources are added automatically) |
 
 The **orchestrator is a top-level block**, not an `agents[]` entry. Pi has no
@@ -150,7 +151,7 @@ Duplicate `name`s are rejected.
 Allowed keys: `mcp` (array), `env` (array) and `cli` (array).
 
 - `mcp[]` entries: `name` (required string) and `config` (required non-empty
-  object). Generated systems use Pi's built-in MCP, and the connection
+  object); optional `setup` and `secretsFile` are described under Setup checks. Generated systems use Pi's built-in MCP, and the connection
   settings pass through to `.pi/mcp.json`: `{url, headers?, oauth?}` or
   `{command, args?, env?, cwd?}`, plus `description` and `timeout`. Three
   keys are Forge's and become Pi's exposure:
@@ -179,7 +180,7 @@ Allowed keys: `mcp` (array), `env` (array) and `cli` (array).
   `PI_CODING_AGENT_DIR`, `FORGE_*`, …) are rejected.
 - `cli[]` entries declare command-line tools: `name` (required kebab-case),
   `description`, `command` (required: one program name or path, no spaces),
-  `args` (array of strings) and `approve` (boolean, default `true`). An
+  `args` (array of strings), `approve` (boolean, default `true`), and optional `setup` and `secretsFile` (see Setup checks). An
   argument that is exactly `{name}` is a value the agent supplies for each
   call (it may not start with `-`); `{name:file}` writes the agent's text to
   a temporary file and passes its path. Every other argument is fixed. The
@@ -326,10 +327,18 @@ Full text of `docs/agent-factory.md` §C.6:
    this MVP, never auto-applies a conflict — the user resolves it by editing the
    file or re-running after a deliberate edit).
    **Exception for `.gitignore`:** generation and change/rebuild plans append a
-   marked block containing any missing `.env`, `.forge/`, `.pi/state.json`
-   and `.pi/sessions/` entries. Existing lines are never rewritten or reordered;
-   an exact entry with or without a trailing slash counts as present. The append
-   is shown in dry runs and change previews, and repeating it is a no-op.
+   marked block containing any missing `.env`, `.forge/`, `.pi/state.json`,
+   `.pi/sessions/`, `.pi/git/`, and `.pi/npm/` entries, plus declared
+   integration secret file paths.
+   Existing lines are never rewritten or reordered. An exact directory entry
+   with or without a trailing slash counts as present; file entries must not
+   have a trailing slash. If a potentially matching root negation follows a
+   required exact rule, or exists when that rule is absent, Forge refuses to
+   apply: resolve the rules explicitly rather than letting Forge override them.
+   Wildcard negations are treated conservatively and can be rejected even when
+   unrelated. Forge also refuses nested negation rules along required `.pi`
+   paths and declared integration secret paths, even if unrelated. The append is shown in
+   dry runs and change previews, and repeating it is a no-op.
    **Vendored skill directories** (`skills[].source` paths) are user-owned
    copies: created once from the source, never overwritten or deleted by the
    forge. Delete a copy explicitly to refresh it from its source.
@@ -352,3 +361,20 @@ authored conflicts, and require separately confirmed drift reconciliation.
 `system.yaml` is parsed with the **`yaml`** package (v2.8.3), pinned in
 `pi.packages` and resolved from the Pi package install dir by
 `yaml-loader.mjs` — never a hand-rolled YAML subset.
+
+### Setup checks
+
+The project and entries in `integrations.mcp` and `integrations.cli` can declare `setup` steps:
+
+```yaml
+setup:
+  - description: Install the browser
+    check: { command: 'test -x ./browser' }
+    install: 'npm run install-browser'
+    platforms: [linux, darwin]
+    needsRoot: false
+```
+
+Alternatively use `check: { file: path }`. Checks run automatically during generation, checks and headless workflow startup. **Command checks execute shell code with the user's permissions and may have side effects or access secrets. Only use trusted project declarations.** Do not put literal credentials in setup commands; use environment references. Install commands run only after confirmation via `/forge setup` or `forge setup <dir> --yes`; `needsRoot` commands are printed for manual execution. Headless workflows never install.
+
+MCP and CLI integrations may declare `secretsFile: .forge/service-secrets.env`. Paths must be project-relative, use only letters, digits, `_`, `-`, `.`, and `/`, and contain no `.` or `..` components or symlinks. Forge adds an anchored gitignore entry and creates the missing file with mode 0600 without replacing existing content. Before applying, Forge conservatively refuses any negation rule in a nested `.gitignore` along the secret file's directory path, even if unrelated; resolve it explicitly. Root negations are handled as described in the `.gitignore` exception above. Existing files must be regular, private, and untracked/ignored; Forge reports problems rather than changing them. `/forge env set NAME --file .forge/service-secrets.env` writes a declared `integrations.env` variable to that explicitly selected declared file. Without `--file`, the existing `.env` behavior remains. The integration must be configured to read its secrets file; Forge does not automatically load it. Git ignore cannot undo committed secrets. Path checks are not a defense against hostile concurrent filesystem changes.

@@ -27,7 +27,26 @@ export function registerAgent(pi, Type, root, { maintaining = () => false, argv 
   registerMcpBoundary(pi, root);
   const permissions = registerPermissions(pi, Type, root);
   registerAgentContext(pi, root, argv);
+  registerCredentialNotice(pi, root);
   return permissions;
+}
+
+const PROVIDER_ENV = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', deepseek: 'DEEPSEEK_API_KEY', openrouter: 'OPENROUTER_API_KEY', google: 'GEMINI_API_KEY' };
+
+/** Query Pi's configured-auth status only; never resolve or display credential values. */
+function registerCredentialNotice(pi, root) {
+  if (process.env.PI_SUBAGENT_CHILD === '1') return;
+  pi.on('session_start', (_event, ctx) => {
+    if (!ctx?.hasUI || typeof ctx.modelRegistry?.getProviderAuthStatus !== 'function') return;
+    let model;
+    try { model = parsedModel(readText(root, '.pi/system.yaml')); } catch { return; }
+    const providers = new Set([model.orchestrator, ...(model.agents ?? [])].map(agent => agent?.model?.split('/')[0]).filter(Boolean));
+    for (const provider of providers) {
+      if (ctx.modelRegistry.getProviderAuthStatus(provider).configured) continue;
+      const env = PROVIDER_ENV[provider];
+      ctx.ui.notify(`Provider ${provider} is unavailable or has no credentials. Check the project provider configuration and use /login ${provider}${env ? ` or set ${env} before starting ./run` : ', or see Pi provider documentation for environment setup'}.`, 'warning');
+    }
+  });
 }
 
 /**

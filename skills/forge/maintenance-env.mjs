@@ -1,6 +1,8 @@
 /** Project `.env` values for declared `integrations.env` names. Values are
  * written only from a direct user command and never returned to the model. */
-import { readText, atomicWrite } from './maintenance-store.mjs';
+import { readText, atomicWrite, safePath } from './maintenance-store.mjs';
+import { constants, openSync, fstatSync, readFileSync, closeSync } from 'node:fs';
+import { integrationSecrets, secretFileProblem } from './integration-secrets.mjs';
 
 const LINE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
 
@@ -21,10 +23,21 @@ export function envFileNames(text) {
 /** Which declared variables are set, without exposing any value. */
 export function envStatus(root, model, environment = process.env) {
   const fromFile = envFileNames(readText(root, '.env'));
+  const secretNames = [];
+  for (const path of new Set(integrationSecrets(model))) {
+    if (secretFileProblem(root, path)) continue;
+    let fd;
+    try {
+      fd = openSync(safePath(root, path), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const info = fstatSync(fd);
+      if (info.isFile() && info.nlink === 1 && !(info.mode & 0o077)) secretNames.push([path, envFileNames(readFileSync(fd, 'utf8'))]);
+    } catch { /* An unsafe or inaccessible file is reported separately by check. */ }
+    finally { if (fd !== undefined) closeSync(fd); }
+  }
   return declaredEnv(model).map(e => ({
     name: e.name,
     secret: e.secret === true,
-    set: fromFile.has(e.name) ? '.env' : environment[e.name] ? 'shell environment' : 'not set',
+    set: fromFile.has(e.name) ? '.env' : environment[e.name] ? 'shell environment' : secretNames.find(([, names]) => names.has(e.name))?.[0] ?? 'not set',
   }));
 }
 
@@ -40,7 +53,12 @@ export function withEnvValue(text, name, value) {
   return `${lines.join('\n')}\n`;
 }
 
-export function setEnvValue(root, model, name, value) {
+export function setEnvValue(root, model, name, value, destination = '.env') {
   if (!declaredEnv(model).some(e => e.name === name)) throw new Error(`${name} is not declared in integrations.env; propose declaring it first`);
-  atomicWrite(root, '.env', withEnvValue(readText(root, '.env'), name, value));
+  if (destination !== '.env') {
+    if (!integrationSecrets(model).includes(destination)) throw new Error('Destination is not a declared integration secretsFile');
+    const problem = secretFileProblem(root, destination);
+    if (problem) throw new Error(`Integration secretsFile ${destination}: ${problem}`);
+  }
+  atomicWrite(root, destination, withEnvValue(readText(root, destination), name, value));
 }

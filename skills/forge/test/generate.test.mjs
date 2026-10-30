@@ -327,14 +327,14 @@ test("existing gitignore gets only missing safety entries without changing user 
   const original = "# user rules\nnode_modules\n.env/\n.pi/sessions";
   const file = byPath(generateProject(model, { ".gitignore": original }).files, ".gitignore");
   assert.equal(file.action, "write");
-  assert.equal(file.content, original + "\n# forge: required ignores\n.forge/\n.pi/state.json\n.pi/git/\n.pi/npm/\n");
+  assert.equal(file.content, original + "\n# forge: required ignores\n.env\n.forge/\n.pi/state.json\n.pi/git/\n.pi/npm/\n");
   const again = byPath(generateProject(model, { ".gitignore": file.content }).files, ".gitignore");
   assert.equal(again.action, "none");
   assert.equal(again.content, file.content);
 });
 
 test("complete user gitignore stays byte-for-byte unchanged", () => {
-  const original = "# hand-written\r\n.env/\r\n.forge\r\n.pi/state.json/\r\n.pi/sessions\r\n.pi/git\r\n.pi/npm/\r\n";
+  const original = "# hand-written\r\n.env\r\n.forge\r\n.pi/state.json\r\n.pi/sessions\r\n.pi/git\r\n.pi/npm/\r\n";
   const file = byPath(generateProject(model, { ".gitignore": original }).files, ".gitignore");
   assert.equal(file.action, "none");
   assert.equal(file.content, original);

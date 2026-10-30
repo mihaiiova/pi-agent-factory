@@ -134,3 +134,31 @@ test("settings keep Pi's built-in MCP on and the user's other extension entries"
   const merged = JSON.parse(generateProject(model, existing, { piPackages: pkg.pi.packages }).files.find((f) => f.path === '.pi/settings.json').content);
   assert.deepEqual(merged.extensions, ['./my-ext.ts']);
 });
+
+test('session start warns once per missing provider without reading credentials', t => {
+  const root = project(t, { ...model, orchestrator: { ...model.orchestrator, model: 'deepseek/chat' }, agents: [{ name: 'one', model: 'openai/a' }, { name: 'two', model: 'openai/b' }] });
+  const events = {};
+  const pi = { registerTool() {}, on(n, cb) { (events[n] ??= []).push(cb); }, getActiveTools: () => [], setActiveTools() {} };
+  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
+  registerAgent(pi, Type, root);
+  const notices = [];
+  const ctx = { hasUI: true, ui: { notify: text => notices.push(text) }, modelRegistry: { getProviderAuthStatus: provider => ({ configured: provider === 'openai' }) } };
+  for (const cb of events.session_start) cb({}, ctx);
+  assert.equal(notices.length, 1);
+  assert.match(notices[0], /deepseek.*\/login deepseek.*DEEPSEEK_API_KEY/);
+});
+
+test('credential notice skips headless sessions and missing models', t => {
+  const root = project(t, model);
+  const events = {};
+  const pi = { registerTool() {}, on(n, cb) { (events[n] ??= []).push(cb); }, getActiveTools: () => [], setActiveTools() {} };
+  const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
+  registerAgent(pi, Type, root);
+  const notices = [];
+  const ctx = { hasUI: false, ui: { notify: x => notices.push(x) }, modelRegistry: { getProviderAuthStatus: () => ({ configured: false }) } };
+  for (const cb of events.session_start) cb({}, ctx);
+  assert.deepEqual(notices, []);
+  rmSync(join(root, '.pi/system.yaml'));
+  for (const cb of events.session_start) cb({}, { ...ctx, hasUI: true });
+  assert.deepEqual(notices, []);
+});

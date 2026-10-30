@@ -223,6 +223,12 @@ without a shell, with your own CLI logins. In a running system:
 
 A generated project starts with `./run`, which isolates it from your global Pi
 configuration (own config dir, own credentials: `/login` once per project).
+On interactive startup Forge warns about declared model providers without
+configured credentials. For example, use `/login deepseek` in `./run` or set
+`DEEPSEEK_API_KEY` before starting it. Run `./run` once to install the pinned
+packages before checking extension-provided tools or starting a named workflow.
+On first installation Pi may leave npm output pipes open briefly after exit.
+
 A coding orchestrator can opt into repository instructions in `.pi/system.yaml`:
 
 ```yaml
@@ -359,3 +365,18 @@ cd /path/to/pi-forge && git remote set-url origin https://github.com/mihaiiova/p
 
 Then `/reload`. `/pi-sync` now syncs `pi-personal`; update this repository with
 `git pull`.
+
+### Project setup checks
+
+A trusted project's `system.yaml` can declare setup checks at project level or on MCP and CLI integrations:
+
+```yaml
+setup:
+  - description: Install the browser
+    check: { file: ./browser }
+    install: npm run install-browser
+```
+
+`/forge check` reports unmet steps; `/forge setup` previews installs and asks for confirmation. For non-interactive administration use `forge setup <dir> --yes`. Steps marked `needsRoot` are printed, not run. Workflow launches never install. **Command checks execute shell code with your permissions automatically**, including during checks and workflow startup; use only trusted declarations.
+
+An MCP or CLI integration may also declare `secretsFile: .forge/service-secrets.env`. Forge creates a missing file privately, does not overwrite an existing file, and adds an ignore entry. Declare the variable in `integrations.env`, then use `/forge env set API_KEY --file .forge/service-secrets.env` to choose that file explicitly; without `--file` the destination remains `.env`. The value is entered interactively, not sent to the model. Integrations must be configured to read their chosen file themselves; Forge does not load it into the launcher environment. Existing tracked files, unsafe permissions, and symlinks must be corrected by the user. Git ignore does not remove a previously committed secret.

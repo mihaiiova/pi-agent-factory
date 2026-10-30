@@ -314,7 +314,10 @@ prior approvals cannot grant that authority.
      names from the project's gitignored .env. Never ask the user to paste a
      secret into the conversation: tell them to run
      /forge env set GITHUB_PAT after applying, which stores it
-     without the model seeing it. /forge env lists what is set.
+     without the model seeing it. /forge env lists what is set. For a declared
+     integration `secretsFile`, use `/forge env set GITHUB_PAT --file <path>`;
+     the user explicitly selects the file, and the integration must be configured
+     to read it. Never ask the user to put a secret value in the conversation.
    - MCP scope is the user's choice; ask rather than assume. Generated
      systems use Pi's built-in MCP. In the config, "includeTools" lists the
      tools agents may use (omit it for all; the orchestrator then finds them

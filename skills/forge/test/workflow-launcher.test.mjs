@@ -414,3 +414,35 @@ console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopRea
   assert.equal(result.status, 0, result.stderr);
   assert.throws(() => process.kill(Number(readFileSync(marker, 'utf8')), 0), /ESRCH/);
 });
+
+test('unmet setup fails before Pi and never installs', t => {
+  const { root, env } = fixture(t);
+  const path = join(root, '.pi/system.yaml');
+  writeFileSync(path, readFileSync(path, 'utf8') + '\nsetup:\n  - description: Install dependency\n    check: { file: ready }\n    install: touch ready\n');
+  const marker = join(root, 'pi-started');
+  writeFileSync(join(root, 'bin/pi'), `#!/bin/sh\ntouch ${JSON.stringify(marker)}\n`, { mode: 0o755 });
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
+  assert.equal(result.status, 2, result.stderr);
+  const summary = JSON.parse(result.stdout.trim());
+  assert.equal(summary.status, 'configuration_error');
+  assert.match(summary.message, /Install dependency/);
+  assert.equal(existsSync(marker), false);
+  assert.equal(existsSync(join(root, 'ready')), false);
+});
+
+test('workflow reports root setup instructions and missing secret files before Pi', t => {
+  const { root, env } = fixture(t);
+  const path = join(root, '.pi/system.yaml');
+  writeFileSync(path, readFileSync(path, 'utf8') + '\nsetup:\n  - description: System dependency\n    check: { file: absent }\n    install: install-system\n    needsRoot: true\nintegrations:\n  mcp:\n    - name: sample\n      config: { command: sample }\n      secretsFile: private/keys.env\n');
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
+  assert.equal(result.status, 2, result.stderr);
+  const message = JSON.parse(result.stdout.trim()).message;
+  assert.match(message, /install-system \(run manually; needs root\)/);
+  assert.match(message, /Secrets: Integration secretsFile private\/keys.env: missing; fix: run forge generate <project-dir>/);
+  assert.doesNotMatch(message, /\/forge rebuild|run forge check(?!-agent)/);
+  mkdirSync(join(root, 'private'), { recursive: true });
+  writeFileSync(join(root, 'private/keys.env'), '', { mode: 0o644 });
+  const unsafe = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env, encoding: 'utf8' });
+  assert.equal(unsafe.status, 2, unsafe.stderr);
+  assert.match(JSON.parse(unsafe.stdout.trim()).message, /forge check-agent <project-dir> or \/forge check/);
+});

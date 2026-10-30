@@ -90,7 +90,7 @@ export function checkAgent(root, options = {}) {
         const provider = checked?.providers[name] ?? options.toolProviders?.[name];
         const present = provider || options.registeredTools?.includes(name);
         const known = registeredTools !== undefined;
-        capabilities.push({ agent: agent.name, name, provider: provider || 'extension', status: present ? 'verified now' : known ? 'missing' : 'not verifiable', fix: present ? 'None.' : 'Install or enable the providing extension; use /forge check to verify the live session.' });
+        capabilities.push({ agent: agent.name, name, provider: provider || 'extension', status: present ? 'verified now' : known ? 'missing' : 'not verifiable', fix: present ? 'None.' : checked?.missing?.length ? 'Run ./run once to install the project\'s packages, then check again.' : known ? 'Install or enable the providing extension and restart ./run if packages are not installed.' : 'Install or enable the providing extension; use /forge check to verify the live session.' });
       }
     }
     for (const name of agent === model.orchestrator ? [...skills.keys()] : (agent.skills ?? [])) {

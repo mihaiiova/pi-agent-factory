@@ -1,4 +1,4 @@
-<!-- forge:generated v1 sha256=4a0ac32163ab51e3609200a41866f16cb5ed8ab0df05b2a064374c4f48722487 -->
+<!-- forge:generated v1 sha256=740261f15a5da87e56f6f7893139be04e596ccac09efd0963ee4f66bd38cd9cf -->
 # seo-agent-system
 
 SEO analysis + article drafting
@@ -15,8 +15,13 @@ Agent Skills folder (`~/.agents/skills/`) do load, for the orchestrator.
 ./run -p "..."   # headless one-shot
 ```
 
+On the first interactive run, Pi may start npm package installation processes
+that continue briefly after Pi exits and may keep output pipes open. Callers
+should allow extra time before assuming the output stream has closed.
+
 Authenticate inside `./run` with `/login`, or export
-`PI_API_KEY` / a provider key. See the policy section below for which
+the provider-specific key (for example `DEEPSEEK_API_KEY`). See the policy
+section below for which
 capabilities are enforced vs advisory.
 
 ## Maintain

@@ -43,12 +43,15 @@ import { planChange, applyChange, withSkillPreviews } from './maintenance.mjs';
 import { fingerprints, atomicWrite } from './maintenance-store.mjs';
 import { checkAgent, loadProjectTools, connectMcp } from './check.mjs';
 import { parsedModel } from './changes.mjs';
+import { unmetSetup, installSetup } from './setup.mjs';
+import { ensureSecretFiles, preflightSecretFiles } from './integration-secrets.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const USAGE = `Usage: forge <command> [options]
 
 Commands:
+  setup <dir> --yes          run unmet setup installs after explicit approval
   validate <dir>             validate <dir>/.pi/system.yaml against schema v1
   check-agent <dir> [--connect]
                              report effective capabilities (no model calls);
@@ -409,7 +412,7 @@ function printPlan(systemPath, dir, files, existing, label) {
     } else if (f.action === "write") {
       console.log(indent(f.diff ?? diffLines(existing[f.path] ?? "", f.content), "    "));
     } else if (f.action === "conflict") {
-      console.log(`    (user edit vs model change — proposed diff)`);
+      console.log(f.reason ? `    (${f.reason})` : `    (user edit vs model change — proposed diff)`);
       console.log(indent(f.diff ?? diffLines(existing[f.path] ?? "", f.desired ?? ""), "    "));
     }
   }
@@ -444,11 +447,13 @@ function runGenerate(dir, dryRun) {
     return;
   }
 
+  try { preflightSecretFiles(resolve(dir), normalized); } catch (error) { fail(error.message); return; }
   for (const f of changes) {
     const target = join(resolve(dir), f.path);
     writeGenerated(target, f);
     console.log(`wrote ${f.path} (${f.action})`);
   }
+  try { ensureSecretFiles(resolve(dir), normalized); } catch (error) { fail(error.message); return; }
   applyVendorPlan(dir, vendor.copies);
   try { applyRegistryPlan(dir, registryPlan(dir, normalized)); } catch (err) { fail(err.message); return; }
   mkdirSync(join(resolve(dir), ".pi", "agents"), { recursive: true });
@@ -575,6 +580,7 @@ async function runModify(dir, dryRun, yes) {
     return;
   }
 
+  try { preflightSecretFiles(resolve(dir), normalized); } catch (error) { fail(error.message); return; }
   const apply = (f) => {
     const target = join(resolve(dir), f.path);
     writeGenerated(target, f);
@@ -605,6 +611,7 @@ async function runModify(dir, dryRun, yes) {
     rl.close();
   }
 
+  try { ensureSecretFiles(resolve(dir), normalized); } catch (error) { fail(error.message); return; }
   mkdirSync(join(resolve(dir), ".pi", "agents"), { recursive: true });
 
   for (const c of conflicts) {
@@ -620,6 +627,20 @@ async function main(argv) {
   if (command === "-h" || command === "--help" || command === undefined) {
     process.stdout.write(USAGE);
     process.exitCode = command === undefined ? 1 : 0;
+    return;
+  }
+
+  if (command === 'setup') {
+    if (!dir) { fail('missing <dir> argument'); return; }
+    const root = resolve(dir);
+    const model = parsedModel(readFileSync(join(root, '.pi/system.yaml'), 'utf8'));
+    const steps = unmetSetup(root, model);
+    for (const step of steps) console.log(`${step.owner}: ${step.description}\n  ${step.install}${step.needsRoot ? ' (run manually; needs root)' : ''}`);
+    if (!steps.length) { console.log('No unmet setup steps.'); return; }
+    if (!rest.includes('--yes')) { fail('setup needs explicit approval: rerun with --yes'); return; }
+    const results = installSetup(root, model, steps);
+    for (const result of results) console.log(`${result.description}: ${result.status}`);
+    if (results.some(result => result.status === 'failed')) process.exitCode = 1;
     return;
   }
 
@@ -654,6 +675,10 @@ async function main(argv) {
       return;
     }
     runGenerate(dir, dryRun);
+    if (!dryRun && !process.exitCode) {
+      const model = parsedModel(readFileSync(join(resolve(dir), '.pi/system.yaml'), 'utf8'));
+      for (const step of unmetSetup(resolve(dir), model)) console.error(`warning - setup ${step.owner}: ${step.description}; fix: ${step.install}`);
+    }
     return;
   }
 

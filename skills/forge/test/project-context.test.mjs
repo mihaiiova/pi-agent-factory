@@ -71,3 +71,18 @@ test('launcher appends project files in order, skips missing and external symlin
   assert.ok(problems.some(p => p.includes('missing.md')));
   assert.ok(problems.some(p => p.includes('outside.md')));
 });
+
+test('unresolved packages explain why an extension tool cannot be verified', t => {
+  const root = mkdtempSync(join(tmpdir(), 'forge-missing-packages-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const doc = { ...model, orchestrator: { ...model.orchestrator, tools: ['subagent'], projectContext: [] } };
+  for (const file of generateProject(doc, {}, { piPackages: packages }).files) {
+    mkdirSync(dirname(join(root, file.path)), { recursive: true });
+    writeFileSync(join(root, file.path), file.content);
+  }
+  writeFileSync(join(root, '.pi/system.yaml'), 'schema: 1\nname: coding\norchestrator:\n  name: lead\n  model: p/m\n  tools: [subagent]\n');
+  const report = checkAgent(root, { toolCheck: { providers: {}, missing: ['npm:pi-subagents@0.83.1'] } });
+  const subagent = report.capabilities.find(c => c.name === 'subagent');
+  assert.equal(subagent.status, 'not verifiable');
+  assert.match(subagent.fix, /run \.\/run once/i);
+});

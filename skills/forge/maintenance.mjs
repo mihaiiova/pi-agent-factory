@@ -10,6 +10,7 @@ import { effectiveCapabilities, checkCapabilities } from './capabilities.mjs';
 import { diffLines } from './diff.mjs';
 import { validateSystem } from './validate.mjs';
 import { launchCheck } from './launch-check.mjs';
+import { unmetSetup, setupSteps } from './setup.mjs';
 import { configurationAdvisories } from './advisories.mjs';
 import { cliEntries, readRequests } from './cli-tools.mjs';
 import { envStatus } from './maintenance-env.mjs';
@@ -17,6 +18,7 @@ import { redacted, redactForModel, assertNoNewSecrets } from './maintenance-secr
 import { vendoredSkills } from './skill-sources.mjs';
 import { registrySkills, installedDir, installRegistrySkill, removeRegistrySkill, previewRegistrySkill, SKILLS_CLI } from './registry-skills.mjs';
 import { readText, readJson, fingerprints, applyWrites, json, digest } from './maintenance-store.mjs';
+import { integrationSecrets, ensureSecretFiles, preflightSecretFiles, secretFileProblem } from './integration-secrets.mjs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -86,6 +88,11 @@ export function checkProject(root, { registeredTools, mcpTools } = {}) {
   if (validation.length) return { ok: false, validation, consistency: null, launch: null, advisories: [] };
   const consistency = checkCapabilities(doc, { settings: readJson(root, '.pi/settings.json'), mcpJson: readJson(root, '.pi/mcp.json') }, { piPackages: pinsAt(root) }).errors;
   const launch = launchCheck(root, doc, { registeredTools, mcpTools }).problems.map(p => `${p.agent}: ${p.problem}`);
+  for (const step of unmetSetup(root, doc)) launch.push(`${step.owner}: setup ${step.description}; fix: ${step.install}${step.needsRoot ? ' (run manually; needs root)' : ''}`);
+  for (const path of new Set(integrationSecrets(doc))) {
+    const problem = secretFileProblem(root, path);
+    if (problem) launch.push(`Integration secretsFile ${path}: ${problem}`);
+  }
   return { ok: !consistency.length && !launch.length, validation, consistency, launch, advisories: configurationAdvisories(doc) };
 }
 /** /forge status: what the agent is made of and what is waiting on the user. */
@@ -130,7 +137,7 @@ export function planChange(root, operations) {
   // hand edit) is rebuilt with the change and shown in its preview.
   const plan = modifyPlan(model, existing, opts);
   if (plan.errors.length) throw new Error(plan.errors.join('\n'));
-  if (plan.conflicts.length) throw new Error(`Authored file conflicts (nothing applied): ${plan.conflicts.map(f => f.path).join(', ')}`);
+  if (plan.conflicts.length) throw new Error(`Authored file conflicts (nothing applied): ${plan.conflicts.map(f => f.reason ? `${f.path}: ${f.reason}` : f.path).join(', ')}`);
   const oldScaffolds = generateProject(oldModel, {}, opts).files;
   const newScaffolds = generateProject(model, {}, opts).files;
   // The scaffold-once generator quite correctly leaves unmarked authored files
@@ -189,8 +196,9 @@ export function planChange(root, operations) {
       executionSurface: {
         addedPackages: afterCapabilities.packages.filter(p => !beforeCapabilities.packages.includes(p)),
         changedMcp: (model.integrations?.mcp ?? []).filter(m => JSON.stringify(oldModel.integrations?.mcp?.find(o => o.name === m.name)) !== JSON.stringify(m)),
+        setupCommands: setupSteps(model).filter(step => !setupSteps(oldModel).some(old => JSON.stringify(old) === JSON.stringify(step))),
         toolsAndPoliciesChanged: JSON.stringify([oldModel.orchestrator?.tools, oldModel.orchestrator?.projectContext, oldModel.agents, oldModel.policies]) !== JSON.stringify([model.orchestrator?.tools, model.orchestrator?.projectContext, model.agents, model.policies]),
-        warning: 'Packages and stdio MCP servers execute code at next launch. MCP URLs expose data to their operators. Approval authorizes this declared execution surface.',
+        warning: 'Setup checks execute shell commands automatically; installs execute after confirmation. Packages and stdio MCP servers execute code at next launch. MCP URLs expose data to their operators. Approval authorizes this declared execution surface.',
       },
       modelDiff: diffLines(oldText, text),
       advisories: configurationAdvisories(model),
@@ -278,12 +286,14 @@ export function applyChange(root, plan, approved = false, { run } = {}) {
   if (plan?.kind !== 'configuration') throw new Error('Expected a configuration proposal');
   if (approved !== true) throw new Error('Explicit user approval required');
   const installed = [];
+  preflightSecretFiles(root, parsedModel(plan.writes['.pi/system.yaml'] ?? readText(root, '.pi/system.yaml')));
   try {
     for (const skill of plan.skills?.install ?? []) {
       installRegistrySkill(root, skill, { expectedSha256: plan.skillPreviews?.[skill.name]?.skillMdSha256, ...(run ? { run } : {}) });
       installed.push(skill.name);
     }
     applyWrites(root, plan.writes, plan.expected, approved);
+    ensureSecretFiles(root, parsedModel(readText(root, '.pi/system.yaml')));
   } catch (error) {
     for (const name of installed) removeRegistrySkill(root, name, run ? { run } : {});
     throw error;
