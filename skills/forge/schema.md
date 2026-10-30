@@ -159,7 +159,10 @@ Allowed keys: `mcp` (array), `env` (array) and `cli` (array).
 - `env[]` entries: `name` (required shell variable name) and `secret`
   (optional boolean). These become `.env.example` entries, and `./run` loads
   exactly these names from the gitignored `.env` (parsed, never sourced; the
-  caller's environment wins). Names that change how the shell, Node, Pi or the
+  caller's environment wins). The complete caller environment also reaches Pi
+  and its tools, even for undeclared names. `secret: true` does not isolate or
+  reliably redact a value. Use trusted tools and restricted test credentials;
+  do not pass credential values through workflow `--input`. Names that change how the shell, Node, Pi or the
   network stack run (`PATH`, `NODE_OPTIONS`, `LD_*`, `DYLD_*`, proxy variables,
   `PI_CODING_AGENT_DIR`, `FORGE_*`, …) are rejected.
 - `cli[]` entries declare command-line tools: `name` (required kebab-case),

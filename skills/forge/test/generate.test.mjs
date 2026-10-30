@@ -5,6 +5,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseSystem } from "../parse.mjs";
 import { generateProject } from "../generate.mjs";
+import { expectedForgePin } from './version-helper.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureRoot = resolve(here, "fixtures/generate/minimal");
@@ -54,7 +55,7 @@ test("fresh generate creates the full single-agent tree", () => {
 test("generated project pins the Forge package to its release", () => {
   const { files } = generateProject(model, {});
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.ok(settings.packages.includes("git:github.com/mihaiiova/pi-forge@v0.23.0"));
+  assert.ok(settings.packages.includes(expectedForgePin));
 });
 
 test("re-running generate is a no-op (idempotent)", () => {
@@ -127,7 +128,7 @@ test("sourced skills generate no SKILL.md and packaged sources join runtime pack
   });
   assert.ok(!files.some((f) => f.path.startsWith(".pi/skills/packaged") || f.path.startsWith(".pi/skills/local")));
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.deepEqual(settings.packages, ["git:github.com/mihaiiova/pi-forge@v0.23.0", "npm:pi-subagents@0.83.1", "npm:@acme/skills@1.0.0"]);
+  assert.deepEqual(settings.packages, [expectedForgePin, "npm:pi-subagents@0.83.1", "npm:@acme/skills@1.0.0"]);
 });
 
 test("unrelated keys in .pi/mcp.json survive regeneration", () => {
@@ -225,7 +226,8 @@ test("golden tree: minimal fixture produces the committed snapshot", () => {
 
   assert.deepEqual([...produced.keys()].sort(), goldenPaths);
   for (const path of goldenPaths) {
-    const expected = readFileSync(resolve(goldenDir, path), "utf-8");
+    const expected = readFileSync(resolve(goldenDir, path), "utf-8")
+      .replace('git:github.com/mihaiiova/pi-forge@v<PACKAGE_VERSION>', expectedForgePin);
     assert.equal(produced.get(path), expected, `golden mismatch: ${path}`);
   }
 });
@@ -242,7 +244,7 @@ test("runtime packages are computed from piPackages + declared model packages", 
   );
   const settings = JSON.parse(byPath(withDeclared.files, ".pi/settings.json").content);
   assert.deepEqual(settings.packages, [
-    "git:github.com/mihaiiova/pi-forge@v0.23.0",
+    expectedForgePin,
     "npm:pi-subagents@0.83.1",
         "npm:foo@1.0.0",
   ]);
@@ -250,14 +252,14 @@ test("runtime packages are computed from piPackages + declared model packages", 
   // Without piPackages, the Forge pin is still present (but primitives are missing).
   const plain = generateProject(model, {});
   const plainSettings = JSON.parse(byPath(plain.files, ".pi/settings.json").content);
-  assert.deepEqual(plainSettings.packages, ["git:github.com/mihaiiova/pi-forge@v0.23.0"]);
+  assert.deepEqual(plainSettings.packages, [expectedForgePin]);
 });
 
 test("generateProject reports missing runtime primitives as errors", () => {
   const { files, errors } = generateProject(model, {}, { piPackages: [] });
   assert.ok(errors.some((e) => e.includes('"pi-subagents"')), "the missing primitive is reported");
   const settings = JSON.parse(byPath(files, ".pi/settings.json").content);
-  assert.deepEqual(settings.packages, ["git:github.com/mihaiiova/pi-forge@v0.23.0"]);
+  assert.deepEqual(settings.packages, [expectedForgePin]);
 });
 
 test("generateProject emits the executable run launcher", () => {
