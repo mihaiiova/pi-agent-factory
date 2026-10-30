@@ -20,7 +20,7 @@ const ai = await import(pathToFileURL(resolve(bin, '../../node_modules/@earendil
  * get_report, run_audit and delete_all; the system includes the first two and
  * requires approval for run_audit.
  */
-async function open(t, { answers, lead = 'read, mcp, codemode, subagent' } = {}) {
+async function open(t, { answers, lead = 'read, mcp, codemode, subagent', sessionRegistration = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'forge-mcp-'));
   const log = join(root, 'calls.log');
   mkdirSync(join(root, '.pi'));
@@ -61,7 +61,14 @@ integrations:
     models: [{ type: 'chat', id: 'faux-1', name: 'faux', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 1000 }],
   });
   const settingsManager = sdk.SettingsManager.create(root, agentDir, { projectTrusted: true });
-  const loader = new sdk.DefaultResourceLoader({ cwd: root, agentDir, settingsManager, noContextFiles: true, extensionFactories: [provider, sdk.createCodemodeExtension(), sdk.createToolSearchExtension(), sdk.createMcpExtension()] });
+  const registration = [];
+  if (sessionRegistration) {
+    const mcpPath = join(root, '.pi/mcp.json');
+    const config = JSON.parse(readFileSync(mcpPath, 'utf8')).mcpServers.seo;
+    rmSync(mcpPath);
+    registration.push(pi => pi.registerMcpServer('seo', config));
+  }
+  const loader = new sdk.DefaultResourceLoader({ cwd: root, agentDir, settingsManager, noContextFiles: true, extensionFactories: [provider, ...registration, sdk.createCodemodeExtension(), sdk.createToolSearchExtension(), sdk.createMcpExtension()] });
   const child = process.env.PI_SUBAGENT_CHILD;
   delete process.env.PI_SUBAGENT_CHILD;
   process.chdir(root);
@@ -93,6 +100,17 @@ integrations:
 }
 
 const audit = 'return await tools.mcp__seo__run_audit({})';
+
+test('session-registered MCP preserves naming, exposure and approval without a project MCP file', async t => {
+  const { root, session, run, calls, results } = await open(t, { sessionRegistration: true });
+  assert.equal(existsSync(join(root, '.pi/mcp.json')), false);
+  assert.deepEqual(session.getActiveToolNames().filter(n => n.startsWith('mcp__')).sort(), ['mcp__seo__get_report', 'mcp__seo__run_audit']);
+  await run(['mcp__seo__get_report', {}], ['mcp__seo__run_audit', {}], ['mcp__seo__delete_all', {}]);
+  assert.deepEqual(calls(), ['get_report']);
+  assert.match(results.find(r => r.tool === 'mcp__seo__run_audit').text, /needs the user's approval/);
+  assert.ok(results.find(r => r.tool === 'mcp__seo__delete_all').error);
+  assert.equal(existsSync(join(root, '.pi/mcp.json')), false);
+});
 
 test('the orchestrator gets its MCP tools from Pi built-in MCP, and only those', async t => {
   const { root, session, run, results, calls } = await open(t);

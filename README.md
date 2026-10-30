@@ -243,6 +243,24 @@ secret and state paths to an existing `.gitignore` without rewriting your rules.
 Ignoring files does not remove credentials already committed to git: rotate any
 credentials that were committed, including those in `.env` or `.forge/`.
 
+#### Credentials in trusted runs
+
+For a trusted run, declare the variable names under `integrations.env` and set
+values in the project's `.env`, or have the caller supply them in the process
+environment when launching `./run --workflow <name>`. Caller environment
+values take precedence over `.env`. Forge loads only declared names from `.env`,
+but inherits the **entire caller environment**, including undeclared variables.
+Do not put credential values in `--input`: workflow inputs become prompt text.
+
+The Pi configuration directory is separate, but this is **not an OS security
+boundary**. Pi, agents, tools and their subprocesses can access inherited
+credentials; same-user processes may also access the environment or source
+files. Tool approval and `secret: true` do not isolate values, and Forge does
+not guarantee redaction of tool output, screenshots, logs or artifacts. Use only
+trusted agents and tools, and prefer a restricted test account. For Playwright,
+its `--secrets` option expects a dotenv file; environment inheritance alone
+does not automatically create that file or change its MCP configuration.
+
 #### The Forge package: pin, update, roll back
 
 A generated project pins one Forge release as a Pi package in its

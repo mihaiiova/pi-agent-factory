@@ -87,11 +87,15 @@ grep -q '^model: provider-b/model-small$' "$ma/.pi/agents/seo-analyst.md" || fai
 grep -q 'Approval boundary: publish' "$ma/.pi/skills/analyze-and-draft/SKILL.md" || fail "workflow approval boundary missing"
 tail -n1 "$ma/.pi/agents/seo-analyst.md" | grep -q 'forge:generated v1 sha256=' || fail "agent missing trailing marker"
 for f in $(cd "$fixtures/generate/multi-agent/golden" && find . -type f | sort); do
-  cmp -s "$fixtures/generate/multi-agent/golden/$f" "$ma/$f" || fail "golden mismatch: $f"
+  if [[ "$f" == "./.pi/settings.json" ]]; then
+    node -e 'const fs=require("fs"); const expected=fs.readFileSync(process.argv[1],"utf8").replace("<PACKAGE_VERSION>",require(process.argv[3]).version); if(fs.readFileSync(process.argv[2],"utf8")!==expected) process.exit(1)' "$fixtures/generate/multi-agent/golden/$f" "$ma/$f" "$root/package.json" || fail "golden mismatch: $f"
+  else
+    cmp -s "$fixtures/generate/multi-agent/golden/$f" "$ma/$f" || fail "golden mismatch: $f"
+  fi
 done
 [[ -x "$ma/run" ]] || fail "run launcher not executable"
 grep -q 'PI_CODING_AGENT_DIR' "$ma/run" || fail "run launcher missing the isolated agent dir"
-node -e 'const s=require(process.argv[1]); const e=["git:github.com/mihaiiova/pi-forge@v0.23.0","npm:pi-subagents@0.83.1"]; if(JSON.stringify(s.packages)!==JSON.stringify(e)){console.error(JSON.stringify(s.packages));process.exit(1)}' "$ma/.pi/settings.json" || fail "settings.json packages are not the pinned Forge and runtime primitives"
+node -e 'const s=require(process.argv[1]); const v=require(process.argv[2]).version; const e=[`git:github.com/mihaiiova/pi-forge@v${v}`,"npm:pi-subagents@0.83.1"]; if(JSON.stringify(s.packages)!==JSON.stringify(e)){console.error(JSON.stringify(s.packages));process.exit(1)}' "$ma/.pi/settings.json" "$root/package.json" || fail "settings.json packages are not the pinned Forge and runtime primitives"
 rm -rf "$ma"
 pass "forge generate reproduces the multi-agent golden tree"
 

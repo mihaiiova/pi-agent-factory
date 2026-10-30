@@ -103,8 +103,8 @@ export function launcherScript(names = [], workflows = [], lead = '') {
     'mkdir -p "$PI_CODING_AGENT_DIR"',
     "",
     ...envLoader(names),
-    "# Credentials are NOT inherited from the host. Log in once for this isolated",
-    "# context (`./run`, then `/login`), or export PI_API_KEY / a provider-specific key.",
+    "# The Pi config is separate; the caller's environment is still inherited.",
+    "# Log in for this context (`./run`, then `/login`), or export a provider key.",
     // Pi's agent-dir does not suppress ancestor instruction discovery.
     // APPEND_SYSTEM.md still supplies the project's operational instructions.
     ...PROMPT_FILES,
@@ -131,7 +131,7 @@ export function buildRuntimePlan(model, opts = {}) {
     packages,
     launcherScript: launcherScript(envNames(model), model.workflows ?? [], model.orchestrator?.name ?? ''),
     warnings: [
-      "credentials are not inherited from the host; start ./run and use /login, or export PI_API_KEY / a provider key",
+      "Pi login files are not inherited from the host; use /login or export a provider key. The caller's environment is inherited by the run and its tools.",
       "the launcher disables AGENTS.md/CLAUDE.md discovery with --no-context-files; declare project instructions in system.yaml / APPEND_SYSTEM.md. Inherited subagent project context is an explicit opt-in.",
     ],
     errors,

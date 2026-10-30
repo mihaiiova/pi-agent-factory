@@ -106,6 +106,25 @@ test('declared workflow returns its final answer in a machine-readable result', 
   assert.equal(summary.workflow, 'report');
 });
 
+test('trusted workflow credentials reach Pi and child tools without entering the workflow prompt', t => {
+  const { root, env } = fixture(t);
+  const model = join(root, '.pi/system.yaml');
+  writeFileSync(model, readFileSync(model, 'utf8') + '\nintegrations:\n  env:\n    - name: TEST_LOGIN\n      secret: true\n    - name: FILE_ONLY\n      secret: true\n');
+  const generated = spawnSync(process.execPath, [forge, 'generate', root], { encoding: 'utf8' });
+  assert.equal(generated.status, 0, generated.stderr);
+  writeFileSync(join(root, '.env'), 'TEST_LOGIN=file-value\nFILE_ONLY=from-file\nUNDECLARED=not-loaded\n');
+  writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const child = spawnSync(process.execPath, ['-e', 'process.exit(process.env.TEST_LOGIN === "caller-value" && process.env.FILE_ONLY === "from-file" ? 0 : 1)']);
+const ok = process.env.TEST_LOGIN === 'caller-value' && process.env.FILE_ONLY === 'from-file' && process.env.CALLER_EXTRA === 'inherited' && !('UNDECLARED' in process.env) && !process.argv.join(' ').includes('caller-value') && child.status === 0;
+console.log(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:ok ? 'credentials available' : 'credential check failed'}]}}));
+`, { mode: 0o755 });
+  const result = spawnSync(join(root, 'run'), ['--workflow', 'report'], { env: { ...env, TEST_LOGIN: 'caller-value', CALLER_EXTRA: 'inherited' }, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout.trim()).answer, 'credentials available');
+  assert.doesNotMatch(result.stdout + result.stderr, /caller-value|from-file/);
+});
+
 test('an approval block ends the workflow promptly with the named call', t => {
   const { root, env } = fixture(t);
   writeFileSync(join(root, 'bin/pi'), `#!/usr/bin/env node
