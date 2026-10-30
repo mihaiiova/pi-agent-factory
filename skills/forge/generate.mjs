@@ -23,6 +23,7 @@ import { workflowSkill } from "./workflow-skill.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
+import { orchestratorTools } from './project-context.mjs';
 import { cliRef, cliToolName } from "./cli-tools.mjs";
 import { capabilitySection } from "./agent-context.mjs";
 import { documentInstructions } from "./documents.mjs";
@@ -215,7 +216,7 @@ function buildSettings(model, existingText, packages) {
   // registers only the ones it lists; defaultTools bounds Pi's own tools.
   // MCP reach is set by exposure and the launcher, not by defaultTools.
   const tools = Array.isArray(orchestrator.tools)
-    ? orchestrator.tools.filter((tool) => !cliRef(tool) && tool !== "mcp" && !tool.startsWith("mcp:"))
+    ? orchestratorTools(orchestrator).filter((tool) => !cliRef(tool) && tool !== "mcp" && !tool.startsWith("mcp:"))
     : undefined;
   if (tools !== undefined) out.defaultTools = tools;
   else delete out.defaultTools;

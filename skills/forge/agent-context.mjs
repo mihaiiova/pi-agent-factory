@@ -10,6 +10,7 @@ import { advisoryText, enforcedAgentTools } from "./policy.mjs";
 import { cliEntries, cliRef, cliToolName, formatCommand } from "./cli-tools.mjs";
 import { askingReach, leadTools } from "./asking.mjs";
 import { mcpToolName } from "./mcp-gen.mjs";
+import { orchestratorTools } from './project-context.mjs';
 
 const BUILTIN = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 
@@ -43,7 +44,7 @@ export function capabilitySection(model, name) {
   const isLead = orchestrator?.name === name;
   const agent = isLead ? orchestrator : list(model?.agents).find((a) => isPlainObject(a) && a.name === name);
   if (!agent) return "";
-  const declared = isLead ? agent.tools : enforcedAgentTools(name, model.policies, agent.tools);
+  const declared = isLead ? orchestratorTools(agent) : enforcedAgentTools(name, model.policies, agent.tools);
   const all = !Array.isArray(declared);
   const tools = list(declared);
   const servers = list(model?.integrations?.mcp).filter(isPlainObject);

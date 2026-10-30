@@ -141,6 +141,12 @@ first; the user decides.
   be given the `vercel-labs/skills@find-skills` skill plus `bash`; tell it, as
   a document rule or in its prompt, to install project-locally (`--agent pi`,
   no `-g`).
+- **Project instructions:** for a coding agent in a repository with an
+  `AGENTS.md`, recommend `orchestrator.projectContext: [AGENTS.md]` so it can
+  use the repository's own conventions. Explain that instruction content can
+  be untrusted, and a non-empty list automatically enables the orchestrator's
+  `edit` tool for all accessible files, not only the listed files. Ask before
+  granting that broader editing access.
 - **Prompts:** write each agent's prompt about its role — goals, judgement,
   rules, boundaries — and keep it short. Never list its tools, MCP servers,
   commands or skills, or explain how to call them: the Forge renders a

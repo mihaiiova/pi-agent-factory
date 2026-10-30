@@ -71,7 +71,7 @@ const runWorkflow = (indent, args) => [
   `${indent}if [[ ! -f "$ROOT/${RUNNER}" ]]; then echo '${NO_RUNNER}'; exit 2; fi`,
   `${indent}exec node "$ROOT/${RUNNER}" ${args}`,
 ];
-export function launcherScript(names = [], workflows = [], lead = '') {
+export function launcherScript(names = [], workflows = [], lead = '', projectContext = []) {
   const manifest = Buffer.from(JSON.stringify(workflows.map(w => ({ ...w, lead })))).toString('base64');
   return [
     "#!/usr/bin/env bash",
@@ -108,6 +108,16 @@ export function launcherScript(names = [], workflows = [], lead = '') {
     // Pi's agent-dir does not suppress ancestor instruction discovery.
     // APPEND_SYSTEM.md still supplies the project's operational instructions.
     ...PROMPT_FILES,
+    ...(projectContext.length ? [
+      '# Append opted-in project files after the generated prompts; reject symlinks outside the project.',
+      ...projectContext.flatMap(path => {
+        const quoted = "'" + path.replaceAll("'", "'\\''") + "'";
+        return [
+          `f=${quoted}`,
+          'if [[ -f "$f" ]] && node -e \'const fs=require("fs"),p=require("path");try{const root=fs.realpathSync(process.argv[1]),file=fs.realpathSync(process.argv[2]);process.exit(file.startsWith(root+p.sep)?0:1)}catch{process.exit(1)}\' "$ROOT" "$f"; then prompts+=(--append-system-prompt "$f"); fi',
+        ];
+      }),
+    ] : []),
     'if [[ "${1:-}" == "--workflow" ]]; then',
     ...runWorkflow('  ', `'${manifest}' "\${prompts[@]}" -- "$@"`),
     'fi',
@@ -129,10 +139,12 @@ export function buildRuntimePlan(model, opts = {}) {
   return {
     agentDir: AGENT_DIR,
     packages,
-    launcherScript: launcherScript(envNames(model), model.workflows ?? [], model.orchestrator?.name ?? ''),
+    launcherScript: launcherScript(envNames(model), model.workflows ?? [], model.orchestrator?.name ?? '', model.orchestrator?.projectContext ?? []),
     warnings: [
       "Pi login files are not inherited from the host; use /login or export a provider key. The caller's environment is inherited by the run and its tools.",
-      "the launcher disables AGENTS.md/CLAUDE.md discovery with --no-context-files; declare project instructions in system.yaml / APPEND_SYSTEM.md. Inherited subagent project context is an explicit opt-in.",
+      model.orchestrator?.projectContext?.length
+        ? "the launcher disables automatic context discovery; only explicitly listed project files are appended. They can contain untrusted instructions; projectContext enables edit for all accessible files."
+        : "the launcher disables AGENTS.md/CLAUDE.md discovery with --no-context-files; declare project instructions in system.yaml / APPEND_SYSTEM.md. Inherited subagent project context is an explicit opt-in.",
     ],
     errors,
   };

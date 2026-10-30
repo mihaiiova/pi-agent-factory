@@ -223,6 +223,22 @@ without a shell, with your own CLI logins. In a running system:
 
 A generated project starts with `./run`, which isolates it from your global Pi
 configuration (own config dir, own credentials: `/login` once per project).
+A coding orchestrator can opt into repository instructions in `.pi/system.yaml`:
+
+```yaml
+orchestrator:
+  # Keep the existing name, model and tools; add:
+  projectContext: [AGENTS.md]
+```
+
+Regenerate the project through `/forge` and restart `./run`. The listed files
+are appended in order to the orchestrator's prompt; missing files and paths
+resolving outside the project are skipped and reported by `/forge check`.
+Their contents are sent to the model, so do not list credentials, and review
+untrusted instructions for prompt injection. A non-empty list also enables
+Pi's `edit` tool, which can edit **any accessible file**, not just those listed.
+This is not a filesystem sandbox.
+
 Inside it, `/forge` is the one command:
 
 | Command | What it does |
