@@ -7,7 +7,7 @@ const PI_PACKAGES = ["npm:pi-subagents@0.83.1", "npm:pi-web-access@0.27.0"];
 test("buildRuntimePlan derives the isolated agent dir, packages, and warnings", () => {
   const plan = buildRuntimePlan({ packages: ["npm:foo@1.0.0"] }, { piPackages: PI_PACKAGES });
   assert.equal(plan.agentDir, ".forge/pi-home");
-  assert.deepEqual(plan.packages, ["git:github.com/mihaiiova/pi-forge@v0.21.0", "npm:pi-subagents@0.83.1", "npm:foo@1.0.0"]);
+  assert.deepEqual(plan.packages, ["git:github.com/mihaiiova/pi-forge@v0.22.0", "npm:pi-subagents@0.83.1", "npm:foo@1.0.0"]);
   assert.deepEqual(plan.errors, []);
   assert.ok(plan.warnings.length >= 2, "warns about auth + parent context files");
 });
