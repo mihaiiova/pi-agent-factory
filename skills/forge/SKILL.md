@@ -278,7 +278,8 @@ prior approvals cannot grant that authority.
      (a github.com/<owner>/<repo> URL returns the README), releases
      (github.com/<owner>/<repo>/releases or /releases/latest returns release
      metadata) or a referenced configuration doc. Continue a truncated result
-     with offset=nextOffset. The user approves each new host once.
+     with offset=nextOffset. Fetching and searching public sources need no
+     approval; never put private context or credentials in a URL or query.
    Before proposing an integration, verify from fetched official sources: the
    transport (remote URL or local command), the exact pinned version or image
    tag, tool names, required permissions/scopes and environment variables.

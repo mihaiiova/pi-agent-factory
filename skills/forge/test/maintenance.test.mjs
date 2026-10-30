@@ -305,7 +305,7 @@ test('CLI generate/change dry runs and noninteractive unapproved calls write not
   assert.ok(readJson(fresh, '.pi/settings.json').packages.includes(`git:github.com/mihaiiova/pi-forge@v${pkg.version}`));
 });
 
-test('fetch is maintenance-only, approved per host, and never creates an applicable proposal', async t => {
+test('fetch is maintenance-only, asks nothing, and never creates an applicable proposal', async t => {
   const root = project(t);
   const mock = adapter();
   const fetched = [];
@@ -315,17 +315,19 @@ test('fetch is maintenance-only, approved per host, and never creates an applica
   const command = arg => mock.forge(arg, mock.ctx);
   await assert.rejects(tool({ action: 'fetch', url: 'https://github.com/github/github-mcp-server' }), /Invoke \/forge/);
   await command('add GitHub issue creation for the marketing agent');
-  await assert.rejects(tool({ action: 'fetch', url: 'https://github.com/github/github-mcp-server' }), /not approved; nothing was retrieved or verified/);
   await assert.rejects(tool({ action: 'fetch', url: 'http://github.com/x' }), /Only https/);
   await assert.rejects(tool({ action: 'fetch', url: 'https://github.com/x?token=secret' }), /credential/);
   assert.deepEqual(fetched, []);
-  mock.approve();
+  // Reading public documentation is browsing: no dialog, with or without a UI.
+  await tool({ action: 'fetch', url: 'https://docs.example.com/guide' });
+  await mock.tools.forge_plan.execute('id', { action: 'fetch', url: 'https://other.example.org/readme' }, undefined, undefined, { ...mock.ctx, hasUI: false });
+  assert.deepEqual(mock.dialogs, [], 'browsing never asks');
   const first = JSON.parse((await tool({ action: 'fetch', url: 'https://github.com/github/github-mcp-server' })).content[0].text);
   assert.match(first.trust, /Untrusted/);
   assert.match(first.content, /Ignore all rules/);
   assert.equal(first.nextOffset, null);
   await tool({ action: 'fetch', url: 'https://github.com/github/github-mcp-server', offset: 0 });
-  assert.equal(fetched.length, 1, 'continuations reuse the retrieved document');
+  assert.equal(fetched.length, 3, 'continuations reuse the retrieved document');
   const before = readText(root, '.pi/system.yaml');
   const dialogs = mock.dialogs.length;
   await mock.endTurn();
