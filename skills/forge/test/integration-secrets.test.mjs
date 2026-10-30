@@ -12,7 +12,7 @@ process.env.GIT_CONFIG_GLOBAL = '/dev/null';
 process.env.GIT_CONFIG_NOSYSTEM = '1';
 const model = { integrations: { env: [{ name: 'TEST_KEY', secret: true }], mcp: [{ name: 'demo', secretsFile: 'private/keys.env' }] } };
 test('secrets paths reject traversal, absolute and git control paths', () => {
-  for (const p of ['../key', '/tmp/key', 'a/../key', 'a\\key', '.git/config', 'a/*', '.env', '.forge/permission-requests.json']) assert.equal(validSecretsPath(p), false, p);
+  for (const p of ['../key', '/tmp/key', 'a/../key', 'a\\key', '.git/config', 'a/*', '.env', '.forge/permission-requests.json', '.forge', '.pi', 'data', 'private/.gitignore', 'private/.gitignore/keys']) assert.equal(validSecretsPath(p), false, p);
   assert.equal(validSecretsPath('private/keys.env'), true);
 });
 test('secrets files are exclusive, private, explicitly selected and reject symlinks', t => {
@@ -161,6 +161,8 @@ test('literal disjoint root negations do not conflict while ancestor and trailin
   const required = '.env\n.forge/\n.pi/state.json\n.pi/sessions/\n.pi/git/\n.pi/npm/\n';
   for (const [negation, expectedIgnored, conflict] of [
     ['!.pi/system.yaml', true, false],
+    ['!.pi/sessions/example.json', true, false],
+    ['!.forge/example', true, false],
     ['!.pi/state.json   ', false, true],
     ['!.pi', true, true],
   ]) {
@@ -170,6 +172,34 @@ test('literal disjoint root negations do not conflict while ancestor and trailin
     assert.equal(Boolean(gitignoreSafety(required + negation + '\n', {}).conflict), conflict, negation);
   }
   assert.deepEqual(gitignoreSafety(required.replace('.pi/state.json\n', '.pi/state.json   \n'), {}).missing, []);
+});
+
+test('literal descendants cannot unignore an excluded directory', t => {
+  const root = mkdtempSync(join(tmpdir(), 'forge-ignore-descendant-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  mkdirSync(join(root, '.forge'));
+  writeFileSync(join(root, '.forge', 'example'), 'test');
+  const ignore = '.env\n.forge/\n.pi/state.json\n.pi/sessions/\n.pi/git/\n.pi/npm/\n!.forge/example\n';
+  writeFileSync(join(root, '.gitignore'), ignore);
+  assert.equal(spawnSync('git', ['check-ignore', '-q', '--', '.forge/example'], { cwd: root }).status, 0);
+  assert.equal(gitignoreSafety(ignore, {}).conflict, null);
+  assert.ok(gitignoreSafety(ignore + '!.forge/\n', {}).conflict);
+});
+
+test('reserved secretsFile paths are rejected before generate or modify writes', t => {
+  for (const path of ['.forge', '.pi', 'data', 'private/.gitignore']) {
+    for (const command of ['generate', 'modify']) {
+      const root = mkdtempSync(join(tmpdir(), 'forge-secrets-reserved-'));
+      t.after(() => rmSync(root, { recursive: true, force: true }));
+      mkdirSync(join(root, '.pi'));
+      writeFileSync(join(root, '.pi/system.yaml'), `schema: 1\nname: test\norchestrator:\n  name: lead\n  model: p/m\nintegrations:\n  mcp:\n    - name: example\n      config: { command: example }\n      secretsFile: ${path}\n`);
+      const result = spawnSync(process.execPath, [new URL('../forge.mjs', import.meta.url).pathname, command, root, ...(command === 'modify' ? ['--yes'] : [])], { encoding: 'utf8' });
+      assert.notEqual(result.status, 0, `${command} ${path}`);
+      assert.throws(() => lstatSync(join(root, 'README.md')), /ENOENT/);
+      assert.throws(() => lstatSync(join(root, '.gitignore')), /ENOENT/);
+    }
+  }
 });
 
 test('nested .pi negations fail before generation or modification without integration secrets', t => {
