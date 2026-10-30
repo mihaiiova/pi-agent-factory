@@ -10,6 +10,7 @@ import { effectiveCapabilities, checkCapabilities } from './capabilities.mjs';
 import { diffLines } from './diff.mjs';
 import { validateSystem } from './validate.mjs';
 import { launchCheck } from './launch-check.mjs';
+import { configurationAdvisories } from './advisories.mjs';
 import { cliEntries, readRequests } from './cli-tools.mjs';
 import { envStatus } from './maintenance-env.mjs';
 import { redacted, redactForModel, assertNoNewSecrets } from './maintenance-secrets.mjs';
@@ -65,6 +66,7 @@ export function inspectProject(root) {
     systemYaml: loadYaml().stringify(redacted(loadYaml().parse(text))), systemYamlRedacted: true,
     parsedModel: redacted(model), effectiveCapabilities: caps,
     consistency: checkCapabilities(model, { settings, mcpJson }, { piPackages: pinsAt(root) }),
+    advisories: configurationAdvisories(model),
     generated: Object.fromEntries(managedPaths(model).filter(p => p.startsWith('.pi/')).map(p => {
       const content = readText(root, p);
       return [p, p.endsWith('.json') && content !== null ? json(redacted(JSON.parse(content))) : content];
@@ -81,10 +83,10 @@ export function inspectProject(root) {
 export function checkProject(root, { registeredTools, mcpTools } = {}) {
   const doc = loadYaml().parse(readText(root, '.pi/system.yaml') ?? '');
   const validation = validateSystem(doc, { tolerate: askingMessages(doc) }).errors;
-  if (validation.length) return { ok: false, validation, consistency: null, launch: null };
+  if (validation.length) return { ok: false, validation, consistency: null, launch: null, advisories: [] };
   const consistency = checkCapabilities(doc, { settings: readJson(root, '.pi/settings.json'), mcpJson: readJson(root, '.pi/mcp.json') }, { piPackages: pinsAt(root) }).errors;
   const launch = launchCheck(root, doc, { registeredTools, mcpTools }).problems.map(p => `${p.agent}: ${p.problem}`);
-  return { ok: !consistency.length && !launch.length, validation, consistency, launch };
+  return { ok: !consistency.length && !launch.length, validation, consistency, launch, advisories: configurationAdvisories(doc) };
 }
 /** /forge status: what the agent is made of and what is waiting on the user. */
 export function projectStatus(root) {
@@ -191,6 +193,7 @@ export function planChange(root, operations) {
         warning: 'Packages and stdio MCP servers execute code at next launch. MCP URLs expose data to their operators. Approval authorizes this declared execution surface.',
       },
       modelDiff: diffLines(oldText, text),
+      advisories: configurationAdvisories(model),
       ...(asking.length ? { askingInBackground: { note: 'These subagents run in the background, where nobody can answer an approval prompt, so these calls always fail. Propose each fix (the orchestrator then makes the approved calls), or explain why not.', issues: asking.map(({ agent, message, fix }) => ({ agent, message, fix })) } } : {}),
       ...(stale.length ? { staleMentions: { note: 'These instructions still mention a capability this change removes, so agents would keep reaching for it. Update them in the same proposal.', mentions: stale } } : {}),
       files: files.map(f => ({ path: f.path, action: f.action, diff: diffLines(existing[f.path] ?? '', f.content) })),

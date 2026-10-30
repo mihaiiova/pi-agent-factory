@@ -1,3 +1,4 @@
+import { configurationAdvisories } from './advisories.mjs';
 /**
  * generate — materialize a `system.yaml` model into a single-agent Pi project.
  *
@@ -524,5 +525,5 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
   ];
 
   files.sort((a, b) => a.path.localeCompare(b.path));
-  return { files, warnings: plan.warnings, errors: plan.errors };
+  return { files, warnings: [...plan.warnings, ...configurationAdvisories(model)], errors: plan.errors };
 }

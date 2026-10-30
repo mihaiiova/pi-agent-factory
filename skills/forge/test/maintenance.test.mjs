@@ -300,6 +300,36 @@ test('slash adapter preserves operational allowlist, read-only review and indepe
   assert.deepEqual(mock.pi.getActiveTools(), ['read']);
 });
 
+test('/forge check shows document writer validation without verbose mode', async t => {
+  const root = project(t);
+  const invalid = { ...model, documents: [{ name: 'report', path: 'reports/report.md', writer: 'lead', sections: [{ heading: 'Summary' }] }] };
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(invalid));
+  const mock = adapter();
+  mock.forge = registerMaintenance(mock.pi, mock.Type, root);
+  await mock.forge('check', mock.ctx);
+  assert.match(mock.notices.at(-1)[0], /writer "lead" has no write or edit tool/);
+});
+
+test('review-only wording routes without suppressing explicit change requests', async t => {
+  const root = project(t);
+  const mock = adapter();
+  mock.forge = registerMaintenance(mock.pi, mock.Type, root);
+  for (const request of ['list improvements', "don't make them, just list them", 'suggest improvements']) {
+    await mock.forge(request, mock.ctx);
+    assert.match(mock.messages.at(-1), /Mode: READ-ONLY REVIEW/);
+    await mock.forge('exit', mock.ctx);
+  }
+  await mock.forge('review and fix the model', mock.ctx);
+  assert.match(mock.messages.at(-1), /Mode: CHANGE PROPOSAL/);
+});
+
+test('change previews surface command advisories without blocking', t => {
+  const root = project(t);
+  const plan = planChange(root, [{ op: 'add', target: 'cli', name: 'unused-reader', value: { command: 'cat', args: ['{path:file}'] } }]);
+  assert.ok(plan.preview.advisories.some(s => s.includes('unused-reader') && s.includes('not available')));
+  assert.ok(plan.preview.advisories.some(s => s.includes('not a path')));
+});
+
 test('a rejected oversized proposal cannot leave an undisplayed pending apply', async t => {
   const root = project(t);
   const mock = adapter();

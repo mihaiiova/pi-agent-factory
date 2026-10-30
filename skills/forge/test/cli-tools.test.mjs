@@ -216,6 +216,7 @@ test('a headless permission request is saved for review; nothing runs', async (t
 
 test('an interactive request can run once, or be saved through the preview and run', async (t) => {
   const root = project(t);
+  const echoArg = ['-e', "process.stdout.write(String(process.argv[1]))"];
   const once = adapter({ choices: [0] });
   registerPermissions(once.pi, once.Type, root);
   const ran = await once.tools.request_permission.execute('id', { name: 'say', command: 'node', args: [...echoArg, '{word}'], values: { word: 'hello' }, reason: 'Say hello' }, undefined, undefined, once.ctx);
@@ -232,9 +233,20 @@ test('an interactive request can run once, or be saved through the preview and r
   assert.ok(doc.orchestrator.tools.includes('cli:say'));
   assert.match(JSON.parse(readFileSync(join(root, '.forge/capabilities.json'), 'utf8')).commands.map((c) => c.name).join(), /say/);
 
+  const stale = await always.tools.request_permission.execute('id', { name: 'say2', command: 'node', args: [...echoArg, '{other}'], reason: 'x' }, undefined, undefined, always.ctx);
+  assert.match(stale.content[0].text, /already declared as cli_say.*after \/reload/);
+
   const again = adapter();
   registerPermissions(again.pi, again.Type, root);
   assert.match((await again.tools.request_permission.execute('id', { name: 'say2', command: 'node', args: [...echoArg, '{word}'], reason: 'x' }, undefined, undefined, again.ctx)).content[0].text, /already declared as cli_say/);
+});
+
+test('reader file placeholder warning accompanies request errors', async t => {
+  const root = project(t);
+  const mock = adapter();
+  registerPermissions(mock.pi, mock.Type, root);
+  const result = await mock.tools.request_permission.execute('id', { name: 'read-report', command: 'cat', args: ['{path:file}'], reason: 'Read report' }, undefined, undefined, mock.ctx);
+  assert.match(result.content[0].text, /not a path to an existing file/);
 });
 
 test('/forge permissions adds, lists, reviews and removes commands', async (t) => {

@@ -115,6 +115,11 @@ first; the user decides.
   request. Record each as `model: provider/id` (plus an optional `thinking:`
   level) on that agent. Agents may share a model or each use a different one.
   Any model can be changed later (see *Maintain*).
+- **Repeatable command procedures:** when a skill must reproduce the same long
+  command on every call, prefer a fixed `cli:` command shape with only varying
+  values as placeholders. A wrapper script must actually exist in the project;
+  Forge does not scaffold it. Use inline shell for one-off setup, not as an
+  assumed self-contained reusable wrapper.
 - **Skills:** the forge ships no skills of its own; each agent gets the
   skills the user chooses for it. When the design needs skills, or when
   preparing to build, search skills.sh for each agent's role
@@ -402,7 +407,7 @@ stop reaching for it.
 
 ## Review mode — strictly read-only
 
-For `review` or "how can we improve this agent?", inspect without proposing or
+For review-only, list or suggest requests, or "how can we improve this agent?", inspect without proposing or
 applying operations. Review purpose and orchestrator instructions; specialist
 responsibilities; model/cost assignments; skills and duplicate capabilities;
 MCP servers and potentially unused tools; missing useful capabilities;

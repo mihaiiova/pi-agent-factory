@@ -70,13 +70,14 @@ export function capabilitySection(model, name) {
       const about = describeServer(m.s, m.only);
       // Without includeTools the lead's server is deferred: tool_search loads its tools.
       const search = isLead && m.s?.config?.includeTools === undefined ? ", found with tool_search" : "";
-      lines.push(`  - \`${m.name}\` (${m.scope}; tools named \`${mcpToolName(m.name, "")}<tool>\`${search})${about ? ` — ${about}` : ""}`);
+      const scope = m.only ? `only ${m.only.map((name) => `\`${mcpToolName(m.name, name)}\``).join(", ")}` : `all tools; tools named \`${mcpToolName(m.name, "")}<tool>\``;
+      lines.push(`  - \`${m.name}\` (${scope}${search})${about ? ` — ${about}` : ""}`);
     }
   }
 
   const mine = commands.filter((c) => (isLead ? all || tools.includes(`cli:${c.name}`) : tools.includes(`cli:${c.name}`)));
   if (mine.length) {
-    lines.push("- **Commands** (no shell; you fill in only the {placeholders}):");
+    lines.push("- **Commands** (no shell): `{name}` is a value you supply, such as an existing path; `{name:file}` writes your text to a temporary file and passes its path.");
     for (const c of mine) {
       lines.push(`  - \`${cliToolName(c.name)}\`${isNonEmptyString(c.description) ? ` — ${c.description}` : ""}: \`${formatCommand(c.command, list(c.args))}\`; ${c.approve === false ? "runs without asking" : "the user approves each run"}`);
     }
@@ -96,6 +97,7 @@ export function capabilitySection(model, name) {
     if (specialists.length && (all || tools.includes("subagent"))) {
       lines.push("- **Specialists** (delegate with the subagent tool):");
       for (const s of specialists) lines.push(`  - \`${s.name}\`${isNonEmptyString(s.description) ? ` — ${s.description}` : ""}`);
+      lines.push("", "Specialist completion notices may be truncated. When the subagent tool supports durable output binding, bind reports to project paths only when the specialist can write there and you have an authorized way to read them; otherwise request a concise return and report missing access rather than assuming a path is readable.");
     }
     const asking = askingReach(model, leadTools(model));
     if (specialists.length && (all || tools.includes("subagent")) && (asking.mcp.size || asking.cli.length)) {
