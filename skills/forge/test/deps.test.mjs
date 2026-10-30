@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runtimePackages } from "../deps.mjs";
 
-const FORGE = "git:github.com/mihaiiova/pi-forge@v0.22.0";
+const FORGE = "git:github.com/mihaiiova/pi-forge@v0.23.0";
 const PI_PACKAGES = [
   "npm:pi-subagents@0.83.1",
   "npm:pi-web-access@0.27.0",

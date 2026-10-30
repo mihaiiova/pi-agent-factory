@@ -15,7 +15,7 @@ test('CLI generation installs no copied Forge tooling', t => {
   copyFileSync(join(import.meta.dirname, 'fixtures/generate/minimal/.pi/system.yaml'), join(root, '.pi/system.yaml'));
   execFileSync(process.execPath, [join(repo, 'skills/forge/forge.mjs'), 'generate', root]);
   const settings = JSON.parse(readFileSync(join(root, '.pi/settings.json'), 'utf8'));
-  assert.ok(settings.packages.includes('git:github.com/mihaiiova/pi-forge@v0.22.0'));
+  assert.ok(settings.packages.includes('git:github.com/mihaiiova/pi-forge@v0.23.0'));
   assert.deepEqual(readdirSync(join(root, '.forge')).sort(), ['build.json', 'capabilities.json']);
 });
 

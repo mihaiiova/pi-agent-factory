@@ -200,7 +200,7 @@ export function planChange(root, operations) {
         remove: skills.remove.map(name => `${installedDir(name)}/`),
         how: `On apply, npx ${SKILLS_CLI} add <source> --agent pi --copy -y runs in this project (project-local, never global) and records the commit in skills-lock.json. Installed SKILL.md must match the preview. Skills can instruct agents to run programs; read them before approving.`,
       } } : {}),
-      restart: restart ? 'Restart ./run after applying: the launcher or packages change.' : 'Takes effect after /reload; no restart needed.',
+      restart: restart ? 'Takes effect after restarting ./run: the launcher or packages change.' : 'Takes effect after /reload; no restart needed.',
     },
   };
 }

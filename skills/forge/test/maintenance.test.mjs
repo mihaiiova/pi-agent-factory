@@ -62,9 +62,15 @@ function adapter(initialTools = ['read']) {
     sendUserMessage: m => messages.push(m),
   };
   const Type = Object.fromEntries(['Object', 'Union', 'Literal', 'Optional', 'String', 'Number', 'Array', 'Record'].map(k => [k, v => v]));
-  const dialogs = [];
-  const ctx = { hasUI: true, waitForIdle: async () => {}, ui: { notify: (...v) => notices.push(v), confirm: async (title, body) => { dialogs.push({ title, body }); return confirm; } }, sessionManager: { getBranch: () => [] }, modelRegistry: { getAvailable: () => [] } };
-  return { pi, Type, ctx, events, tools, commands, messages, notices, dialogs, approve: () => { confirm = true; }, endTurn: (c = ctx) => events.agent_end({}, c) };
+  const dialogs = [], prompts = [], choices = [], status = {};
+  const ctx = { hasUI: true, waitForIdle: async () => {}, ui: {
+    notify: (...v) => notices.push(v),
+    confirm: async (title, body) => { dialogs.push({ title, body }); return confirm; },
+    // A proposal prompt; with no scripted choice, the person dismisses it (Esc).
+    select: async (title, options) => { prompts.push({ title, options }); return choices.shift(); },
+    setStatus: (key, text) => { status[key] = text; },
+  }, sessionManager: { getBranch: () => [] }, modelRegistry: { getAvailable: () => [] } };
+  return { pi, Type, ctx, events, tools, commands, messages, notices, dialogs, prompts, status, choose: (...c) => choices.push(...c), approve: () => { confirm = true; choices.push('Apply'); }, endTurn: (c = ctx) => events.agent_end({}, c) };
 }
 test('structured changes preserve comments, add/update/remove all schema entities and reconcile capabilities', t => {
   const root = project(t);
@@ -239,33 +245,59 @@ test('slash adapter preserves operational allowlist, read-only review and indepe
   await tool({ action: 'inspect' });
   await assert.rejects(tool({ action: 'propose', operations: '[]' }), /read-only/);
   await mock.endTurn();
-  assert.deepEqual(mock.dialogs, [], 'a review opens no dialog');
-  assert.deepEqual(mock.pi.getActiveTools(), ['read']);
+  assert.deepEqual(mock.prompts, [], 'a review opens no prompt');
+  assert.deepEqual(mock.pi.getActiveTools(), ['forge_plan'], 'replies stay in /forge');
+  assert.match(mock.status.forge, /\/forge exit/);
+  await command('exit');
+  assert.deepEqual(mock.pi.getActiveTools(), ['read'], '/forge exit returns to the agent');
   assert.equal(mock.tools.forge_plan.exposure, 'hidden');
+  assert.equal(mock.status.forge, undefined);
+
   const cheaper = JSON.stringify([{ op: 'assign', name: 'lead', model: 'fixture/small' }]);
   const before = readText(root, '.pi/system.yaml');
   await command('use a cheaper model');
   await tool({ action: 'propose', operations: cheaper });
   assert.equal(readText(root, '.pi/system.yaml'), before, 'proposing writes nothing');
   await mock.endTurn();
-  assert.equal(mock.dialogs.length, 1, 'the turn ends with the confirmation; nobody types apply');
-  assert.match(mock.dialogs[0].body, /fixture\/small/);
-  assert.equal(readText(root, '.pi/system.yaml'), before, 'dialog declined');
+  assert.equal(mock.prompts.length, 1, 'the turn ends with the prompt; nobody types apply');
+  assert.deepEqual(mock.prompts[0].options, ["Let's discuss", 'Apply', 'Discard'], 'discussing is first, so a stray Enter changes nothing');
+  assert.match(mock.prompts[0].title, /\.pi\/system\.yaml/);
+  assert.match(mock.prompts[0].title, /\/reload/);
+  assert.equal(readText(root, '.pi/system.yaml'), before, 'dismissed: nothing applied');
+  assert.deepEqual(mock.pi.getActiveTools(), ['forge_plan'], 'still discussing');
+
+  // A plain reply continues; a turn without a new proposal asks nothing.
+  await tool({ action: 'inspect' });
   await mock.endTurn();
-  assert.equal(mock.dialogs.length, 1, 'a declined proposal is discarded');
-  await command('use a cheaper model');
+  assert.equal(mock.prompts.length, 1);
+
+  // A new proposal prompts again; Apply applies it and leaves /forge.
   await tool({ action: 'propose', operations: cheaper });
-  await mock.endTurn({ ...mock.ctx, hasUI: false });
-  assert.equal(mock.dialogs.length, 1, 'headless sessions never apply');
-  assert.equal(readText(root, '.pi/system.yaml'), before);
-  mock.approve();
-  await command('use a cheaper model');
-  await tool({ action: 'propose', operations: cheaper });
+  mock.choose('Apply');
   await mock.endTurn();
   assert.equal(yaml.parse(readText(root, '.pi/system.yaml')).orchestrator.model, 'fixture/small');
-  assert.match(mock.notices.at(-1)[0], /\/reload/);
+  assert.match(mock.notices.at(-1)[0], /^Applied: [\s\S]*\.pi\/system\.yaml[\s\S]*\/reload/);
   assert.deepEqual(mock.pi.getActiveTools(), ['read']);
   assert.deepEqual(readJson(root, '.pi/settings.json').defaultTools, ['read']);
+
+  // Discard drops the proposal and leaves /forge.
+  const applied = readText(root, '.pi/system.yaml');
+  await command('use the large model again');
+  await tool({ action: 'propose', operations: JSON.stringify([{ op: 'assign', name: 'lead', model: 'fixture/large' }]) });
+  mock.choose('Discard');
+  await mock.endTurn();
+  assert.equal(readText(root, '.pi/system.yaml'), applied);
+  assert.match(mock.notices.at(-1)[0], /Discarded/);
+  assert.deepEqual(mock.pi.getActiveTools(), ['read']);
+
+  // A session without a UI never applies, and leaves /forge.
+  const prompts = mock.prompts.length;
+  await command('use the large model again');
+  await tool({ action: 'propose', operations: JSON.stringify([{ op: 'assign', name: 'lead', model: 'fixture/large' }]) });
+  await mock.endTurn({ ...mock.ctx, hasUI: false });
+  assert.equal(mock.prompts.length, prompts, 'headless sessions never prompt');
+  assert.equal(readText(root, '.pi/system.yaml'), applied);
+  assert.deepEqual(mock.pi.getActiveTools(), ['read']);
 });
 
 test('a rejected oversized proposal cannot leave an undisplayed pending apply', async t => {
@@ -278,7 +310,7 @@ test('a rejected oversized proposal cannot leave an undisplayed pending apply', 
   mock.approve();
   await mock.endTurn();
   assert.equal(readText(root, '.pi/system.yaml'), before);
-  assert.deepEqual(mock.dialogs, [], 'nothing to confirm');
+  assert.deepEqual(mock.prompts, [], 'nothing to confirm');
 });
 
 test('CLI generate/change dry runs and noninteractive unapproved calls write nothing', t => {
@@ -329,11 +361,11 @@ test('fetch is maintenance-only, asks nothing, and never creates an applicable p
   await tool({ action: 'fetch', url: 'https://github.com/github/github-mcp-server', offset: 0 });
   assert.equal(fetched.length, 3, 'continuations reuse the retrieved document');
   const before = readText(root, '.pi/system.yaml');
-  const dialogs = mock.dialogs.length;
   await mock.endTurn();
+  assert.deepEqual(mock.prompts, [], 'fetching proposes nothing to confirm');
+  await command('exit');
   await assert.rejects(tool({ action: 'fetch', url: 'https://github.com/github/github-mcp-server' }), /Invoke \/forge/);
   assert.equal(readText(root, '.pi/system.yaml'), before);
-  assert.equal(mock.dialogs.length, dialogs, 'fetching proposes nothing to confirm');
 });
 
 test('discover checks named CLIs locally without registry approval', async t => {
