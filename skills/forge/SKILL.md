@@ -212,7 +212,8 @@ first; the user decides.
 - **Maintain** — every generated system pins the Forge package, which
   provides `/forge` and the agent runtime. Within `./run`, `/forge <request>`
   inspects, discovers and previews a structured model change; when the turn
-  ends, the human approves or declines the preview in a dialog. `/forge review`
+  ends, Forge prompts the human to discuss, apply or discard it, and plain
+  replies continue the conversation until then (`/forge exit` leaves). `/forge review`
   gives read-only recommendations, `/forge check` verifies the agent and
   `/forge status` summarizes it. Switch any agent's model with an `assign`
   operation (`{"op":"assign","name":"<agent>","model":"provider/id"}`). The
@@ -377,11 +378,14 @@ prior approvals cannot grant that authority.
    Offer suggestions (such as keeping caveats in one section) as options, not
    defaults. Ask the user to add, remove or change anything, and propose the
    document operations only after they agree.
-5. Summarize the model diff, generated file diff, capability diff and restart
-   requirement, then end your turn: Forge then shows the human the preview to
-   approve or decline. Propose at most one change per turn (a later proposal
-   replaces an earlier one). Do not claim success; the human sees whether it
-   was applied.
+5. Present the change in plain words: what changes in the model and in the
+   generated files, what agents gain or lose, and whether it takes a /reload
+   or a restart. Then end your turn: Forge prompts the human to discuss, apply
+   or discard it. Never say the change is applied, waiting or "nothing applied
+   yet", and don't tell them how to approve; the prompt does that. If they
+   choose to discuss, their replies come to you: revise and propose again.
+   Propose at most one change per turn (a later proposal replaces an earlier
+   one).
 
 ## Prompts describe roles, not tools
 
@@ -439,5 +443,5 @@ its preview lists those files under reconciliation. After an approved change the
 human runs /reload (Pi reloads by itself after a sync rebuild); a restart of
 ./run is needed only when the launcher or packages change. Rollback is git: restore the previous files and restart. Updates
 needing a new schema require a separate previewed model migration; never
-silently reverse later user edits. Declining a proposal, or a new /forge
-request, discards it.
+silently reverse later user edits. Discarding a proposal, /forge exit, or a
+new /forge request drops it.
