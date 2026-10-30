@@ -1,4 +1,4 @@
-<!-- forge:generated v1 sha256=7183f206b7ace8dea68f0d6dd64e2c49acd52d9340ec6bb6e87f210cec183560 -->
+<!-- forge:generated v1 sha256=a0ee3e68872aba501c3f243bb8c79b515865329f5aa85aa27fc596a79ecda278 -->
 # seo-agent-system
 
 SEO analysis + article drafting with specialist subagents
@@ -13,7 +13,26 @@ Agent Skills folder (`~/.agents/skills/`) do load, for the orchestrator.
 ```sh
 ./run             # interactive
 ./run -p "..."   # headless one-shot
+./run --workflow analyze-and-draft
 ```
+
+Named workflow runs accept `--input key=value` (repeatable), `--timeout 30m`
+(default 30m; units s, m or h), and `--allow-concurrent` to bypass the
+default per-workflow lock. They require Node.js, and run the workflow runner
+from the Forge package pinned in `.pi/settings.json`.
+Run interactive `./run` once to install project packages before the first
+named workflow; its installed Forge package validates system.yaml before Pi starts.
+Regenerate after changing declarations so derived files stay current.
+The final stdout line is JSON with workflow, runId, status, answer and
+an optional message. Exit codes: 0 success, 1 agent/tool failure,
+2 configuration/lock failure, 3 approval required, 4 timeout.
+When available, Forge starts a private systemd user scope and stops it on
+exit. The fallback is process-group termination plus stop requests for
+pi-subagents runs in this invocation's isolated temporary state. The result
+reports `cleanup: incomplete` and retains `stateDir` if cleanup is unconfirmed.
+Independently detached processes can survive the fallback cleanup.
+Approval is never granted unattended. Entry delegation and boundary
+instructions are model-directed, not a hard guarantee of execution.
 
 Authenticate inside `./run` with `/login`, or export
 `PI_API_KEY` / a provider key. See the policy section below for which

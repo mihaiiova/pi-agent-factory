@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSyn
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync as requireResult } from 'node:child_process';
 import { loadYaml } from '../yaml-loader.mjs';
 import { generateProject } from '../generate.mjs';
 import { changeModel } from '../changes.mjs';
@@ -503,4 +503,120 @@ test('change and rebuild preview missing gitignore safety entries', t => {
   applyChange(root, plan, true);
   assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), plan.writes['.gitignore']);
   assert.ok(!rebuildPlan(root).preview.files.some(f => f.path === '.gitignore'));
+});
+
+test('check-agent saves a timestamped capability report without a model call', t => {
+  const root = project(t);
+  const out = execFileSync(process.execPath, [forge, 'check-agent', root], { encoding: 'utf8' });
+  const report = JSON.parse(out);
+  assert.ok(!Number.isNaN(Date.parse(report.timestamp)));
+  assert.ok(report.capabilities.some(c => c.agent === 'lead' && c.name === 'read' && c.status === 'verified now'));
+  assert.equal(JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8')).timestamp, report.timestamp);
+});
+
+test('check-agent loads an explicitly configured extension without a model call', t => {
+  const root = project(t);
+  const changed = { ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'fixture_tool'] } };
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(changed));
+  const settings = readJson(root, '.pi/settings.json');
+  settings.extensions = ['./fixture.mjs'];
+  writeFileSync(join(root, '.pi/settings.json'), JSON.stringify(settings));
+  writeFileSync(join(root, '.pi/fixture.mjs'), `export default pi => pi.registerTool({name:'fixture_tool',label:'Fixture',description:'Fixture',parameters:{type:'object',properties:{}},execute:async()=>({content:[]})});`);
+  // Forge writes this for background specialists; it is configuration, not code.
+  mkdirSync(join(root, '.forge/pi-home/extensions/subagent'), { recursive: true });
+  writeFileSync(join(root, '.forge/pi-home/extensions/subagent/config.json'), '{"forceTopLevelAsync":true}');
+  const result = requireResult(process.execPath, [forge, 'check-agent', root], { encoding: 'utf8' });
+  const report = JSON.parse(result.stdout);
+  assert.ok(report.capabilities.some(c => c.name === 'fixture_tool' && c.status === 'verified now'));
+});
+
+test('check-agent never loads disabled auto-discovered extensions', t => {
+  const root = project(t);
+  mkdirSync(join(root, '.pi/extensions'), { recursive: true });
+  const marker = join(root, 'executed');
+  writeFileSync(join(root, '.pi/extensions/disabled.js'), `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'executed'); export default () => {};`);
+  const settings = readJson(root, '.pi/settings.json');
+  settings.extensions = ['-./extensions/disabled.js'];
+  writeFileSync(join(root, '.pi/settings.json'), JSON.stringify(settings));
+  const result = requireResult(process.execPath, [forge, 'check-agent', root], { encoding: 'utf8' });
+  assert.match(JSON.parse(result.stdout).extensionDiagnostic, /Cannot safely verify/);
+  assert.equal(existsSync(marker), false);
+});
+
+test('check-agent attributes MCP servers to the orchestrator only when it has mcp', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const root = project(t);
+  const servers = { integrations: { mcp: [{ name: 'docs', config: { url: 'https://example.invalid/mcp' } }] } };
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, ...servers }));
+  assert.equal(checkAgent(root).capabilities.find(c => c.name === 'mcp:docs').agent, 'project');
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, ...servers, orchestrator: { ...model.orchestrator, tools: ['read', 'mcp'] } }));
+  assert.equal(checkAgent(root).capabilities.find(c => c.name === 'mcp:docs').agent, 'lead');
+});
+
+test('check-agent reports missing packages without installing them', t => {
+  const root = project(t);
+  rmSync(join(root, '.forge/pi-home/extensions'), { recursive: true, force: true });
+  const settings = readJson(root, '.pi/settings.json');
+  settings.packages = ['npm:forge-nonexistent-package-for-test@1.0.0'];
+  writeFileSync(join(root, '.pi/settings.json'), JSON.stringify(settings));
+  const result = requireResult(process.execPath, [forge, 'check-agent', root], { encoding: 'utf8' });
+  const report = JSON.parse(result.stdout);
+  assert.deepEqual(report.unresolvedPackages, ['npm:forge-nonexistent-package-for-test@1.0.0']);
+  assert.equal(existsSync(join(root, '.pi/npm')), false);
+});
+
+test('/forge check saves and displays capability evidence', async t => {
+  const root = project(t);
+  const a = adapter();
+  a.pi.getAllTools = () => [{ name: 'read' }];
+  const command = registerMaintenance(a.pi, a.Type, root);
+  await command('check', a.ctx);
+  const report = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8'));
+  assert.ok(report.capabilities.some(c => c.name === 'read' && c.status === 'verified now'));
+  assert.match(a.notices.at(-1)[0], /verified now/);
+});
+
+test('/forge status reports the last capability check and build version', async t => {
+  const root = project(t);
+  const a = adapter();
+  a.pi.getAllTools = () => [{ name: 'read' }];
+  const command = registerMaintenance(a.pi, a.Type, root, { updates: { fetch: async () => { throw new Error('offline'); } } });
+  await command('check', a.ctx);
+  const report = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8'));
+  assert.equal(report.versions.build, pkg.version);
+  assert.equal(report.versions.tooling, pkg.version);
+  await command('status', a.ctx);
+  assert.match(a.notices.at(-1)[0], /Last capability check:/);
+});
+
+test('/forge check does not claim unknown capabilities are verified', async t => {
+  const root = project(t);
+  const doc = { ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'unknown_tool'] } };
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify(doc));
+  const a = adapter();
+  const command = registerMaintenance(a.pi, a.Type, root);
+  await command('check', a.ctx);
+  assert.match(a.notices.at(-1)[0], /not verifiable/);
+  assert.doesNotMatch(a.notices.at(-1)[0], /All checks passed|every agent starts with what it needs/);
+});
+
+test('/forge check names the live extension provider', async t => {
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'web_search'] } }));
+  const a = adapter();
+  a.pi.getAllTools = () => [{ name: 'read' }, { name: 'web_search', sourceInfo: { source: 'npm:web-package@1.0.0' } }];
+  await registerMaintenance(a.pi, a.Type, root)('check', a.ctx);
+  const report = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8'));
+  assert.equal(report.capabilities.find(c => c.name === 'web_search').provider, 'npm:web-package@1.0.0');
+});
+
+test('/forge check reports a missing orchestrator extension from the live registry', async t => {
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, orchestrator: { ...model.orchestrator, tools: ['read', 'missing_tool'] } }));
+  const a = adapter();
+  a.pi.getAllTools = () => [{ name: 'read' }];
+  await registerMaintenance(a.pi, a.Type, root)('check', a.ctx);
+  const report = JSON.parse(readFileSync(join(root, '.forge/check.json'), 'utf8'));
+  assert.equal(report.ok, false);
+  assert.ok(report.capabilities.some(c => c.agent === 'lead' && c.name === 'missing_tool' && c.status === 'missing'));
 });

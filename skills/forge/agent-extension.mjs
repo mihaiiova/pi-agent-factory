@@ -16,6 +16,7 @@ import { memoryPrompt, updateMemory, failedTools, MEMORY_FILE } from './memory.m
 import { registerPermissions } from './permissions-extension.mjs';
 import { capabilitySection } from './agent-context.mjs';
 import { mcpApprovals } from './mcp-gen.mjs';
+import { blockWorkflowApproval } from './workflow-approval.mjs';
 import { leadTools } from './asking.mjs';
 
 /** Pi's MCP tools: each server's, and the resource tools that reach every server. */
@@ -58,7 +59,10 @@ function registerMcpBoundary(pi, root) {
     const rule = approvals.find((a) => a.test(event.toolName));
     if (!rule) return undefined;
     const call = `${rule.server}: ${event.toolName.slice(event.toolName.indexOf('__', 5) + 2)}`;
-    if (!ctx?.hasUI) return { block: true, reason: `${call} needs the user's approval for each call, which this session can't ask for. Report the exact call you need instead.` };
+    if (!ctx?.hasUI) {
+      blockWorkflowApproval(call);
+      return { block: true, reason: `${call} needs the user's approval for each call, which this session can't ask for. Report the exact call you need instead.` };
+    }
     const input = JSON.stringify(event.input ?? {}, null, 2);
     if (await ctx.ui.confirm(`Allow this MCP call? ${call}`, input.length > 4000 ? `${input.slice(0, 4000)}\n…` : input)) return undefined;
     return { block: true, reason: 'The user declined this call. Do not try it another way.' };

@@ -32,10 +32,10 @@ calls.
 
 ## Trigger
 
-Manual trigger (`trigger: { kind: manual }`): run interactively with `pi`, or headless with `pi -p "<prompt>"`.
+Manual trigger (`trigger: { kind: manual }`): run interactively, or unattended with `./run --workflow analyze-and-draft`.
 
 ## Outputs
 
 Write all produced artifacts under the declared outputs paths above.
 
-<!-- forge:generated v1 sha256=e119180681109ddbfb7439a4ace06e1645bd1c28028bcfe50fdf301b3435bdd0 -->
+<!-- forge:generated v1 sha256=61cd0a26aa5d0776bcf2faf9e68f6722b06c22407f272062a940d7040500ead0 -->

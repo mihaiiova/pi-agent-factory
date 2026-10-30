@@ -5,21 +5,30 @@ against [the product direction](product-direction.md). Issues live in
 GitHub under epic [#24](https://github.com/mihaiiova/pi-forge/issues/24), indexed
 at the end. Each one is scoped for a single implementation session.
 
-## Status (2026-10-29)
+## Status (2026-10-30)
 
 - **Shipped:** #25 and #41 in v0.19.0; #27 (the rename and `/forge`) and #28
-  (Pi's built-in MCP) in v0.20.0. The repository is now `mihaiiova/pi-forge`.
+  (Pi's built-in MCP) in v0.20.0; #34 (`./run --workflow`, the headless
+  invocation contract) and #32 (`/forge check` and `check-agent`) in v0.21.0.
+  The repository is `mihaiiova/pi-forge`.
 - **Versioning:** Forge stays below 1.0 for now; #27 planned 1.0.0, and that was
   deferred. Pre-1.0 releases may break projects, which are regenerated.
-- **Next, for a first MVP agent** exposed to other agents as an MCP server
-  outside Forge: #34 (headless invocation contract), then #32
-  (`/forge check` of effective capabilities). #33 only for a coding agent;
-  #29 and #30 when an agent needs packages.
-- **Known limitations:** a personal Forge install from a local checkout loads
-  next to a project's pin, so commands appear twice inside generated
-  projects (install from the git tag instead). `pi mcp list` in a project's
-  isolated home ignores the project until `/trust` is run once inside `./run`;
-  `/mcp` inside `./run` works without it.
+- **Next:** build the first MVP agent with Forge and expose it to other agents
+  as an MCP server (outside Forge) through `./run --workflow`. Then, as that
+  agent needs them: #35 (run index), #33 (a coding agent's `AGENTS.md`), #29
+  and #30 (packages).
+- **Known limitations:**
+  - A personal Forge install from a local checkout loads next to a project's
+    pin, so commands appear twice inside generated projects (install from the
+    git tag instead).
+  - Plain `pi mcp list` in a project's isolated home ignores the project until
+    trust is saved; `/mcp` inside `./run` works, and `check-agent --connect`
+    saves the trust itself.
+  - `./run --workflow` needs one interactive `./run` first, which installs the
+    pinned Forge package that holds the runner.
+  - Without a systemd user scope (always on macOS), a timeout stops the process
+    group and the invocation's pi-subagents runs; a process that detaches on
+    its own can survive.
 
 ## 1. Audit: what exists today
 
@@ -139,14 +148,14 @@ regenerated.
 - [#30](https://github.com/mihaiiova/pi-forge/issues/30) `package-inspection`: inspect an exact package version before proposing it.
 - [#31](https://github.com/mihaiiova/pi-forge/issues/31) `package-resource-selection`: load only the package resources an agent
   needs. Blocked by `package-inspection`.
-- [#32](https://github.com/mihaiiova/pi-forge/issues/32) `capability-check`: verify effective runtime capabilities (`/forge check`).
+- [#32](https://github.com/mihaiiova/pi-forge/issues/32) `capability-check`: verify effective runtime capabilities (`/forge check`). Shipped in v0.21.0.
   *After* `mcp-builtin`.
 - [#33](https://github.com/mihaiiova/pi-forge/issues/33) `coding-harness-context`: opt in to the repository's own `AGENTS.md` (use
   case C).
 
 ### Milestone 2: Execution and triggers
 
-- [#34](https://github.com/mihaiiova/pi-forge/issues/34) `workflow-invocation`: a headless workflow invocation contract.
+- [#34](https://github.com/mihaiiova/pi-forge/issues/34) `workflow-invocation`: a headless workflow invocation contract. Shipped in v0.21.0.
 - [#35](https://github.com/mihaiiova/pi-forge/issues/35) `run-index`: record each headless run. Blocked by `workflow-invocation`.
 - [#37](https://github.com/mihaiiova/pi-forge/issues/37) `workflow-schedule`: declare a schedule and install it with `agents-cron`.
   Blocked by `workflow-invocation` and `run-index`.
@@ -234,6 +243,6 @@ workflow-invocation ─▶ run-index ─▶ acceptance-scenarios ─▶ scenario
 | [#39](https://github.com/mihaiiova/pi-forge/issues/39) | M3 | Run acceptance scenarios safely and report diagnostics |
 | [#40](https://github.com/mihaiiova/pi-forge/issues/40) | M4 | Use run evidence in /forge status and in revisions |
 
-Done: [#25](https://github.com/mihaiiova/pi-forge/issues/25) and [#41](https://github.com/mihaiiova/pi-forge/issues/41) (v0.19.0), [#27](https://github.com/mihaiiova/pi-forge/issues/27) and [#28](https://github.com/mihaiiova/pi-forge/issues/28) (v0.20.0). Closed without implementation: [#26](https://github.com/mihaiiova/pi-forge/issues/26) (migration bridge, not needed) and [#36](https://github.com/mihaiiova/pi-forge/issues/36) (scheduler, decided).
+Done: [#25](https://github.com/mihaiiova/pi-forge/issues/25) and [#41](https://github.com/mihaiiova/pi-forge/issues/41) (v0.19.0), [#27](https://github.com/mihaiiova/pi-forge/issues/27) and [#28](https://github.com/mihaiiova/pi-forge/issues/28) (v0.20.0), [#32](https://github.com/mihaiiova/pi-forge/issues/32) and [#34](https://github.com/mihaiiova/pi-forge/issues/34) (v0.21.0). Closed without implementation: [#26](https://github.com/mihaiiova/pi-forge/issues/26) (migration bridge, not needed) and [#36](https://github.com/mihaiiova/pi-forge/issues/36) (scheduler, decided).
 
-**Next:** [#34](https://github.com/mihaiiova/pi-forge/issues/34), then [#32](https://github.com/mihaiiova/pi-forge/issues/32) (see Status). [#30](https://github.com/mihaiiova/pi-forge/issues/30) is unblocked and can run in parallel.
+**Next:** build the first MVP agent with Forge (see Status), then [#35](https://github.com/mihaiiova/pi-forge/issues/35), [#33](https://github.com/mihaiiova/pi-forge/issues/33), [#29](https://github.com/mihaiiova/pi-forge/issues/29) and [#30](https://github.com/mihaiiova/pi-forge/issues/30) as the agent needs them.

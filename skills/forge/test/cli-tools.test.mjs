@@ -284,3 +284,36 @@ test('/forge permissions adds, lists, reviews and removes commands', async (t) =
   assert.equal(doc.integrations.cli.some((c) => c.name === 'create-issue'), false);
   assert.equal(doc.orchestrator.tools.includes('cli:create-issue'), false);
 });
+
+test('workflow approvals report the exact blocked command without queuing a request', async t => {
+  const root = project(t);
+  const approval = join(root, 'approval');
+  const previous = process.env.FORGE_APPROVAL_FILE;
+  const child = process.env.PI_SUBAGENT_CHILD;
+  delete process.env.PI_SUBAGENT_CHILD;
+  process.env.FORGE_APPROVAL_FILE = approval;
+  t.after(() => { if (previous === undefined) delete process.env.FORGE_APPROVAL_FILE; else process.env.FORGE_APPROVAL_FILE = previous; if (child !== undefined) process.env.PI_SUBAGENT_CHILD = child; });
+  const mock = adapter({ hasUI: false });
+  registerPermissions(mock.pi, mock.Type, root);
+  await mock.tools.cli_echo_title.execute('id', { title: 'x' }, undefined, undefined, mock.ctx);
+  assert.match(readFileSync(approval, 'utf8'), /echo-title/);
+  await mock.tools.request_permission.execute('id', { name: 'make-file', command: 'touch', args: ['{path}'], values: { path: 'made' }, reason: 'Need a marker file' }, undefined, undefined, mock.ctx);
+  assert.match(readFileSync(approval, 'utf8'), /make-file.*touch/);
+  assert.deepEqual(readRequests(root), []);
+});
+
+test('capability check reports CLI presence without executing commands', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const root = project(t);
+  const report = checkAgent(root);
+  assert.ok(report.capabilities.some(c => c.name === 'cli:echo-title' && c.status === 'verified now' && /authentication.*not checked/i.test(c.fix)));
+  assert.ok(report.capabilities.some(c => c.name === 'cli:unused' && c.status === 'verified now'));
+});
+
+test('capability check finds an absolute executable path', async t => {
+  const { checkAgent } = await import('../check.mjs');
+  const absolute = { ...model, orchestrator: { ...model.orchestrator, tools: ['cli:echo-title'] }, integrations: { cli: [{ name: 'echo-title', command: process.execPath, args: [] }] }, agents: [] };
+  const root = project(t, absolute);
+  const report = checkAgent(root);
+  assert.ok(report.capabilities.some(c => c.name === 'cli:echo-title' && c.status === 'verified now'));
+});

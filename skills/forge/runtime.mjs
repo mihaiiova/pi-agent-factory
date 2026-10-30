@@ -9,7 +9,7 @@
  * (`~/.agents/skills/`, project `.agents/skills/`) by design. No filesystem or CLI work happens here; `generate.mjs` composes
  * the launcher content into the generated `run` file.
  */
-import { runtimePackages } from "./deps.mjs";
+import { runtimePackages, FORGE_SOURCE } from "./deps.mjs";
 import { declaredPackages } from "./skill-sources.mjs";
 
 /** Project-relative isolated Pi config directory. */
@@ -63,7 +63,16 @@ const PROMPT_FILES = [
   "done",
 ];
 const LAUNCH = 'pi --approve --no-context-files ${prompts[@]+"${prompts[@]}"} "$@"';
-export function launcherScript(names = []) {
+/** The headless workflow runner, from the Forge package Pi installs into the project. */
+const RUNNER = `.pi/git/${FORGE_SOURCE.slice("git:".length)}/skills/forge/workflow-runner.mjs`;
+const NO_RUNNER = '{"workflow":null,"runId":null,"status":"configuration_error","answer":"","message":"The Forge package is not installed in this project yet. Run ./run once, then retry."}';
+/** Runs a named workflow with the installed runner, or reports that it is missing (exit 2). */
+const runWorkflow = (indent, args) => [
+  `${indent}if [[ ! -f "$ROOT/${RUNNER}" ]]; then echo '${NO_RUNNER}'; exit 2; fi`,
+  `${indent}exec node "$ROOT/${RUNNER}" ${args}`,
+];
+export function launcherScript(names = [], workflows = [], lead = '') {
+  const manifest = Buffer.from(JSON.stringify(workflows.map(w => ({ ...w, lead })))).toString('base64');
   return [
     "#!/usr/bin/env bash",
     "# Hermetic runtime launcher for a generated Pi agent system.",
@@ -83,6 +92,9 @@ export function launcherScript(names = []) {
     'cd "$ROOT"',
     "",
     'if [[ ! -f ".pi/system.yaml" ]]; then',
+    '  if [[ "${1:-}" == "--workflow" ]]; then',
+    ...runWorkflow('    ', `'${manifest}' -- "$@"`),
+    '  fi',
     '  echo "run: .pi/system.yaml not found in $ROOT" >&2',
     "  exit 1",
     "fi",
@@ -96,6 +108,9 @@ export function launcherScript(names = []) {
     // Pi's agent-dir does not suppress ancestor instruction discovery.
     // APPEND_SYSTEM.md still supplies the project's operational instructions.
     ...PROMPT_FILES,
+    'if [[ "${1:-}" == "--workflow" ]]; then',
+    ...runWorkflow('  ', `'${manifest}' "\${prompts[@]}" -- "$@"`),
+    'fi',
     `exec ${LAUNCH}`,
     "",
   ].join("\n");
@@ -114,7 +129,7 @@ export function buildRuntimePlan(model, opts = {}) {
   return {
     agentDir: AGENT_DIR,
     packages,
-    launcherScript: launcherScript(envNames(model)),
+    launcherScript: launcherScript(envNames(model), model.workflows ?? [], model.orchestrator?.name ?? ''),
     warnings: [
       "credentials are not inherited from the host; start ./run and use /login, or export PI_API_KEY / a provider key",
       "the launcher disables AGENTS.md/CLAUDE.md discovery with --no-context-files; declare project instructions in system.yaml / APPEND_SYSTEM.md. Inherited subagent project context is an explicit opt-in.",
