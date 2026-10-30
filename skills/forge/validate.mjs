@@ -12,6 +12,7 @@ import { THINKING_LEVELS, isModelRef } from "./models.mjs";
 import { PACKAGE_SOURCE_RE, skillSourceKind } from "./skill-sources.mjs";
 import { isMisplacedPlaceholder } from "./cli-tools.mjs";
 import { backgroundAskingIssues } from "./asking.mjs";
+import { validContextPath, orchestratorTools } from './project-context.mjs';
 
 const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -19,7 +20,7 @@ const TOP_LEVEL_KEYS = [
   "schema", "name", "description", "orchestrator",
   "agents", "skills", "integrations", "workflows", "documents", "policies", "packages",
 ];
-const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "thinking", "tools"];
+const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "thinking", "tools", "projectContext"];
 const AGENT_KEYS = [
   "name", "description", "tools", "model", "thinking", "skills", "prompt",
   "inheritProjectContext", "inheritSkills",
@@ -205,6 +206,11 @@ export function validateSystem(doc, { tolerate = [] } = {}) {
       }
       if (doc.orchestrator.tools !== undefined) {
         checkStringArray(doc.orchestrator.tools, "document.orchestrator.tools", errors);
+      }
+      if (doc.orchestrator.projectContext !== undefined) {
+        const paths = doc.orchestrator.projectContext;
+        if (!Array.isArray(paths)) errors.push('document.orchestrator.projectContext must be an array of project-relative file paths');
+        else paths.forEach((path, i) => { if (!validContextPath(path)) errors.push(`document.orchestrator.projectContext[${i}] must be a project-relative file path without traversal`); });
       }
     }
   }
@@ -555,7 +561,7 @@ export function validateSystem(doc, { tolerate = [] } = {}) {
   // ── documents ───────────────────────────────────────────────
   collectNames(doc.documents, "document.documents", errors);
   if (Array.isArray(doc.documents)) {
-    const toolsOf = (name) => (name === orchestratorName ? doc.orchestrator?.tools
+    const toolsOf = (name) => (name === orchestratorName ? orchestratorTools(doc.orchestrator)
       : doc.agents?.find((a) => isPlainObject(a) && a.name === name)?.tools);
     doc.documents.forEach((d, i) => {
       if (!isPlainObject(d)) return;

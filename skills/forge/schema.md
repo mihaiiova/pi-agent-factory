@@ -56,7 +56,19 @@ level go into its own `.pi/agents/<name>.md` frontmatter. No routing overrides
 ### `orchestrator`
 
 Allowed keys: `name` (required string), `description`, `prompt`, `model`
-(required `provider/id`), `thinking`, `tools` (array of strings).
+(required `provider/id`), `thinking`, `tools` (array of strings), and
+`projectContext` (array of project-relative file paths).
+
+`projectContext: [AGENTS.md]` explicitly appends those files, in order, after
+`.pi/APPEND_SYSTEM.md` and `.pi/CAPABILITIES.md` on interactive and workflow
+launches. Missing files or files resolving outside the project are skipped and
+reported by the launch check. Absolute paths, `..`, and backslashes are
+rejected. This opts in to file contents as instructions sent to the model:
+never list credential files; untrusted project files may contain prompt injection. A non-empty list automatically enables
+Pi's `edit` tool even when omitted from `tools`. **That tool can edit other
+files accessible to the process**, not just listed instruction files. An
+absent or empty list does not add a tool. This path check is not a filesystem
+sandbox or a defense against concurrent hostile filesystem changes.
 
 The orchestrator always has memory: notes it keeps across sessions in
 `.pi/MEMORY.md`, one `- ` entry per line, up to 4000 characters. They load
@@ -284,8 +296,8 @@ The skill name `forge` is reserved (it is the Forge skill) and cannot be declare
 `skills[]`. Operational model edits use the structured operations of
 `/forge`, which reuse this validator and reject dangling references.
 The Forge version is the pinned package in `.pi/settings.json` (recorded in
-`.forge/build.json`), never part of this operational model. An explicit empty orchestrator `tools: []`
-remains an empty allowlist; omitted tools use Pi defaults.
+`.forge/build.json`), never part of this operational model. An explicit empty orchestrator `tools: []` remains empty unless non-empty
+`projectContext` enables `edit`; omitted tools use Pi defaults.
 
 ## 3. Schema versions
 

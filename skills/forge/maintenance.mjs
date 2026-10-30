@@ -189,7 +189,7 @@ export function planChange(root, operations) {
       executionSurface: {
         addedPackages: afterCapabilities.packages.filter(p => !beforeCapabilities.packages.includes(p)),
         changedMcp: (model.integrations?.mcp ?? []).filter(m => JSON.stringify(oldModel.integrations?.mcp?.find(o => o.name === m.name)) !== JSON.stringify(m)),
-        toolsAndPoliciesChanged: JSON.stringify([oldModel.orchestrator?.tools, oldModel.agents, oldModel.policies]) !== JSON.stringify([model.orchestrator?.tools, model.agents, model.policies]),
+        toolsAndPoliciesChanged: JSON.stringify([oldModel.orchestrator?.tools, oldModel.orchestrator?.projectContext, oldModel.agents, oldModel.policies]) !== JSON.stringify([model.orchestrator?.tools, model.orchestrator?.projectContext, model.agents, model.policies]),
         warning: 'Packages and stdio MCP servers execute code at next launch. MCP URLs expose data to their operators. Approval authorizes this declared execution surface.',
       },
       modelDiff: diffLines(oldText, text),
