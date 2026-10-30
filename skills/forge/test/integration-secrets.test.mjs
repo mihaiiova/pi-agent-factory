@@ -15,6 +15,23 @@ test('secrets paths reject traversal, absolute and git control paths', () => {
   for (const p of ['../key', '/tmp/key', 'a/../key', 'a\\key', '.git/config', 'a/*', '.env', '.forge/permission-requests.json', '.forge', '.pi', 'data', 'private/.gitignore', 'private/.gitignore/keys']) assert.equal(validSecretsPath(p), false, p);
   assert.equal(validSecretsPath('private/keys.env'), true);
 });
+test('reserved secret paths and git control components reject case-insensitive aliases', () => {
+  const reserved = [
+    '.forge', '.pi', 'data', '.env', '.env.example', 'run', 'README.md',
+    'data/knowledge/.gitkeep', '.forge/build.json', '.forge/capabilities.json',
+    '.forge/check.json', '.forge/permission-requests.json', '.pi/system.yaml',
+    '.forge/pi-home/auth.json', '.git/config', 'private/.gitignore/keys',
+  ];
+  for (const path of reserved) {
+    assert.equal(validSecretsPath(path), false, path);
+    assert.equal(validSecretsPath(path.toUpperCase()), false, path.toUpperCase());
+    const mixed = [...path].map((character, i) => i % 2 ? character.toUpperCase() : character.toLowerCase()).join('');
+    assert.equal(validSecretsPath(mixed), false, mixed);
+  }
+  assert.equal(validSecretsPath('.FoRgE/Service-Keys.env'), true);
+  assert.equal(validSecretsPath('Private/Keys.env'), true);
+});
+
 test('secrets files are exclusive, private, explicitly selected and reject symlinks', t => {
   const root = mkdtempSync(join(tmpdir(), 'forge-secrets-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));

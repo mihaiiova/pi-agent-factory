@@ -6,10 +6,11 @@ import { safePath } from './maintenance-store.mjs';
 
 // A restricted spelling permits literal, anchored gitignore entries without glob escaping.
 export function validSecretsPath(path) {
-  return typeof path === 'string' && /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(path)
-    && path.split('/').every(part => part !== '.' && part !== '..' && part !== '.git' && part !== '.gitignore')
-    && !['.forge', '.pi', 'data', '.env', '.env.example', 'run', 'README.md', 'data/knowledge/.gitkeep', '.forge/build.json', '.forge/capabilities.json', '.forge/check.json', '.forge/permission-requests.json'].includes(path)
-    && !path.startsWith('.pi/') && !path.startsWith('.forge/pi-home/');
+  if (typeof path !== 'string' || !/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(path)) return false;
+  const normalized = path.toLowerCase();
+  return normalized.split('/').every(part => part !== '.' && part !== '..' && part !== '.git' && part !== '.gitignore')
+    && !['.forge', '.pi', 'data', '.env', '.env.example', 'run', 'readme.md', 'data/knowledge/.gitkeep', '.forge/build.json', '.forge/capabilities.json', '.forge/check.json', '.forge/permission-requests.json'].includes(normalized)
+    && !normalized.startsWith('.pi/') && !normalized.startsWith('.forge/pi-home/');
 }
 
 export const REQUIRED_IGNORES = ['.env', '.forge/', '.pi/state.json', '.pi/sessions/', '.pi/git/', '.pi/npm/'];
