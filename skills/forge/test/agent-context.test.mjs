@@ -55,13 +55,13 @@ test("each agent's section lists exactly what it has", () => {
   assert.match(lead, /\*\*Specialists\*\* \(delegate with the subagent tool\):\n  - `seo` — Finds search opportunities\n  - `quiet`/);
   assert.match(lead, /ask with request_permission/);
   const seo = capabilitySection(model, 'seo');
-  assert.match(seo, /`openseo` \(only get_report; tools named `mcp__openseo__<tool>`\) — SEO data\n/, 'approval shown only for the selected tool');
+  assert.match(seo, /`openseo` \(only `mcp__openseo__get_report`\) — SEO data\n/, 'approval shown only for the selected tool');
   assert.doesNotMatch(seo, /github-issues|cli_create_issue|Specialists/);
   assert.match(seo, /- \*\*Other tools:\*\* web_search/);
   assert.match(seo, /- \*\*Skills:\*\*\n  - `audit` — Audit a site/);
   assert.match(seo, /report what is missing to the orchestrator/);
   const several = { ...model, agents: [{ name: 'seo', model: 'fixture/small', tools: ['mcp:openseo/get_report', 'mcp:openseo/run_audit', 'mcp:github-issues/list_issues'] }] };
-  assert.match(capabilitySection(several, 'seo'), /  - `openseo` \(only get_report, run_audit; tools named `mcp__openseo__<tool>`\) — SEO data; asks the user before: run_audit\n  - `github-issues` \(only list_issues; tools named `mcp__github_issues__<tool>`\)\n/, 'one line per server');
+  assert.match(capabilitySection(several, 'seo'), /  - `openseo` \(only `mcp__openseo__get_report`, `mcp__openseo__run_audit`\) — SEO data; asks the user before: run_audit\n  - `github-issues` \(only `mcp__github_issues__list_issues`\)\n/, 'one line per server');
   assert.match(capabilitySection({ ...several, agents: [{ ...several.agents[0], tools: ['mcp:openseo/get_report', 'mcp:openseo'] }] }, 'seo'), /`openseo` \(all tools; /);
   assert.match(capabilitySection(model, 'quiet'), /- \*\*Built-in tools:\*\* none\n\nIf a task/);
   assert.equal(capabilitySection(model, 'nobody'), '');

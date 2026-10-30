@@ -50,7 +50,7 @@ test("generated sections route calls that ask to the orchestrator", () => {
   assert.deepEqual(askingReach(fixed, leadTools(fixed)).cli, ['file-issue']);
   assert.match(capabilitySection(fixed, 'lead'), /Only you can make the calls above that ask the user: specialists run in the background.*\(save it to a project file and give the specialist its path\)\./);
   const researcher = capabilitySection(fixed, 'researcher');
-  assert.match(researcher, /`seo` \(only get_report\)/);
+  assert.match(researcher, /`seo` \(only `mcp__seo__get_report`\)/);
   assert.match(researcher, /The orchestrator makes the calls that ask the user, which you can't: seo research_keywords, get_serp\. When you need one, report the exact call/);
   assert.doesNotMatch(capabilitySection(fixed, 'writer'), /calls that ask/, 'only agents that use that server');
   const noWrite = { ...fixed, orchestrator: { ...fixed.orchestrator, tools: ['subagent', 'mcp'] } };

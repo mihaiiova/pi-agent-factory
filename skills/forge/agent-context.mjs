@@ -70,7 +70,8 @@ export function capabilitySection(model, name) {
       const about = describeServer(m.s, m.only);
       // Without includeTools the lead's server is deferred: tool_search loads its tools.
       const search = isLead && m.s?.config?.includeTools === undefined ? ", found with tool_search" : "";
-      lines.push(`  - \`${m.name}\` (${m.scope}; tools named \`${mcpToolName(m.name, "")}<tool>\`${search})${about ? ` — ${about}` : ""}`);
+      const scope = m.only ? `only ${m.only.map((name) => `\`${mcpToolName(m.name, name)}\``).join(", ")}` : `all tools; tools named \`${mcpToolName(m.name, "")}<tool>\``;
+      lines.push(`  - \`${m.name}\` (${scope}${search})${about ? ` — ${about}` : ""}`);
     }
   }
 
