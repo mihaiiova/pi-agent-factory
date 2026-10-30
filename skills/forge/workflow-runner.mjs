@@ -44,7 +44,23 @@ if (invalid || !workflow || !existsSync('.pi/system.yaml') || !Number.isSafeInte
 // version, tolerating what Forge itself tolerates. Nothing runs if it fails.
 try {
   const { parsedModel } = await import('./changes.mjs');
-  parsedModel(readFileSync('.pi/system.yaml', 'utf8'));
+  const { unmetSetup } = await import('./setup.mjs');
+  const { integrationSecrets, secretFileProblem } = await import('./integration-secrets.mjs');
+  const model = parsedModel(readFileSync('.pi/system.yaml', 'utf8'));
+  const missing = unmetSetup(process.cwd(), model);
+  const secrets = [...new Set(integrationSecrets(model))].flatMap(path => {
+    const problem = secretFileProblem(process.cwd(), path);
+    if (!problem) return [];
+    const fix = problem === 'missing' ? 'run forge generate <project-dir> to create the file' : 'fix the file safety or git-ignore issue, then run forge check-agent <project-dir> or /forge check';
+    return [`Integration secretsFile ${path}: ${problem}; fix: ${fix}`];
+  });
+  if (missing.length || secrets.length) {
+    const problems = [];
+    if (missing.length) problems.push('Unmet setup: ' + missing.map(step => `${step.owner}: ${step.description}; fix: ${step.install}${step.needsRoot ? ' (run manually; needs root)' : ''}`).join('; '));
+    if (secrets.length) problems.push('Secrets: ' + secrets.join('; '));
+    console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: problems.join('; ') }));
+    process.exit(2);
+  }
 } catch (error) {
   console.log(JSON.stringify({ workflow: name, runId, status: 'configuration_error', answer, message: 'Invalid system.yaml, or the installed Forge package is incomplete (run ./run once): ' + error.message }));
   process.exit(2);

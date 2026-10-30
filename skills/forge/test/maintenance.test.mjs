@@ -684,3 +684,65 @@ test('/forge check reports a missing orchestrator extension from the live regist
   assert.equal(report.ok, false);
   assert.ok(report.capabilities.some(c => c.agent === 'lead' && c.name === 'missing_tool' && c.status === 'missing'));
 });
+
+test('/forge env set selects a declared integration secrets file without exposing the value', async t => {
+  const root = project(t);
+  const mock = adapter();
+  mock.ctx.ui.input = async () => 'integration-secret-test-value';
+  mock.forge = registerMaintenance(mock.pi, mock.Type, root);
+  await mock.forge('add an integration', mock.ctx);
+  await mock.tools.forge_plan.execute('id', { action: 'propose', operations: json([
+    { op: 'add', target: 'env', name: 'SERVICE_KEY', value: { secret: true } },
+    { op: 'add', target: 'mcp', name: 'service', value: { config: { command: 'example' }, secretsFile: '.forge/service.env' } },
+  ]) }, undefined, undefined, mock.ctx);
+  mock.approve();
+  await mock.endTurn();
+  await mock.forge('env set SERVICE_KEY --file .forge/service.env', mock.ctx);
+  assert.equal(readText(root, '.forge/service.env'), 'SERVICE_KEY=integration-secret-test-value\n');
+  assert.ok(!JSON.stringify([mock.messages, mock.notices]).includes('integration-secret-test-value'));
+  await mock.forge('env set SERVICE_KEY --file .forge/other.env', mock.ctx);
+  assert.ok(mock.notices.some(([message, level]) => level === 'error' && message.includes('not a declared integration secretsFile')));
+});
+
+test('setup commands appear in the approval execution surface', t => {
+  const root = project(t);
+  const setup = [{ description: 'Prepare', check: { command: 'check-it' }, install: 'install-it' }];
+  const next = { ...model, setup, integrations: { cli: [{ name: 'helper', command: 'helper', setup }] } };
+  const surface = planChange(root, [{ op: 'replace', model: next }]).preview.executionSurface;
+  assert.deepEqual(surface.setupCommands.map(s => s.owner), ['project', 'CLI helper']);
+  assert.match(surface.warning, /checks execute shell commands automatically/);
+});
+
+test('interactive setup requires confirmation and lists commands', async t => {
+  const root = project(t);
+  writeFileSync(join(root, '.pi/system.yaml'), yaml.stringify({ ...model, setup: [{ description: 'prepare', check: { file: 'ready' }, install: 'touch ready' }] }));
+  const mock = adapter(); mock.forge = registerMaintenance(mock.pi, mock.Type, root);
+  await mock.forge('setup', { ...mock.ctx, hasUI: false });
+  assert.equal(existsSync(join(root, 'ready')), false);
+  await mock.forge('setup', mock.ctx);
+  assert.match(mock.dialogs[0].body, /touch ready/);
+  assert.equal(existsSync(join(root, 'ready')), false);
+  mock.approve(); await mock.forge('setup', mock.ctx);
+  assert.equal(existsSync(join(root, 'ready')), true);
+});
+
+test('proposal approval displays new setup check and install commands', async t => {
+  const root = project(t);
+  const mock = adapter(); mock.forge = registerMaintenance(mock.pi, mock.Type, root);
+  await mock.forge('add setup', mock.ctx);
+  const next = { ...model, setup: [{ description: 'prepare', check: { command: 'check-dep' }, install: 'install-dep' }] };
+  await mock.tools.forge_plan.execute('id', { action: 'propose', operations: json([{ op: 'replace', model: next }]) }, undefined, undefined, mock.ctx);
+  await mock.endTurn();
+  assert.match(mock.prompts[0].title, /check-dep/);
+  assert.match(mock.prompts[0].title, /install-dep/);
+});
+
+test('unsafe existing integration secret aborts approved change before writes', t => {
+  const root = project(t);
+  mkdirSync(join(root, 'private'));
+  writeFileSync(join(root, 'private/keys.env'), 'KEY=private-test-value\n', { mode: 0o644 });
+  const before = snapshot(root);
+  const plan = planChange(root, [{ op: 'add', target: 'mcp', name: 'demo', value: { config: { command: 'demo' }, secretsFile: 'private/keys.env' } }]);
+  assert.throws(() => applyChange(root, plan, true), /permissions must exclude/);
+  assert.deepEqual(snapshot(root), before);
+});

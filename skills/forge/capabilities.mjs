@@ -19,6 +19,7 @@ import { needsBackground } from "./generate.mjs";
 import { DEFAULT_MAX_CHARS, MEMORY_FILE } from "./memory.mjs";
 import { cliAgents, cliEntries, cliRef } from "./cli-tools.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
+import { orchestratorTools } from './project-context.mjs';
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -51,7 +52,7 @@ export function effectiveCapabilities(model, opts = {}) {
     schema: model?.schema,
     name: model?.name,
     orchestratorModel: orchestrator.model,
-    orchestratorTools: sortUnique(orchestrator.tools),
+    orchestratorTools: sortUnique(orchestratorTools(orchestrator)),
     // The memory tool is extension-provided and writes only this file.
     orchestratorMemory: { tool: "memory", file: MEMORY_FILE, maxChars: DEFAULT_MAX_CHARS },
     agents: (Array.isArray(model.agents) ? model.agents : []).map((agent) => ({

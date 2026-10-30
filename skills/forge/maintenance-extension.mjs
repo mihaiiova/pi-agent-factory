@@ -16,6 +16,7 @@ import { parsedModel } from './changes.mjs';
 import { launchCheck } from './launch-check.mjs';
 import { checkAgent } from './check.mjs';
 import { registerAgent } from './agent-extension.mjs';
+import { unmetSetup, installSetup } from './setup.mjs';
 
 export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, updates = {} } = {}) {
   let armed = false;
@@ -138,6 +139,7 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     const reach = [
       ...(surface.addedPackages?.length ? [`adds packages: ${surface.addedPackages.join(', ')}`] : []),
       ...(surface.changedMcp?.length ? [`changes MCP servers: ${surface.changedMcp.join(', ')}`] : []),
+      ...(surface.setupCommands?.length ? surface.setupCommands.map(s => `adds setup for ${s.owner}: check ${JSON.stringify(s.check)}; install ${s.install}${s.needsRoot ? ' (manual; needs root)' : ''}`) : []),
       ...(surface.toolsAndPoliciesChanged ? ['changes what agents can run or reach'] : []),
     ];
     return [
@@ -277,19 +279,19 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
     tell(ctx, `Updated to Forge ${proposal.tag}${applied.changed?.length ? `; rebuilt ${applied.changed.join(', ')}` : ''}. Restart ./run to load it.`);
   };
   /** Values are typed by the human and written straight to .env; they never pass through the model, a tool result or the session. */
-  const env = async (ctx, name) => {
+  const env = async (ctx, name, destination = '.env') => {
     const model = parsedModel(readText(root, '.pi/system.yaml'));
     if (!name) {
       const list = envStatus(root, model);
-      tell(ctx, list.length ? list.map(e => `${e.name}${e.secret ? ' (secret)' : ''}: ${e.set}`).join('\n') + '\nSet a value with /forge env set NAME, then restart ./run.' : 'No integrations.env variables are declared.');
+      tell(ctx, list.length ? list.map(e => `${e.name}${e.secret ? ' (secret)' : ''}: ${e.set}`).join('\n') + '\nSet a value with /forge env set NAME, or use --file PATH for a declared integration secretsFile; then restart ./run.' : 'No integrations.env variables are declared.');
       return;
     }
     if (!ctx.hasUI) throw new Error('Interactive input is required to set a value');
     await ctx.waitForIdle();
-    const value = await ctx.ui.input(`Value for ${name} (stored in .env, gitignored; visible while typing)`, '');
-    if (value === undefined || value === '') { tell(ctx, 'Cancelled; .env unchanged.'); return; }
-    setEnvValue(root, model, name, value);
-    tell(ctx, `${name} saved to .env. Restart ./run to load it.`);
+    const value = await ctx.ui.input(`Value for ${name} (stored in ${destination}; visible while typing)`, '');
+    if (value === undefined || value === '') { tell(ctx, 'Cancelled; file unchanged.'); return; }
+    setEnvValue(root, model, name, value, destination);
+    tell(ctx, `${name} saved to ${destination}. Restart ./run if needed.`);
   };
   /** A conversational revision (or a read-only review): the model may only inspect and propose. */
   const revise = async (ctx, request) => {
@@ -318,10 +320,21 @@ export function registerMaintenance(pi, Type, root, { fetcher = fetchDocument, u
         return;
       }
       if (request === 'check') return check(ctx);
+      if (request === 'setup') {
+        if (!ctx.hasUI) throw new Error('Setup needs interactive confirmation; no installs run');
+        const model = parsedModel(readText(root, '.pi/system.yaml'));
+        const steps = unmetSetup(root, model);
+        if (!steps.length) { tell(ctx, 'No unmet setup steps.'); return; }
+        const listing = steps.map(s => `${s.owner}: ${s.description}\n${s.install}${s.needsRoot ? ' (run manually; needs root)' : ''}`).join('\n\n');
+        if (!await ctx.ui.confirm('Run unmet setup installs?', listing)) { tell(ctx, 'Cancelled; no installs run.'); return; }
+        const results = installSetup(root, model, steps);
+        tell(ctx, results.map(s => `${s.description}: ${s.status}${s.needsRoot ? `; run manually: ${s.install}` : ''}`).join('\n'));
+        return;
+      }
       if (request === 'status') return await status(ctx);
       if (request === 'sync') return await sync(ctx);
-      const envArgs = request.match(/^env(?:\s+set\s+(\S+))?$/);
-      if (envArgs) return await env(ctx, envArgs[1]);
+      const envArgs = request.match(/^env(?:\s+set\s+(\S+)(?:\s+--file\s+(\S+))?)?$/);
+      if (envArgs) return await env(ctx, envArgs[1], envArgs[2]);
       const permissionArgs = request.match(/^permissions?(?:\s+(.*))?$/);
       if (permissionArgs) return await permissions(permissionArgs[1] ?? '', ctx);
       await revise(ctx, request);

@@ -10,6 +10,7 @@ function walk(value, path, visit) {
 }
 function isCredential(value, path) {
   if (typeof value !== 'string' || !value.length || reference.test(value)) return false;
+  if (path.length === 4 && path[0] === 'integrations' && ['mcp', 'cli'].includes(path[1]) && Number.isInteger(path[2]) && path[3] === 'secretsFile') return false;
   const plain = value.replace(/\$\{[A-Z_][A-Z0-9_]*\}/g, '');
   const embedded = /https?:\/\/[^/@\s:]+(?::[^/@\s]+)?@|[?&](?:token|api_key|key|secret|password)=[^&#\s]+/i.test(plain);
   return sensitive.test(String(path.at(-1))) || path.at(-2) === 'env' || embedded;

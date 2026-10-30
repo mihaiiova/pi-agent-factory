@@ -12,26 +12,28 @@ import { THINKING_LEVELS, isModelRef } from "./models.mjs";
 import { PACKAGE_SOURCE_RE, skillSourceKind } from "./skill-sources.mjs";
 import { isMisplacedPlaceholder } from "./cli-tools.mjs";
 import { backgroundAskingIssues } from "./asking.mjs";
+import { validContextPath, orchestratorTools } from './project-context.mjs';
+import { validSecretsPath } from './integration-secrets.mjs';
 
 const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const TOP_LEVEL_KEYS = [
   "schema", "name", "description", "orchestrator",
-  "agents", "skills", "integrations", "workflows", "documents", "policies", "packages",
+  "agents", "skills", "integrations", "workflows", "documents", "policies", "packages", "setup",
 ];
-const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "thinking", "tools"];
+const ORCHESTRATOR_KEYS = ["name", "description", "prompt", "model", "thinking", "tools", "projectContext"];
 const AGENT_KEYS = [
   "name", "description", "tools", "model", "thinking", "skills", "prompt",
   "inheritProjectContext", "inheritSkills",
 ];
 const SKILL_KEYS = ["name", "description", "body", "source"];
 const INTEGRATIONS_KEYS = ["mcp", "env", "cli"];
-const CLI_KEYS = ["name", "description", "command", "args", "approve"];
+const CLI_KEYS = ["name", "description", "command", "args", "approve", "setup", "secretsFile"];
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // ./run loads declared names from .env; these would let a .env value change
 // what code runs or where traffic goes, so they cannot be declared.
 const RESERVED_ENV_RE = /^(PATH|HOME|SHELL|USER|IFS|ENV|BASH_ENV|PS4|PROMPT_COMMAND|TMPDIR|NODE_OPTIONS|NODE_PATH|NODE_EXTRA_CA_CERTS|NODE_TLS_REJECT_UNAUTHORIZED|SSL_CERT_FILE|SSL_CERT_DIR|LD_[A-Z0-9_]*|DYLD_[A-Z0-9_]*|PI_CODING_AGENT_DIR|PI_PACKAGE_DIR|PI_OFFLINE|PI_NO_UPDATE_CHECK|GIT_SSH_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG_[A-Z0-9_]*|PYTHONPATH|PYTHONSTARTUP|PERL5OPT|RUBYOPT|HTTPS?_PROXY|ALL_PROXY|NO_PROXY|FORGE_[A-Z0-9_]*)$/i;
-const MCP_KEYS = ["name", "config"];
+const MCP_KEYS = ["name", "config", "setup", "secretsFile"];
 const ENV_KEYS = ["name", "secret"];
 const WORKFLOW_KEYS = [
   "name", "description", "skill", "trigger", "entry", "agents",
@@ -64,6 +66,21 @@ function checkUnknownKeys(obj, allowed, path, errors) {
       );
     }
   }
+}
+
+function checkSetup(value, path, errors) {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) { errors.push(`${path} must be an array`); return; }
+  value.forEach((step, i) => {
+    const p = `${path}[${i}]`;
+    if (!isPlainObject(step)) { errors.push(`${p} must be an object`); return; }
+    checkUnknownKeys(step, ['description', 'check', 'install', 'platforms', 'needsRoot'], p, errors);
+    checkNonEmptyString(step.description, `${p}.description`, errors);
+    checkNonEmptyString(step.install, `${p}.install`, errors);
+    if (!isPlainObject(step.check) || Object.keys(step.check).length !== 1 || !['command', 'file'].includes(Object.keys(step.check)[0]) || !isNonEmptyString(Object.values(step.check)[0])) errors.push(`${p}.check must contain exactly one non-empty command or file`);
+    if (step.platforms !== undefined && (!Array.isArray(step.platforms) || step.platforms.some(v => !['linux', 'darwin'].includes(v)))) errors.push(`${p}.platforms must contain only linux or darwin`);
+    if (step.needsRoot !== undefined && typeof step.needsRoot !== 'boolean') errors.push(`${p}.needsRoot must be a boolean`);
+  });
 }
 
 function checkNonEmptyString(value, path, errors) {
@@ -156,6 +173,7 @@ export function validateSystem(doc, { tolerate = [] } = {}) {
 
   // ── Top-level ────────────────────────────────────────────────
   checkUnknownKeys(doc, TOP_LEVEL_KEYS, "document", errors);
+  checkSetup(doc.setup, 'document.setup', errors);
 
   if (doc.schema !== 1) {
     errors.push(
@@ -205,6 +223,11 @@ export function validateSystem(doc, { tolerate = [] } = {}) {
       }
       if (doc.orchestrator.tools !== undefined) {
         checkStringArray(doc.orchestrator.tools, "document.orchestrator.tools", errors);
+      }
+      if (doc.orchestrator.projectContext !== undefined) {
+        const paths = doc.orchestrator.projectContext;
+        if (!Array.isArray(paths)) errors.push('document.orchestrator.projectContext must be an array of project-relative file paths');
+        else paths.forEach((path, i) => { if (!validContextPath(path)) errors.push(`document.orchestrator.projectContext[${i}] must be a project-relative file path without traversal`); });
       }
     }
   }
@@ -288,6 +311,8 @@ export function validateSystem(doc, { tolerate = [] } = {}) {
               return;
             }
             checkUnknownKeys(mcp, MCP_KEYS, `document.integrations.mcp[${i}]`, errors);
+            checkSetup(mcp.setup, `document.integrations.mcp[${i}].setup`, errors);
+            if (mcp.secretsFile !== undefined && !validSecretsPath(mcp.secretsFile)) errors.push(`document.integrations.mcp[${i}].secretsFile must be a safe project-relative file path`);
             checkNonEmptyString(mcp.name, `document.integrations.mcp[${i}].name`, errors);
             checkKebabCase(mcp.name, `document.integrations.mcp[${i}].name`, errors);
             if (isNonEmptyString(mcp.name)) {
@@ -343,6 +368,8 @@ export function validateSystem(doc, { tolerate = [] } = {}) {
             const path = `document.integrations.cli[${i}]`;
             if (!isPlainObject(cli)) { errors.push(`${path} must be an object`); return; }
             checkUnknownKeys(cli, CLI_KEYS, path, errors);
+            checkSetup(cli.setup, `${path}.setup`, errors);
+            if (cli.secretsFile !== undefined && !validSecretsPath(cli.secretsFile)) errors.push(`${path}.secretsFile must be a safe project-relative file path`);
             checkNonEmptyString(cli.name, `${path}.name`, errors);
             checkKebabCase(cli.name, `${path}.name`, errors);
             if (isNonEmptyString(cli.name)) {
@@ -555,7 +582,7 @@ export function validateSystem(doc, { tolerate = [] } = {}) {
   // ── documents ───────────────────────────────────────────────
   collectNames(doc.documents, "document.documents", errors);
   if (Array.isArray(doc.documents)) {
-    const toolsOf = (name) => (name === orchestratorName ? doc.orchestrator?.tools
+    const toolsOf = (name) => (name === orchestratorName ? orchestratorTools(doc.orchestrator)
       : doc.agents?.find((a) => isPlainObject(a) && a.name === name)?.tools);
     doc.documents.forEach((d, i) => {
       if (!isPlainObject(d)) return;

@@ -1,4 +1,4 @@
-<!-- forge:generated v1 sha256=fbef20c32078af08a3ff75159e84457dd3c04086bcc8f1700914faa1ab3de594 -->
+<!-- forge:generated v1 sha256=f56e27529399531e6448c2991f9aac117194d6701f4d2fca06a74d3ce5a9ba74 -->
 # seo-agent-system
 
 SEO analysis + article drafting with specialist subagents
@@ -34,8 +34,13 @@ Independently detached processes can survive the fallback cleanup.
 Approval is never granted unattended. Entry delegation and boundary
 instructions are model-directed, not a hard guarantee of execution.
 
+On the first interactive run, Pi may start npm package installation processes
+that continue briefly after Pi exits and may keep output pipes open. Callers
+should allow extra time before assuming the output stream has closed.
+
 Authenticate inside `./run` with `/login`, or export
-`PI_API_KEY` / a provider key. See the policy section below for which
+the provider-specific key (for example `DEEPSEEK_API_KEY`). See the policy
+section below for which
 capabilities are enforced vs advisory.
 
 ## Maintain

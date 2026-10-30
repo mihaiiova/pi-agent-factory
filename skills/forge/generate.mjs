@@ -23,6 +23,8 @@ import { workflowSkill } from "./workflow-skill.mjs";
 import { mcpFromIntegrations } from "./mcp-gen.mjs";
 import { enforcedAgentTools, advisoryText } from "./policy.mjs";
 import { buildRuntimePlan } from "./runtime.mjs";
+import { orchestratorTools } from './project-context.mjs';
+import { integrationSecrets, gitignoreSafety, REQUIRED_IGNORES } from './integration-secrets.mjs';
 import { cliRef, cliToolName } from "./cli-tools.mjs";
 import { capabilitySection } from "./agent-context.mjs";
 import { documentInstructions } from "./documents.mjs";
@@ -35,7 +37,6 @@ const MARKER_PLAIN_RE = /^# forge:generated v1 sha256=([0-9a-f]{64})$/;
 const MARKER_HTML_TRAILING_RE = /\n<!-- forge:generated v1 sha256=([0-9a-f]{64}) -->[ \t]*\n?$/;
 
 // .pi/git/ and .pi/npm/ hold the packages Pi installs for the project.
-const REQUIRED_IGNORES = [".env", ".forge/", ".pi/state.json", ".pi/sessions/", ".pi/git/", ".pi/npm/"];
 const GITIGNORE_BODY = [
   "data/*",
   "!data/knowledge/",
@@ -164,10 +165,11 @@ function authoredFile(path, style, desiredBody, existing) {
   return { path, content: existing, desired: desiredBody, action: "conflict" };
 }
 
-function gitignoreFile(existing) {
-  if (existing === undefined) return authoredFile(".gitignore", "plain", GITIGNORE_BODY, existing);
-  const lines = new Set(existing.split(/\r?\n/).map((line) => line.replace(/\/$/, "")));
-  const missing = REQUIRED_IGNORES.filter((entry) => !lines.has(entry.replace(/\/$/, "")));
+function gitignoreFile(existing, model) {
+  const secretIgnores = [...new Set(integrationSecrets(model))].map(path => `/${path}`);
+  if (existing === undefined) return authoredFile(".gitignore", "plain", GITIGNORE_BODY + (secretIgnores.length ? `\n# Integration secret files\n${secretIgnores.join('\n')}\n` : ''), existing);
+  const { missing, conflict } = gitignoreSafety(existing, model);
+  if (conflict) return { path: '.gitignore', content: existing, desired: existing, action: 'conflict', reason: conflict };
   if (!missing.length) return { path: ".gitignore", content: existing, action: "none" };
   const separator = existing && !existing.endsWith("\n") ? "\n" : "";
   return { path: ".gitignore", content: `${existing}${separator}# forge: required ignores\n${missing.join("\n")}\n`, action: "write" };
@@ -215,7 +217,7 @@ function buildSettings(model, existingText, packages) {
   // registers only the ones it lists; defaultTools bounds Pi's own tools.
   // MCP reach is set by exposure and the launcher, not by defaultTools.
   const tools = Array.isArray(orchestrator.tools)
-    ? orchestrator.tools.filter((tool) => !cliRef(tool) && tool !== "mcp" && !tool.startsWith("mcp:"))
+    ? orchestratorTools(orchestrator).filter((tool) => !cliRef(tool) && tool !== "mcp" && !tool.startsWith("mcp:"))
     : undefined;
   if (tools !== undefined) out.defaultTools = tools;
   else delete out.defaultTools;
@@ -360,10 +362,23 @@ function readmeBody(model) {
       "instructions are model-directed, not a hard guarantee of execution.",
       "",
     ] : []),
-    "Authenticate inside `./run` with `/login`, or export",
-    "`PI_API_KEY` / a provider key. See the policy section below for which",
-    "capabilities are enforced vs advisory.",
+    "On the first interactive run, Pi may start npm package installation processes",
+    "that continue briefly after Pi exits and may keep output pipes open. Callers",
+    "should allow extra time before assuming the output stream has closed.",
     "",
+    "Authenticate inside `./run` with `/login`, or export",
+    "the provider-specific key (for example `DEEPSEEK_API_KEY`). See the policy",
+    "section below for which",
+    "capabilities are enforced vs advisory.",
+    ...(model.integrations?.env?.length ? ["For integration variables, see `.env.example` and use `/forge env set NAME`."] : []),
+    ...[...new Set(integrationSecrets(model))].map(path => `For integration secrets in \`${path}\`, use \`/forge env set NAME --file ${path}\`; declare NAME in integrations.env first. Forge does not load this file; configure the integration to read it.`),
+    "",
+    ...((model.setup?.length || model.integrations?.mcp?.some(x => x.setup?.length) || model.integrations?.cli?.some(x => x.setup?.length)) ? [
+      '## Setup', '',
+      'Checks run commands with your user permissions; use only trusted project declarations.',
+      'Run `/forge setup` to review and approve unmet installs (root steps are manual).', '',
+      ...[...(model.setup ?? []), ...(model.integrations?.mcp ?? []).flatMap(x => x.setup ?? []), ...(model.integrations?.cli ?? []).flatMap(x => x.setup ?? [])].map(s => `- ${s.description}: \`${s.install}\``), '',
+    ] : []),
     '## Maintain',
     '',
     '`/forge <request>` proposes a change; when the turn ends, Forge asks you',
@@ -515,7 +530,7 @@ export function generateProject(model, existingFiles = {}, opts = {}) {
     authoredFile(".pi/APPEND_SYSTEM.md", "html", prompt, existing[".pi/APPEND_SYSTEM.md"]),
     derivedFile(".pi/CAPABILITIES.md", capabilitySection(model, model.orchestrator?.name), existing[".pi/CAPABILITIES.md"]),
     authoredFile("README.md", "html", readmeBody(model), existing["README.md"]),
-    gitignoreFile(existing[".gitignore"]),
+    gitignoreFile(existing[".gitignore"], model),
     authoredFile(".env.example", "plain", envBody(model), existing[".env.example"]),
     sentinelFile("data/knowledge/.gitkeep", existing["data/knowledge/.gitkeep"]),
     { ...derivedFile("run", plan.launcherScript, existing["run"]), executable: true },

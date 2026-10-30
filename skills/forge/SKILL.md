@@ -141,6 +141,12 @@ first; the user decides.
   be given the `vercel-labs/skills@find-skills` skill plus `bash`; tell it, as
   a document rule or in its prompt, to install project-locally (`--agent pi`,
   no `-g`).
+- **Project instructions:** for a coding agent in a repository with an
+  `AGENTS.md`, recommend `orchestrator.projectContext: [AGENTS.md]` so it can
+  use the repository's own conventions. Explain that instruction content can
+  be untrusted, and a non-empty list automatically enables the orchestrator's
+  `edit` tool for all accessible files, not only the listed files. Ask before
+  granting that broader editing access.
 - **Prompts:** write each agent's prompt about its role — goals, judgement,
   rules, boundaries — and keep it short. Never list its tools, MCP servers,
   commands or skills, or explain how to call them: the Forge renders a
@@ -308,7 +314,10 @@ prior approvals cannot grant that authority.
      names from the project's gitignored .env. Never ask the user to paste a
      secret into the conversation: tell them to run
      /forge env set GITHUB_PAT after applying, which stores it
-     without the model seeing it. /forge env lists what is set.
+     without the model seeing it. /forge env lists what is set. For a declared
+     integration `secretsFile`, use `/forge env set GITHUB_PAT --file <path>`;
+     the user explicitly selects the file, and the integration must be configured
+     to read it. Never ask the user to put a secret value in the conversation.
    - MCP scope is the user's choice; ask rather than assume. Generated
      systems use Pi's built-in MCP. In the config, "includeTools" lists the
      tools agents may use (omit it for all; the orchestrator then finds them

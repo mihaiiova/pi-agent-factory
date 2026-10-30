@@ -10,6 +10,7 @@ import { skillSourceKind } from './skill-sources.mjs';
 import { enforcedAgentTools } from './policy.mjs';
 import { mcpToolName } from './mcp-gen.mjs';
 import { leadTools } from './asking.mjs';
+import { orchestratorTools } from './project-context.mjs';
 
 const BUILTIN = new Set(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
 
@@ -72,7 +73,7 @@ export function checkAgent(root, options = {}) {
   const commands = new Map(cliEntries(model).map(c => [c.name, c]));
   const skills = new Map((model.skills ?? []).map(s => [s.name, s]));
   for (const agent of [model.orchestrator, ...(model.agents ?? [])]) {
-    const tools = agent === model.orchestrator ? (agent.tools ?? cliEntries(model).map(c => `cli:${c.name}`)) : enforcedAgentTools(agent.name, model.policies, agent.tools);
+    const tools = agent === model.orchestrator ? (orchestratorTools(agent) ?? cliEntries(model).map(c => `cli:${c.name}`)) : enforcedAgentTools(agent.name, model.policies, agent.tools);
     for (const name of tools ?? []) {
       if (name.startsWith('mcp:')) {
         const [server, tool] = name.slice(4).split('/');
@@ -89,7 +90,7 @@ export function checkAgent(root, options = {}) {
         const provider = checked?.providers[name] ?? options.toolProviders?.[name];
         const present = provider || options.registeredTools?.includes(name);
         const known = registeredTools !== undefined;
-        capabilities.push({ agent: agent.name, name, provider: provider || 'extension', status: present ? 'verified now' : known ? 'missing' : 'not verifiable', fix: present ? 'None.' : 'Install or enable the providing extension; use /forge check to verify the live session.' });
+        capabilities.push({ agent: agent.name, name, provider: provider || 'extension', status: present ? 'verified now' : known ? 'missing' : 'not verifiable', fix: present ? 'None.' : checked?.missing?.length ? 'Run ./run once to install the project\'s packages, then check again.' : known ? 'Install or enable the providing extension and restart ./run if packages are not installed.' : 'Install or enable the providing extension; use /forge check to verify the live session.' });
       }
     }
     for (const name of agent === model.orchestrator ? [...skills.keys()] : (agent.skills ?? [])) {
