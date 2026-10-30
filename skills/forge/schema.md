@@ -65,7 +65,7 @@ launches. Missing files or files resolving outside the project are skipped and
 reported by the launch check. Absolute paths, `..`, and backslashes are
 rejected. This opts in to file contents as instructions sent to the model:
 never list credential files; untrusted project files may contain prompt injection. A non-empty list automatically enables
-Pi's `edit` tool even when omitted from `tools`. **That tool can edit other
+Pi's `edit` tool even when not listed in `tools`. **That tool can edit other
 files accessible to the process**, not just listed instruction files. An
 absent or empty list does not add a tool. This path check is not a filesystem
 sandbox or a defense against concurrent hostile filesystem changes.
